@@ -1,0 +1,269 @@
+.tfr-overlay-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(12, 9, 20, 0.8);
+  backdrop-filter: blur(2px);
+  z-index: 4000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.tfr-overlay-panel {
+  width: min(960px, 92vw);
+  max-height: 92vh;
+  background: #1c1430;
+  border: 1px solid rgba(145, 71, 255, 0.35);
+  border-radius: 14px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.45);
+  display: flex;
+  flex-direction: column;
+  color: #f7f7f8;
+}
+
+.tfr-overlay-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 22px;
+  border-bottom: 1px solid rgba(145, 71, 255, 0.2);
+}
+
+.tfr-overlay-title {
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.tfr-overlay-close {
+  background: transparent;
+  border: none;
+  color: #adadb8;
+  font-size: 24px;
+  cursor: pointer;
+  line-height: 1;
+  padding: 4px;
+  border-radius: 6px;
+}
+
+.tfr-overlay-close:hover {
+  background: rgba(145, 71, 255, 0.2);
+  color: #ffffff;
+}
+
+.tfr-overlay-content {
+  padding: 18px 22px 24px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+
+.tfr-manager-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.tfr-manager-controls input[type="search"] {
+  flex: 1 1 260px;
+  padding: 8px 11px;
+  border-radius: 8px;
+  border: 1px solid rgba(145, 71, 255, 0.35);
+  background: #120c22;
+  color: #f7f7f8;
+}
+
+.tfr-manager-controls select {
+  padding: 8px 11px;
+  border-radius: 8px;
+  border: 1px solid rgba(145, 71, 255, 0.35);
+  background: #120c22;
+  color: #f7f7f8;
+}
+
+.tfr-categories-section,
+.tfr-favorites-section {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.tfr-categories-header,
+.tfr-favorites-header {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.tfr-category-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.tfr-category-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #201536;
+  border-radius: 10px;
+  padding: 12px 14px;
+  gap: 12px;
+}
+
+.tfr-category-item-title {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.tfr-category-meta {
+  font-size: 12px;
+  color: #adadb8;
+}
+
+.tfr-category-item-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.tfr-button {
+  background: #9147ff;
+  border: none;
+  color: #ffffff;
+  border-radius: 8px;
+  padding: 8px 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 0.1s ease, background 0.15s ease;
+}
+
+.tfr-button:hover {
+  background: #a970ff;
+}
+
+.tfr-button:active {
+  transform: scale(0.98);
+}
+
+.tfr-button--ghost {
+  background: transparent;
+  border: 1px solid rgba(145, 71, 255, 0.4);
+  color: #bf94ff;
+}
+
+.tfr-button--ghost:hover {
+  background: rgba(145, 71, 255, 0.18);
+}
+
+.tfr-button--danger {
+  background: #ff4f69;
+}
+
+.tfr-button--danger:hover {
+  background: #ff6e86;
+}
+
+.tfr-button[disabled] {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.tfr-favorites-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.tfr-favorite-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  background: #22163a;
+  border-radius: 12px;
+  padding: 12px 14px;
+}
+
+.tfr-favorite-row__info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1 1 260px;
+}
+
+.tfr-favorite-row__avatar {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.tfr-favorite-row__text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.tfr-favorite-row__name {
+  font-weight: 600;
+  font-size: 15px;
+}
+
+.tfr-favorite-row__meta {
+  font-size: 12px;
+  color: #adadb8;
+}
+
+.tfr-favorite-row__meta.is-live {
+  color: #bf94ff;
+}
+
+.tfr-favorite-row__categories {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  flex: 1 1 260px;
+}
+
+.tfr-category-pill {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(145, 71, 255, 0.35);
+  background: rgba(145, 71, 255, 0.12);
+  font-size: 12px;
+}
+
+.tfr-category-pill input {
+  accent-color: #9147ff;
+}
+
+.tfr-favorite-row__actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.tfr-empty-state {
+  font-size: 13px;
+  color: #adadb8;
+  font-style: italic;
+}
+
+.tfr-category-select {
+  min-width: 180px;
+  max-width: 220px;
+  width: 100%;
+  padding: 8px 11px;
+  border-radius: 8px;
+  border: 1px solid rgba(145, 71, 255, 0.35);
+  background: #120c22;
+  color: #f7f7f8;
+}
+
+.tfr-category-select:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+

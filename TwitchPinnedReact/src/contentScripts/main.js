@@ -1,0 +1,1676 @@
+(() => {
+  const STORAGE_KEY = 'tfr_state';
+  const DEFAULT_STATE = {
+    favorites: {},
+    categories: [],
+    preferences: {
+      sortMode: 'viewersDesc',
+      uncategorizedCollapsed: false
+    }
+  };
+
+  const TWITCH_GRAPHQL_ENDPOINT = 'https://gql.twitch.tv/gql';
+  const TWITCH_CLIENT_ID = 'kimne78kx3ncx6brgo4mv6wki5h1ko';
+  const STREAM_STATE_QUERY = `
+    query ($login: String!) {
+      user(login: $login) {
+        id
+        login
+        displayName
+        profileImageURL(width: 70)
+        stream {
+          id
+          type
+          viewersCount
+          game {
+            name
+          }
+          title
+        }
+      }
+    }
+  `;
+  const DEFAULT_AVATAR = 'https://static-cdn.jtvnw.net/jtv_user_pictures/404_user_70x70.png';
+
+  const RESERVED_PATHS = new Set([
+    '', 'directory', 'p', 'jobs', 'downloads', 'friends', 'messages', 'settings',
+    'logout', 'signup', 'products', 'store', 'turbo', 'videos', 'search'
+  ]);
+
+  const CHANGE_KIND = { STATE: 'state', LIVE: 'live' };
+  const POLL_INTERVAL_MS = 60000;
+  const LOCATION_CHECK_INTERVAL = 500;
+
+  const deepCopy = (value) => (value ? JSON.parse(JSON.stringify(value)) : value);
+
+  const formatViewers = (count) => {
+    if (!count || Number.isNaN(count)) return '0';
+    if (count < 1000) return `${count}`;
+    if (count < 1000000) return `${(count / 1000).toFixed(1).replace(/\.0$/, '')}K`;
+    return `${(count / 1000000).toFixed(1).replace(/\.0$/, '')}M`;
+  };
+
+  const getChannelFromLocation = (locationLike = window.location) => {
+    const raw = (locationLike.pathname || '').split('/').filter(Boolean);
+    if (!raw.length) return null;
+    const candidate = raw[0].toLowerCase();
+    return RESERVED_PATHS.has(candidate) ? null : candidate;
+  };
+
+  const fetchStreamerLiveData = async (login) => {
+    if (!login) return null;
+    try {
+      const response = await fetch(TWITCH_GRAPHQL_ENDPOINT, {
+        method: 'POST',
+        mode: 'cors',
+        credentials: 'omit',
+        headers: {
+          'Client-ID': TWITCH_CLIENT_ID,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ query: STREAM_STATE_QUERY, variables: { login } })
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const payload = await response.json();
+      const data = Array.isArray(payload) ? payload[0]?.data : payload?.data;
+      const user = data?.user;
+      if (!user) {
+        return {
+          login,
+          displayName: login,
+          avatarUrl: DEFAULT_AVATAR,
+          isLive: false,
+          viewers: 0,
+          title: '',
+          game: ''
+        };
+      }
+      const stream = user.stream;
+      return {
+        login: user.login || login,
+        displayName: user.displayName || user.login || login,
+        avatarUrl: user.profileImageURL || DEFAULT_AVATAR,
+        isLive: Boolean(stream),
+        viewers: stream?.viewersCount || 0,
+        title: stream?.title || '',
+        game: stream?.game?.name || ''
+      };
+    } catch (error) {
+      console.error('[TFR] Failed to fetch live data', login, error);
+      return {
+        login,
+        displayName: login,
+        avatarUrl: DEFAULT_AVATAR,
+        isLive: false,
+        viewers: 0,
+        title: '',
+        game: ''
+      };
+    }
+  };
+
+  class EventEmitter {
+    constructor() {
+      this.listeners = new Set();
+    }
+    subscribe(callback) {
+      this.listeners.add(callback);
+      return () => this.listeners.delete(callback);
+    }
+    emit(payload) {
+      this.listeners.forEach((cb) => {
+        try {
+          cb(payload);
+        } catch (error) {
+          console.error('[TFR] Listener error', error);
+        }
+      });
+    }
+  }
+
+  class FavoritesStore {
+    constructor() {
+      this.state = deepCopy(DEFAULT_STATE);
+      this.liveData = {};
+      this.emitter = new EventEmitter();
+      this.pollTimer = null;
+      this.isRefreshing = false;
+
+      chrome.storage.onChanged.addListener((changes, area) => {
+        if (area !== 'local') return;
+        if (Object.prototype.hasOwnProperty.call(changes, STORAGE_KEY)) {
+          const nextValue = changes[STORAGE_KEY]?.newValue;
+          if (nextValue) {
+            this.state = deepCopy({ ...DEFAULT_STATE, ...nextValue });
+            this.ensureStateIntegrity();
+            this.emitter.emit({ kind: CHANGE_KIND.STATE, state: this.getSnapshot() });
+          }
+        }
+      });
+    }
+
+    async init() {
+      const stored = await chrome.storage.local.get(STORAGE_KEY);
+      if (stored && stored[STORAGE_KEY]) {
+        this.state = deepCopy({ ...DEFAULT_STATE, ...stored[STORAGE_KEY] });
+      } else {
+        const initialCategory = {
+          id: `cat_${Date.now()}`,
+          name: 'Favoris',
+          collapsed: false,
+          sortOrder: Date.now()
+        };
+        this.state.categories = [initialCategory];
+        await this.persistState();
+      }
+      this.ensureStateIntegrity();
+      this.emitter.emit({ kind: CHANGE_KIND.STATE, state: this.getSnapshot() });
+      await this.refreshLiveData();
+      this.startPolling();
+    }
+
+    ensureStateIntegrity() {
+      if (!Array.isArray(this.state.categories)) {
+        this.state.categories = [];
+      }
+      if (!this.state.preferences) {
+        this.state.preferences = { sortMode: 'viewersDesc', uncategorizedCollapsed: false };
+      }
+      if (!Object.prototype.hasOwnProperty.call(this.state.preferences, 'sortMode')) {
+        this.state.preferences.sortMode = 'viewersDesc';
+      }
+      if (!Object.prototype.hasOwnProperty.call(this.state.preferences, 'uncategorizedCollapsed')) {
+        this.state.preferences.uncategorizedCollapsed = false;
+      }
+      if (!this.state.categories.length) {
+        this.state.categories.push({
+          id: `cat_${Date.now()}`,
+          name: 'Favoris',
+          collapsed: false,
+          sortOrder: Date.now()
+        });
+      }
+      Object.entries(this.state.favorites).forEach(([login, fav]) => {
+        if (!fav) {
+          return;
+        }
+        if (Array.isArray(fav.categories)) {
+          fav.categories = fav.categories.map((id) => (typeof id === 'string' ? id : null)).filter(Boolean);
+          if (fav.categories.length > 1) {
+            fav.categories = [fav.categories[0]];
+          }
+          if (!fav.categories.length) {
+            delete fav.categories;
+          }
+        } else if (typeof fav.categories === 'string' && fav.categories) {
+          fav.categories = [fav.categories];
+        } else if (fav.categories != null) {
+          delete fav.categories;
+        }
+      });
+    }
+
+    startPolling() {
+      this.stopPolling();
+      this.pollTimer = setInterval(() => {
+        this.refreshLiveData();
+      }, POLL_INTERVAL_MS);
+    }
+
+    stopPolling() {
+      if (this.pollTimer) {
+        clearInterval(this.pollTimer);
+        this.pollTimer = null;
+      }
+    }
+
+    getSnapshot() {
+      return deepCopy(this.state);
+    }
+
+    getState() {
+      return this.state;
+    }
+
+    getLiveData() {
+      return { ...this.liveData };
+    }
+
+    subscribe(callback) {
+      return this.emitter.subscribe(callback);
+    }
+
+    async persistState() {
+      await chrome.storage.local.set({ [STORAGE_KEY]: this.state });
+    }
+
+    async updateState(mutator, emit = true) {
+      const draft = deepCopy(this.state);
+      mutator(draft);
+      this.state = draft;
+      this.ensureStateIntegrity();
+      await this.persistState();
+      if (emit) {
+        this.emitter.emit({ kind: CHANGE_KIND.STATE, state: this.getSnapshot() });
+      }
+    }
+
+    getCategoriesSorted() {
+      return [...this.state.categories].sort((a, b) => a.sortOrder - b.sortOrder);
+    }
+
+    async addFavorite(login) {
+      const normalized = login?.toLowerCase();
+      if (!normalized || this.state.favorites[normalized]) return;
+      const live = await fetchStreamerLiveData(normalized);
+      const favoriteEntry = {
+        login: normalized,
+        displayName: live?.displayName || normalized,
+        avatarUrl: live?.avatarUrl || DEFAULT_AVATAR,
+        categories: [],
+        addedAt: Date.now()
+      };
+      await this.updateState((draft) => {
+        draft.favorites[normalized] = favoriteEntry;
+      });
+      if (live) {
+        this.liveData[normalized] = live;
+        this.emitter.emit({ kind: CHANGE_KIND.LIVE, liveData: this.getLiveData() });
+      }
+    }
+
+    async removeFavorite(login) {
+      const normalized = login?.toLowerCase();
+      if (!normalized || !this.state.favorites[normalized]) return;
+      await this.updateState((draft) => {
+        delete draft.favorites[normalized];
+      });
+      delete this.liveData[normalized];
+      this.emitter.emit({ kind: CHANGE_KIND.LIVE, liveData: this.getLiveData() });
+    }
+
+    async setFavoriteCategory(login, categoryId) {
+      const normalized = login?.toLowerCase();
+      if (!normalized || !this.state.favorites[normalized]) {
+        return;
+      }
+      const target = categoryId ? String(categoryId) : null;
+      const currentFav = this.state.favorites[normalized];
+      const currentCategory = Array.isArray(currentFav?.categories) && currentFav.categories.length ? currentFav.categories[0] : null;
+      if ((currentCategory || null) === (target || null)) {
+        return;
+      }
+      await this.updateState((draft) => {
+        const fav = draft.favorites[normalized];
+        if (!fav) {
+          return;
+        }
+        if (target) {
+          fav.categories = [target];
+        } else if (fav.categories) {
+          delete fav.categories;
+        }
+      });
+    }
+
+    async clearFavoriteCategory(login) {
+      await this.setFavoriteCategory(login, null);
+    }
+
+    async toggleCategoryAssignment(login, categoryId, assign) {
+      if (assign) {
+        await this.setFavoriteCategory(login, categoryId);
+      } else {
+        await this.clearFavoriteCategory(login);
+      }
+    }
+
+    async createCategory(name) {
+      const trimmed = (name || '').trim();
+      if (!trimmed) return null;
+      const id = `cat_${Date.now()}`;
+      await this.updateState((draft) => {
+        draft.categories.push({
+          id,
+          name: trimmed,
+          collapsed: false,
+          sortOrder: Date.now()
+        });
+      });
+      return id;
+    }
+
+    async renameCategory(categoryId, nextName) {
+      const trimmed = (nextName || '').trim();
+      if (!trimmed) return;
+      await this.updateState((draft) => {
+        const category = draft.categories.find((cat) => cat.id === categoryId);
+        if (category) category.name = trimmed;
+      });
+    }
+
+    async removeCategory(categoryId) {
+      await this.updateState((draft) => {
+        draft.categories = draft.categories.filter((cat) => cat.id !== categoryId);
+        Object.values(draft.favorites).forEach((fav) => {
+          if (Array.isArray(fav.categories)) {
+            fav.categories = fav.categories.filter((id) => id && id !== categoryId);
+            if (!fav.categories.length) {
+              delete fav.categories;
+            }
+          }
+        });
+      });
+    }
+
+    async toggleCategoryCollapse(categoryId) {
+      await this.updateState((draft) => {
+        const category = draft.categories.find((cat) => cat.id === categoryId);
+        if (category) category.collapsed = !category.collapsed;
+      });
+    }
+
+    async setUncategorizedCollapsed(nextValue) {
+      const desired = Boolean(nextValue);
+      if (this.state.preferences.uncategorizedCollapsed === desired) return;
+      await this.updateState((draft) => {
+        draft.preferences.uncategorizedCollapsed = desired;
+      });
+    }
+
+    async setSortMode(mode) {
+      if (!mode || this.state.preferences.sortMode === mode) return;
+      await this.updateState((draft) => {
+        draft.preferences.sortMode = mode;
+      });
+    }
+
+    async refreshLiveData() {
+      if (this.isRefreshing) return;
+      this.isRefreshing = true;
+      try {
+        const favorites = Object.keys(this.state.favorites);
+        if (!favorites.length) {
+          this.liveData = {};
+          this.emitter.emit({ kind: CHANGE_KIND.LIVE, liveData: this.getLiveData() });
+          return;
+        }
+        const updates = await Promise.all(favorites.map((login) => fetchStreamerLiveData(login)));
+        const nextLive = {};
+        const favoriteUpdates = {};
+        updates.forEach((entry) => {
+          if (!entry || !entry.login) return;
+          const normalized = entry.login.toLowerCase();
+          nextLive[normalized] = entry;
+          const stored = this.state.favorites[normalized];
+          if (stored) {
+            const nextDisplay = entry.displayName || stored.displayName;
+            const nextAvatar = entry.avatarUrl || stored.avatarUrl;
+            if (stored.displayName !== nextDisplay || stored.avatarUrl !== nextAvatar) {
+              favoriteUpdates[normalized] = {
+                ...stored,
+                displayName: nextDisplay,
+                avatarUrl: nextAvatar
+              };
+            }
+          }
+        });
+        this.liveData = nextLive;
+        if (Object.keys(favoriteUpdates).length) {
+          await this.updateState((draft) => {
+            Object.entries(favoriteUpdates).forEach(([login, value]) => {
+              draft.favorites[login] = value;
+            });
+          }, false);
+          this.emitter.emit({ kind: CHANGE_KIND.STATE, state: this.getSnapshot() });
+        }
+        this.emitter.emit({ kind: CHANGE_KIND.LIVE, liveData: this.getLiveData() });
+      } finally {
+        this.isRefreshing = false;
+      }
+    }
+  }
+
+  class LocationWatcher {
+    constructor(callback) {
+      this.callback = callback;
+      this.timer = null;
+      this.lastHref = window.location.href;
+    }
+    start() {
+      this.stop();
+      this.timer = setInterval(() => {
+        if (window.location.href !== this.lastHref) {
+          this.lastHref = window.location.href;
+          this.callback(window.location.href);
+        }
+      }, LOCATION_CHECK_INTERVAL);
+    }
+    stop() {
+      if (this.timer) {
+        clearInterval(this.timer);
+        this.timer = null;
+      }
+    }
+  }
+
+  class SidebarRenderer {
+    constructor(store) {
+      this.store = store;
+      this.container = null;
+      this.sideNavObserver = null;
+      this.unsubscribe = null;
+    }
+
+    init() {
+      this.unsubscribe = this.store.subscribe(() => this.render());
+      this.observeSideNav();
+      this.render();
+    }
+
+    dispose() {
+      this.unsubscribe?.();
+      this.sideNavObserver?.disconnect();
+    }
+
+    observeSideNav() {
+      this.sideNavObserver?.disconnect();
+      this.sideNavObserver = new MutationObserver(() => {
+        this.ensureContainer();
+      });
+      this.sideNavObserver.observe(document.body, { childList: true, subtree: true });
+      this.ensureContainer();
+    }
+
+    getNav() {
+      return (
+        document.querySelector('nav[data-a-target="side-nav"]') ||
+        document.querySelector('nav[data-test-selector="side-nav"]') ||
+        document.querySelector('div.side-nav') ||
+        document.querySelector('[data-test-selector="side-nav"]')
+      );
+    }
+
+    getSection(nav) {
+      if (!nav) return null;
+      const selectors = [
+        'section[data-test-selector="followed-side-nav-section"]',
+        'section[data-a-target="side-nav-section"]',
+        'section[aria-label="Followed Channels"]',
+        'section[aria-label="Chaines suivies"]',
+        'section[data-test-selector="side-nav-section"]'
+      ];
+      for (const selector of selectors) {
+        const candidate = nav.querySelector(selector);
+        if (candidate) return candidate;
+      }
+      return nav.querySelector('section') || nav;
+    }
+
+    getList(section) {
+      if (!section) return null;
+      const selectors = [
+        '[data-test-selector="followed-side-nav-section__items"]',
+        '[data-test-selector="side-nav-section__items"]',
+        '.side-nav-section__items',
+        '[role="list"]',
+        'ul',
+        '.simplebar-content > div',
+        '[data-simplebar] > div'
+      ];
+      for (const selector of selectors) {
+        const candidate = section.querySelector(selector);
+        if (candidate) return candidate;
+      }
+      return section;
+    }
+
+    ensureContainer() {
+      const nav = this.getNav();
+      if (!nav) {
+        this.container = null;
+        return;
+      }
+      const section = this.getSection(nav);
+      const list = this.getList(section);
+      if (!list) {
+        this.container = null;
+        return;
+      }
+
+      nav.style.pointerEvents = 'auto';
+      section.style.pointerEvents = 'auto';
+      list.style.pointerEvents = 'auto';
+
+      const needsListItem = list.tagName === 'UL' || list.getAttribute('role') === 'list';
+      const existingNodes = Array.from(list.querySelectorAll('#tfr-favorites-root'));
+      let container = existingNodes.shift() || null;
+      existingNodes.forEach((node) => node.remove());
+      if (!container) {
+        container = document.createElement(needsListItem ? 'li' : 'div');
+        console.log('[TFR] created favorites container', container);        container.id = 'tfr-favorites-root';
+        container.className = 'tfr-favorites-root';
+        if (needsListItem) container.classList.add('tfr-favorites-root--list-item', 'side-nav-card');
+        list.insertBefore(container, list.firstChild || null);
+      } else if (container.parentElement !== list) {
+        list.insertBefore(container, list.firstChild || null);
+      }
+      container.style.pointerEvents = 'auto';
+      this.container = container;
+    }
+
+    collectGroups(state, liveData) {
+      const sortMode = state.preferences?.sortMode || 'viewersDesc';
+      const categories = this.store.getCategoriesSorted();
+      const favorites = Object.values(state.favorites);
+      const groups = [];
+      const categoryMap = new Map();
+      categories.forEach((category) => {
+        const data = { ...category, entries: [] };
+        groups.push(data);
+        categoryMap.set(category.id, data);
+      });
+      const uncategorized = {
+        id: 'uncategorized',
+        name: 'Sans categorie',
+        collapsed: Boolean(state.preferences?.uncategorizedCollapsed),
+        entries: []
+      };
+      favorites.forEach((fav) => {
+        const assignments = Array.isArray(fav.categories) && fav.categories.length ? [fav.categories[0]] : null;
+        if (!assignments) {
+          uncategorized.entries.push(fav);
+          return;
+        }
+        assignments.forEach((catId) => {
+          const target = categoryMap.get(catId);
+          if (target) target.entries.push(fav);
+        });
+      });
+      if (uncategorized.entries.length) groups.push(uncategorized);
+      const comparator = (a, b) => {
+        if (sortMode === 'alphabetical') return a.displayName.localeCompare(b.displayName, 'fr');
+        if (sortMode === 'recent') return (b.addedAt || 0) - (a.addedAt || 0);
+        const viewersA = liveData[a.login]?.viewers || 0;
+        const viewersB = liveData[b.login]?.viewers || 0;
+        if (viewersB !== viewersA) return viewersB - viewersA;
+        return a.displayName.localeCompare(b.displayName, 'fr');
+      };
+      groups.forEach((group) => {
+        group.entries = group.entries
+          .filter((fav) => liveData[fav.login]?.isLive)
+          .sort(comparator);
+      });
+      return groups.filter((group) => group.entries.length);
+    }
+
+    render() {
+      if (!this.container || !document.body.contains(this.container)) {
+        this.ensureContainer();
+        if (!this.container) return;
+      }
+
+      const state = this.store.getState();
+      const liveData = this.store.getLiveData();
+      const groups = this.collectGroups(state, liveData);
+
+      if (!window.__tfrRenderLogged) {
+        console.log('[TFR] rendering favorites sidebar');
+        window.__tfrRenderLogged = true;
+      }
+      this.container.innerHTML = '';
+      const header = document.createElement('div');
+      header.className = 'tfr-nav-header';
+      header.textContent = 'Favoris en live';
+      this.container.appendChild(header);
+
+      if (!groups.length) {
+        const empty = document.createElement('div');
+        empty.className = 'tfr-empty';
+        empty.textContent = 'Aucun favori en direct pour le moment.';
+        this.container.appendChild(empty);
+        return;
+      }
+
+      groups.forEach((group) => {
+        const block = document.createElement('div');
+        block.className = 'tfr-category-block';
+        if (group.collapsed) block.classList.add('is-collapsed');
+
+        const headerRow = document.createElement('button');
+        headerRow.type = 'button';
+        headerRow.className = 'tfr-category-header';
+        const label = document.createElement('span');
+        label.className = 'tfr-category-header-label';
+        const chevron = document.createElement('span');
+        chevron.className = 'tfr-chevron';
+        chevron.textContent = '>\u00a0';
+        const name = document.createElement('span');
+        name.textContent = group.name;
+        const count = document.createElement('span');
+        count.className = 'tfr-category-count';
+        count.textContent = `${group.entries.length}`;
+        label.appendChild(chevron);
+        label.appendChild(name);
+        headerRow.appendChild(label);
+        headerRow.appendChild(count);
+        headerRow.addEventListener('click', () => {
+          if (group.id === 'uncategorized') {
+            this.store.setUncategorizedCollapsed(!group.collapsed);
+          } else {
+            this.store.toggleCategoryCollapse(group.id);
+          }
+        });
+
+        const list = document.createElement('div');
+        list.className = 'tfr-category-list';
+        group.entries.forEach((fav) => {
+          const live = liveData[fav.login];
+
+          const anchor = document.createElement('a');
+          anchor.className = 'tfr-favorite-entry';
+          anchor.classList.add('side-nav-card__link', 'tw-link');
+          anchor.href = `https://www.twitch.tv/${fav.login}`;
+          anchor.target = '_self';
+          anchor.rel = 'noopener noreferrer';
+
+          const avatar = document.createElement('img');
+          avatar.className = 'tfr-favorite-entry__avatar';
+          avatar.src = (live && live.avatarUrl) || fav.avatarUrl || DEFAULT_AVATAR;
+          avatar.alt = fav.displayName;
+
+          const info = document.createElement('div');
+          info.className = 'tfr-favorite-entry__info';
+          const nameLine = document.createElement('span');
+          nameLine.className = 'tfr-favorite-entry__name';
+          nameLine.textContent = live?.displayName || fav.displayName;
+          const viewerLine = document.createElement('span');
+          viewerLine.className = 'tfr-favorite-entry__viewers';
+          viewerLine.textContent = `${formatViewers(live?.viewers || 0)} spectateurs`;
+          info.appendChild(nameLine);
+          info.appendChild(viewerLine);
+
+          anchor.appendChild(avatar);
+          anchor.appendChild(info);
+          list.appendChild(anchor);
+        });
+
+        block.appendChild(headerRow);
+        block.appendChild(list);
+        this.container.appendChild(block);
+      });
+    }
+  }
+
+  class ChannelFavoriteButton {
+    constructor(store) {
+      this.store = store;
+      this.button = null;
+      this.currentLogin = null;
+      this.unsubscribe = null;
+      this.domObserver = null;
+      this.locationWatcher = new LocationWatcher(() => this.handleLocationChange());
+    }
+
+    init() {
+      this.unsubscribe = this.store.subscribe(() => this.updateButtonAppearance());
+      this.observeDom();
+      this.locationWatcher.start();
+      this.handleLocationChange();
+    }
+
+    dispose() {
+      this.unsubscribe?.();
+      this.domObserver?.disconnect();
+      this.locationWatcher.stop();
+    }
+
+    observeDom() {
+      this.domObserver?.disconnect();
+      this.domObserver = new MutationObserver(() => {
+        this.tryMountButton();
+      });
+      this.domObserver.observe(document.body, { childList: true, subtree: true });
+      this.tryMountButton();
+    }
+
+    handleLocationChange() {
+      this.currentLogin = getChannelFromLocation(window.location);
+      this.updateButtonAppearance();
+      this.tryMountButton();
+    }
+
+    findAnchor() {
+      const selectors = [
+        '[data-a-target="player-overlay-notifications-toggle-button"]',
+        '[data-a-target="player-notifications-toggle-button"]',
+        '[data-a-target="notifications-toggle-button"]',
+        '[data-a-target="stream-notifications-toggle-button"]',
+        '[data-a-target="player-control-notifications-button"]',
+        '[data-test-selector="player-notifications-button"]',
+        '[data-test-selector="player-overlay-notifications-button"]',
+        '[data-test-selector="notifications-button"]'
+      ];
+      for (const selector of selectors) {
+        const node = document.querySelector(selector);
+        if (node && !node.closest('nav')) {
+          return node;
+        }
+      }
+      const buttons = Array.from(document.querySelectorAll('button[aria-label]'));
+      const primary = buttons.find((btn) => {
+        const label = (btn.getAttribute('aria-label') || '').toLowerCase();
+        return label.includes('notification') && !btn.closest('nav');
+      });
+      if (primary) {
+        return primary;
+      }
+      const containerSelectors = [
+        '[data-test-selector="player-overlay-channel-status"]',
+        '[data-test-selector="channel-info-bar"]',
+        '[data-test-selector="player-overlay-follow-button"]',
+        '[data-test-selector="player-actions"]'
+      ];
+      for (const selector of containerSelectors) {
+        const container = document.querySelector(selector);
+        if (!container) continue;
+        const candidate = container.querySelector('button');
+        if (candidate && !candidate.closest('nav')) {
+          return candidate;
+        }
+      }
+      return null;
+    }
+
+    ensureButton() {
+      if (this.button) return this.button;
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'tfr-inline-button';
+      button.textContent = 'Ajouter aux favoris';
+      button.addEventListener('click', async () => {
+        if (!this.currentLogin) return;
+        const normalized = this.currentLogin.toLowerCase();
+        const isFavorite = Boolean(this.store.getState().favorites[normalized]);
+        button.disabled = true;
+        try {
+          if (isFavorite) await this.store.removeFavorite(normalized);
+          else await this.store.addFavorite(normalized);
+        } finally {
+          button.disabled = false;
+          this.updateButtonAppearance();
+        }
+      });
+      this.button = button;
+      return button;
+    }
+
+    tryMountButton() {
+      if (!this.currentLogin) {
+        this.removeButton();
+        return;
+      }
+      const anchor = this.findAnchor();
+      if (!anchor || !anchor.parentElement) {
+        this.removeButton();
+        return;
+      }
+      const button = this.ensureButton();
+      if (anchor.parentElement.contains(button)) return;
+      anchor.parentElement.appendChild(button);
+      this.updateButtonAppearance();
+    }
+
+    removeButton() {
+      if (this.button?.parentElement) {
+        this.button.parentElement.removeChild(this.button);
+      }
+    }
+
+    updateButtonAppearance() {
+      const button = this.button;
+      if (!button) return;
+      if (!this.currentLogin) {
+        button.disabled = true;
+        button.classList.remove('is-remove');
+        button.textContent = 'Favori indisponible';
+        return;
+      }
+      const normalized = this.currentLogin.toLowerCase();
+      const isFavorite = Boolean(this.store.getState().favorites[normalized]);
+      button.disabled = false;
+      if (isFavorite) {
+        button.textContent = 'Retirer des favoris';
+        button.classList.add('is-remove');
+      } else {
+        button.textContent = 'Ajouter aux favoris';
+        button.classList.remove('is-remove');
+      }
+    }
+  }
+
+
+class FavoritesOverlay {
+  constructor(store) {
+    this.store = store;
+    this.root = null;
+    this.isOpen = false;
+    this.openListeners = new Set();
+    this.closeListeners = new Set();
+    this.searchTerm = '';
+    this.sortMode = this.store.getState().preferences?.sortMode || 'viewersDesc';
+    this.unsubscribe = this.store.subscribe(() => {
+      if (this.isOpen) {
+        this.render();
+      }
+    });
+    document.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape' && this.isOpen) {
+        this.close();
+      }
+    });
+  }
+
+  ensureRoot() {
+    if (this.root) {
+      return;
+    }
+    const backdrop = document.createElement('div');
+    backdrop.className = 'tfr-overlay-backdrop';
+    backdrop.addEventListener('click', (event) => {
+      if (event.target === backdrop) {
+        this.close();
+      }
+    });
+    const panel = document.createElement('div');
+    panel.className = 'tfr-overlay-panel';
+    const header = document.createElement('div');
+    header.className = 'tfr-overlay-header';
+    const title = document.createElement('h2');
+    title.className = 'tfr-overlay-title';
+    title.textContent = 'Gestion des favoris';
+    const closeButton = document.createElement('button');
+    closeButton.type = 'button';
+    closeButton.className = 'tfr-overlay-close';
+    closeButton.setAttribute('aria-label', 'Fermer');
+    closeButton.textContent = '\u00D7';
+    closeButton.addEventListener('click', () => this.close());
+    header.appendChild(title);
+    header.appendChild(closeButton);
+    const content = document.createElement('div');
+    content.className = 'tfr-overlay-content';
+    panel.appendChild(header);
+    panel.appendChild(content);
+    backdrop.appendChild(panel);
+    this.root = backdrop;
+  }
+
+  open() {
+    this.ensureRoot();
+    if (!this.root) {
+      return;
+    }
+    let didOpen = false;
+    if (!this.isOpen) {
+      document.body.appendChild(this.root);
+      this.isOpen = true;
+      didOpen = true;
+    }
+    const state = this.store.getState();
+    this.sortMode = state.preferences?.sortMode || 'viewersDesc';
+    this.render();
+    if (didOpen) {
+      this.openListeners.forEach((callback) => {
+        try {
+          callback();
+        } catch (error) {
+          console.error('[TFR] Overlay open listener error', error);
+        }
+      });
+    }
+  }
+
+
+  close() {
+    if (!this.isOpen) {
+      return;
+    }
+    this.isOpen = false;
+    this.root?.remove();
+    this.closeListeners.forEach((callback) => {
+      try {
+        callback();
+      } catch (error) {
+        console.error('[TFR] Overlay close listener error', error);
+      }
+    });
+  }
+
+  onOpen(callback) {
+    this.openListeners.add(callback);
+    return () => this.openListeners.delete(callback);
+  }
+
+  onClose(callback) {
+    this.closeListeners.add(callback);
+    return () => this.closeListeners.delete(callback);
+  }
+
+
+  render() {
+    if (!this.root) {
+      return;
+    }
+    const state = this.store.getState();
+    const liveData = this.store.getLiveData();
+    this.sortMode = state.preferences?.sortMode || this.sortMode;
+
+    const content = this.root.querySelector('.tfr-overlay-content');
+    content.innerHTML = '';
+
+    const controls = document.createElement('div');
+    controls.className = 'tfr-manager-controls';
+    const searchInput = document.createElement('input');
+    searchInput.type = 'search';
+    searchInput.placeholder = 'Rechercher un streamer...';
+    searchInput.value = this.searchTerm;
+    searchInput.addEventListener('input', (event) => {
+      this.searchTerm = event.target.value;
+      this.render();
+    });
+    const sortSelect = document.createElement('select');
+    sortSelect.innerHTML = `
+      <option value="viewersDesc">Trier par viewers (desc.)</option>
+      <option value="alphabetical">Trier A -> Z</option>
+      <option value="recent">Trier par ajout récent</option>
+    `;
+    sortSelect.value = this.sortMode;
+    sortSelect.addEventListener('change', async (event) => {
+      const value = event.target.value;
+      this.sortMode = value;
+      await this.store.setSortMode(value);
+      this.render();
+    });
+    controls.appendChild(searchInput);
+    controls.appendChild(sortSelect);
+    content.appendChild(controls);
+
+    this.renderCategories(content, state);
+    this.renderFavorites(content, state, liveData);
+  }
+
+  renderCategories(content, state) {
+    const categoriesSection = document.createElement('section');
+    categoriesSection.className = 'tfr-categories-section';
+
+    const header = document.createElement('div');
+    header.className = 'tfr-categories-header';
+    header.textContent = 'Catégories';
+
+    const addCategory = document.createElement('button');
+    addCategory.type = 'button';
+    addCategory.className = 'tfr-button';
+    addCategory.textContent = 'Ajouter une catégorie';
+    addCategory.addEventListener('click', async () => {
+      const name = window.prompt('Nom de la nouvelle catégorie');
+      if (!name) {
+        return;
+      }
+      await this.store.createCategory(name);
+      this.render();
+    });
+
+    const list = document.createElement('div');
+    list.className = 'tfr-category-list';
+
+    const categories = this.store.getCategoriesSorted();
+    if (!categories.length) {
+      const empty = document.createElement('div');
+      empty.className = 'tfr-empty-state';
+      empty.textContent = 'Aucune catégorie pour le moment.';
+      list.appendChild(empty);
+    } else {
+      categories.forEach((category) => {
+        const item = document.createElement('div');
+        item.className = 'tfr-category-item';
+
+        const title = document.createElement('div');
+        title.className = 'tfr-category-item-title';
+        const name = document.createElement('span');
+        name.textContent = category.name;
+        const meta = document.createElement('span');
+        meta.className = 'tfr-category-meta';
+        const count = Object.values(state.favorites).filter((fav) => fav.categories?.includes(category.id)).length;
+        meta.textContent = `${count} favori${count > 1 ? 's' : ''}`;
+        title.appendChild(name);
+        title.appendChild(meta);
+
+        const actions = document.createElement('div');
+        actions.className = 'tfr-category-item-actions';
+
+        const toggle = document.createElement('button');
+        toggle.type = 'button';
+        toggle.className = 'tfr-button tfr-button--ghost';
+        toggle.textContent = category.collapsed ? 'Développer' : 'Réduire';
+        toggle.addEventListener('click', async () => {
+          await this.store.toggleCategoryCollapse(category.id);
+          this.render();
+        });
+
+        const rename = document.createElement('button');
+        rename.type = 'button';
+        rename.className = 'tfr-button tfr-button--ghost';
+        rename.textContent = 'Renommer';
+        rename.addEventListener('click', async () => {
+          const next = window.prompt('Nouveau nom de catégorie', category.name);
+          if (!next) {
+            return;
+          }
+          await this.store.renameCategory(category.id, next);
+          this.render();
+        });
+
+        const remove = document.createElement('button');
+        remove.type = 'button';
+        remove.className = 'tfr-button tfr-button--danger';
+        remove.textContent = 'Supprimer';
+        remove.addEventListener('click', async () => {
+          const confirmed = window.confirm('Supprimer cette catégorie ? Les favoris resteront enregistrés.');
+          if (!confirmed) {
+            return;
+          }
+          await this.store.removeCategory(category.id);
+          this.render();
+        });
+
+        actions.appendChild(toggle);
+        actions.appendChild(rename);
+        actions.appendChild(remove);
+
+        item.appendChild(title);
+        item.appendChild(actions);
+        list.appendChild(item);
+      });
+    }
+
+    categoriesSection.appendChild(header);
+    categoriesSection.appendChild(addCategory);
+    categoriesSection.appendChild(list);
+    content.appendChild(categoriesSection);
+  }
+
+  renderFavorites(content, state, liveData) {
+    const favoritesSection = document.createElement('section');
+    favoritesSection.className = 'tfr-favorites-section';
+
+    const header = document.createElement('div');
+    header.className = 'tfr-favorites-header';
+    header.textContent = 'Favoris';
+    favoritesSection.appendChild(header);
+
+    const list = document.createElement('div');
+    list.className = 'tfr-favorites-list';
+
+    const allFavorites = Object.values(state.favorites);
+    const term = this.searchTerm.trim().toLowerCase();
+    const filtered = allFavorites.filter((fav) => {
+      if (!term) return true;
+      return fav.login.toLowerCase().includes(term) || (fav.displayName || '').toLowerCase().includes(term);
+    });
+
+    const categories = this.store.getCategoriesSorted();
+    const sorters = {
+      viewersDesc: (a, b) => {
+        const av = liveData[a.login]?.viewers || 0;
+        const bv = liveData[b.login]?.viewers || 0;
+        if (bv !== av) return bv - av;
+        return a.displayName.localeCompare(b.displayName, 'fr');
+      },
+      alphabetical: (a, b) => a.displayName.localeCompare(b.displayName, 'fr'),
+      recent: (a, b) => (b.addedAt || 0) - (a.addedAt || 0)
+    };
+    filtered.sort(sorters[this.sortMode] || sorters.viewersDesc);
+
+    if (!filtered.length) {
+      const empty = document.createElement('div');
+      empty.className = 'tfr-empty-state';
+      empty.textContent = term ? 'Aucun favori ne correspond à la recherche.' : 'Ajoutez vos streamers favoris pour les gérer ici.';
+      list.appendChild(empty);
+    } else {
+      filtered.forEach((fav) => {
+        const live = liveData[fav.login];
+
+        const row = document.createElement('div');
+        row.className = 'tfr-favorite-row';
+
+        const info = document.createElement('div');
+        info.className = 'tfr-favorite-row__info';
+        const avatar = document.createElement('img');
+        avatar.className = 'tfr-favorite-row__avatar';
+        avatar.src = (live && live.avatarUrl) || fav.avatarUrl || DEFAULT_AVATAR;
+        avatar.alt = fav.displayName;
+        const textWrapper = document.createElement('div');
+        textWrapper.className = 'tfr-favorite-row__text';
+        const name = document.createElement('span');
+        name.className = 'tfr-favorite-row__name';
+        name.textContent = fav.displayName;
+        const meta = document.createElement('span');
+        meta.className = 'tfr-favorite-row__meta';
+        if (live?.isLive) {
+          meta.classList.add('is-live');
+          meta.textContent = `En live à ${formatViewers(live.viewers)} spectateurs`;
+        } else {
+          meta.textContent = 'Hors ligne';
+        }
+        textWrapper.appendChild(name);
+        textWrapper.appendChild(meta);
+        info.appendChild(avatar);
+        info.appendChild(textWrapper);
+
+        const categoriesWrap = document.createElement('div');
+        categoriesWrap.className = 'tfr-favorite-row__categories';
+        const categorySelect = document.createElement('select');
+        categorySelect.className = 'tfr-category-select';
+        const placeholderOption = document.createElement('option');
+        placeholderOption.value = '';
+        placeholderOption.textContent = categories.length ? 'Sans cat\u00E9gorie' : 'Aucune cat\u00E9gorie disponible';
+        categorySelect.appendChild(placeholderOption);
+        categories.forEach((category) => {
+          const option = document.createElement('option');
+          option.value = category.id;
+          option.textContent = category.name;
+          categorySelect.appendChild(option);
+        });
+        const currentCategory = Array.isArray(fav.categories) && fav.categories.length ? fav.categories[0] : '';
+        categorySelect.value = currentCategory || '';
+        categorySelect.disabled = !categories.length;
+        categorySelect.addEventListener('change', async (event) => {
+          const value = event.target.value;
+          await this.store.setFavoriteCategory(fav.login, value || null);
+          this.render();
+        });
+        categoriesWrap.appendChild(categorySelect);
+        if (!categories.length) {
+          const hint = document.createElement('span');
+          hint.className = 'tfr-empty-state';
+          hint.textContent = 'Cr\u00E9ez une cat\u00E9gorie pour organiser ce favori.';
+          categoriesWrap.appendChild(hint);
+        }
+
+        const actions = document.createElement('div');
+        actions.className = 'tfr-favorite-row__actions';
+        const visit = document.createElement('a');
+        visit.href = `https://www.twitch.tv/${fav.login}`;
+        visit.target = '_blank';
+        visit.rel = 'noopener noreferrer';
+        visit.className = 'tfr-button tfr-button--ghost';
+        visit.textContent = 'Ouvrir';
+        const remove = document.createElement('button');
+        remove.type = 'button';
+        remove.className = 'tfr-button tfr-button--danger';
+        remove.textContent = 'Supprimer';
+        remove.addEventListener('click', async () => {
+          const confirmed = window.confirm(`Retirer ${fav.displayName} des favoris ?`);
+          if (!confirmed) {
+            return;
+          }
+          await this.store.removeFavorite(fav.login);
+          this.render();
+        });
+
+        actions.appendChild(visit);
+        actions.appendChild(remove);
+
+        row.appendChild(info);
+        row.appendChild(categoriesWrap);
+        row.appendChild(actions);
+        list.appendChild(row);
+      });
+    }
+
+    favoritesSection.appendChild(list);
+    content.appendChild(favoritesSection);
+  }
+
+  destroy() {
+    this.unsubscribe?.();
+    this.close();
+  }
+}
+
+
+class TopNavManager {
+  constructor(overlay) {
+    this.overlay = overlay;
+    this.button = null;
+    this.observer = null;
+    this.retryTimer = null;
+    this.overlayListeners = [];
+    this.pendingInjection = false;
+    this.injectFrame = null;
+    this.slot = null;
+  }
+
+  log(event, detail) {
+    try {
+      if (detail !== undefined) {
+        console.log('[TFR] TopNav', event, detail);
+      } else {
+        console.log('[TFR] TopNav', event);
+      }
+    } catch (error) {
+      console.error('[TFR] TopNav log error', error);
+    }
+  }
+
+  init() {
+    this.log('init');
+    this.injectButton();
+    if (!this.overlayListeners.length) {
+      const onOpenUnsub = this.overlay.onOpen(() => this.setButtonActive(true));
+      const onCloseUnsub = this.overlay.onClose(() => this.setButtonActive(false));
+      [onOpenUnsub, onCloseUnsub].forEach((unsubscribe) => {
+        if (typeof unsubscribe === 'function') {
+          this.overlayListeners.push(unsubscribe);
+        }
+      });
+    }
+    this.setButtonActive(this.overlay.isOpen);
+    this.observer = new MutationObserver(() => this.scheduleInjection());
+    this.observer.observe(document.body, { childList: true, subtree: true });
+  }
+
+  dispose() {
+    this.log('dispose');
+    this.observer?.disconnect();
+    if (this.injectFrame !== null) {
+      cancelAnimationFrame(this.injectFrame);
+      this.injectFrame = null;
+    }
+    this.pendingInjection = false;
+    this.overlayListeners.forEach((unsubscribe) => {
+      if (typeof unsubscribe === 'function') {
+        unsubscribe();
+      }
+    });
+    this.overlayListeners = [];
+    if (this.retryTimer) {
+      clearTimeout(this.retryTimer);
+      this.retryTimer = null;
+    }
+    if (this.slot?.parentElement) {
+      this.slot.parentElement.removeChild(this.slot);
+    }
+    this.slot = null;
+    this.button = null;
+  }
+
+  scheduleRetry() {
+    if (this.retryTimer) {
+      return;
+    }
+    this.log('scheduleRetry');
+    this.retryTimer = setTimeout(() => {
+      this.retryTimer = null;
+      this.scheduleInjection();
+    }, 500);
+  }
+
+  scheduleInjection() {
+    if (this.pendingInjection) {
+      return;
+    }
+    this.pendingInjection = true;
+    if (this.injectFrame !== null) {
+      cancelAnimationFrame(this.injectFrame);
+    }
+    this.injectFrame = requestAnimationFrame(() => {
+      this.injectFrame = null;
+      this.pendingInjection = false;
+      this.injectButton();
+    });
+  }
+
+  ensureSlot(anchor) {
+    if (!this.slot) {
+      const tag = anchor?.parentElement?.tagName === 'SPAN' ? 'span' : 'div';
+      this.slot = document.createElement(tag);
+      this.slot.dataset.tfrTopnavSlot = 'true';
+      this.slot.className = 'tfr-topnav-slot';
+      this.slot.style.pointerEvents = 'auto';
+      this.slot.style.display = 'inline-flex';
+      this.slot.style.alignItems = 'center';
+      this.slot.style.justifyContent = 'center';
+    }
+    return this.slot;
+  }
+
+  isUsableParent(node) {
+    if (!(node instanceof HTMLElement) || !node.isConnected) {
+      return false;
+    }
+    const style = window.getComputedStyle(node);
+    if (!style) {
+      return false;
+    }
+    if (style.display === 'none' || style.visibility === 'hidden') {
+      return false;
+    }
+    if (parseFloat(style.opacity || '1') === 0) {
+      return false;
+    }
+    if (node.offsetWidth === 0 && node.offsetHeight === 0 && style.position !== 'fixed' && style.position !== 'absolute') {
+      return false;
+    }
+    return true;
+  }
+
+  findMountPoint() {
+    const anchorSelectors = [
+      '[data-a-target="top-nav-prime-link"]',
+      '[data-a-target="prime-offers-icon"]',
+      'button[data-a-target="prime-offers-icon"]',
+      'button[data-target="prime-offers-icon"]',
+      '[data-test-selector="prime-offers-icon"]',
+      'button[aria-label="Offres Prime"]',
+      'button[aria-label="Prime Offers"]',
+      'a[aria-label="Offres Prime"]',
+      'a[aria-label="Prime Offers"]'
+    ];
+    const containerSelectors = [
+      '[data-test-selector="top-nav-bar-icon-buttons"]',
+      '[data-test-selector="top-nav-bar__icon-menu"]',
+      '[data-test-selector="top-nav-bar__icons"]',
+      '[data-test-selector="top-nav"]',
+      '[data-a-target="top-nav"]',
+      '[data-test-selector="top-nav-bar-prime"]',
+      'header div[role="menubar"]',
+      'header [data-test-selector="tw-top-nav"]',
+      'header nav'
+    ];
+
+    const findAnchorInParent = (parent) => {
+      for (const selector of anchorSelectors) {
+        try {
+          const candidate = parent.querySelector(selector);
+          if (candidate) {
+            return candidate;
+          }
+        } catch (error) {
+          this.log('selector-error', { selector, error: String(error) });
+        }
+      }
+      return (
+        Array.from(parent.querySelectorAll('[data-a-target],[data-target],button,a'))
+          .find((node) => node !== this.button) || null
+      );
+    };
+
+    const findUsableParent = (element) => {
+      let current = element?.parentElement;
+      while (current && !this.isUsableParent(current)) {
+        current = current.parentElement;
+      }
+      if (current) {
+        return current;
+      }
+      const root = element?.getRootNode?.();
+      if (root?.host && this.isUsableParent(root.host)) {
+        return root.host;
+      }
+      return null;
+    };
+
+    for (const selector of containerSelectors) {
+      let parent = null;
+      try {
+        parent = document.querySelector(selector);
+      } catch (error) {
+        this.log('selector-error', { selector, error: String(error) });
+        continue;
+      }
+      if (!parent || !this.isUsableParent(parent)) {
+        continue;
+      }
+      const anchor = findAnchorInParent(parent);
+      const reference = anchor ? anchor.nextElementSibling : null;
+      this.log('mount-point', {
+        strategy: 'container',
+        selector,
+        anchorTag: anchor?.tagName,
+        hasReference: Boolean(reference)
+      });
+      return { parent, reference, anchor };
+    }
+
+    for (const selector of anchorSelectors) {
+      let anchor = null;
+      try {
+        anchor = document.querySelector(selector);
+      } catch (error) {
+        this.log('selector-error', { selector, error: String(error) });
+        continue;
+      }
+      if (!anchor) {
+        continue;
+      }
+      const parent = findUsableParent(anchor);
+      if (!parent) {
+        continue;
+      }
+      const reference = anchor.nextElementSibling;
+      this.log('mount-point', {
+        strategy: 'direct',
+        selector,
+        anchorTag: anchor.tagName,
+        hasReference: Boolean(reference)
+      });
+      return { parent, reference, anchor };
+    }
+
+    this.log('mount-point-missing');
+    return null;
+  }
+
+
+  ensureButton() {
+    if (this.button) {
+      return this.button;
+    }
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.dataset.tfrTopnavButton = 'true';
+    button.dataset.aTarget = 'top-nav-favorites-button';
+    button.className = 'tfr-topnav-action tfr-topnav-action--icon';
+    button.style.pointerEvents = 'auto';
+    button.style.display = 'inline-flex';
+    button.style.flex = '0 0 auto';
+    button.style.position = 'relative';
+    button.style.zIndex = '1';
+    button.tabIndex = 0;
+    button.setAttribute('aria-label', 'Favoris');
+    button.setAttribute('aria-pressed', 'false');
+    button.title = 'Favoris';
+    button.innerHTML = '<svg class="tfr-topnav-action__icon" width="20" height="20" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 17.27L18.18 21 16.54 13.97 22 9.24 14.81 8.63 12 2 9.19 8.63 2 9.24 7.46 13.97 5.82 21z"></path></svg>';
+    button.addEventListener('click', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (this.overlay.isOpen) {
+        this.overlay.close();
+      } else {
+        this.overlay.open();
+      }
+    });
+    this.button = button;
+    this.log('button-created');
+    return button;
+  }
+
+  syncWithAnchor(anchor, parent) {
+    const button = this.ensureButton();
+    if (!button) {
+      return null;
+    }
+    const slot = this.ensureSlot(anchor);
+    if (!slot.contains(button)) {
+      slot.innerHTML = '';
+      slot.appendChild(button);
+    }
+    let source = anchor;
+    if (!source && parent) {
+      source = Array.from(parent.querySelectorAll('button, a')).find((node) => node !== button);
+    }
+    const isActive = button.classList.contains('is-active');
+    button.classList.add('tfr-topnav-action', 'tfr-topnav-action--icon');
+    slot.classList.add('tfr-topnav-slot');
+    if (isActive) {
+      button.classList.add('is-active');
+    } else {
+      button.classList.remove('is-active');
+    }
+    if (!source) {
+      slot.style.margin = '';
+      slot.style.width = '';
+      slot.style.height = '';
+      button.style.width = '';
+      button.style.height = '';
+      button.style.margin = '0';
+      this.log('sync-anchor-missing');
+      return slot;
+    }
+    const style = window.getComputedStyle(source);
+    if (style) {
+      slot.style.margin = style.margin;
+      if (style.width && style.width !== 'auto') {
+        slot.style.width = style.width;
+        button.style.width = '100%';
+      } else {
+        slot.style.width = '';
+        button.style.width = '';
+      }
+      if (style.height && style.height !== 'auto') {
+        slot.style.height = style.height;
+        button.style.height = '100%';
+      } else {
+        slot.style.height = '';
+        button.style.height = '';
+      }
+      button.style.margin = '0';
+    }
+    this.log('sync-anchor', { sourceTag: source?.tagName });
+    return slot;
+  }
+
+  setButtonActive(isActive) {
+    const button = this.ensureButton();
+    if (!button) {
+      return;
+    }
+    button.classList.add('tfr-topnav-action', 'tfr-topnav-action--icon');
+    button.classList.toggle('is-active', Boolean(isActive));
+    button.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+  }
+
+  injectButton() {
+    let mountInfo = null;
+    try {
+      mountInfo = this.findMountPoint();
+    } catch (error) {
+      this.log('find-mount-error', error);
+      return;
+    }
+    const button = this.ensureButton();
+    if (!button) {
+      this.log('button-missing');
+      return;
+    }
+    if (!mountInfo) {
+      this.log('mount-missing');
+      this.scheduleRetry();
+      return;
+    }
+    const { parent, reference, anchor } = mountInfo;
+    if (!parent) {
+      this.log('mount-no-parent');
+      this.scheduleRetry();
+      return;
+    }
+    try {
+      const slot = this.syncWithAnchor(anchor, parent);
+      if (!slot) {
+        this.log('slot-missing');
+        this.scheduleRetry();
+        return;
+      }
+      if (!slot.contains(button)) {
+        slot.innerHTML = '';
+        slot.appendChild(button);
+      }
+      let insertionParent = parent;
+      let insertionReference = reference;
+      const anchorParent = anchor?.parentElement || null;
+      const anchorGrand = anchorParent?.parentElement || null;
+      if (anchorParent && this.isUsableParent(anchorParent) && anchorParent !== parent) {
+        insertionParent = anchorParent;
+        insertionReference = anchor?.nextElementSibling || null;
+      }
+      if (anchorGrand && this.isUsableParent(anchorGrand) && anchorGrand !== parent && anchorGrand !== insertionParent) {
+        insertionReference = anchorParent?.nextElementSibling || null;
+        insertionParent = anchorGrand;
+      }
+      if (insertionReference === slot) {
+        insertionReference = slot.nextElementSibling;
+      }
+      if (slot.parentElement !== insertionParent) {
+        if (insertionReference) {
+          insertionParent.insertBefore(slot, insertionReference);
+          this.log('slot-insert-before', { parentTag: insertionParent.tagName });
+        } else {
+          insertionParent.appendChild(slot);
+          this.log('slot-append', { parentTag: insertionParent.tagName });
+        }
+      } else if (insertionReference && slot.nextElementSibling !== insertionReference) {
+        insertionParent.insertBefore(slot, insertionReference);
+        this.log('slot-reposition', { parentTag: insertionParent.tagName });
+      } else {
+        this.log('slot-already-mounted');
+      }
+      if (this.retryTimer) {
+        clearTimeout(this.retryTimer);
+        this.retryTimer = null;
+      }
+    } catch (error) {
+      this.log('inject-error', error);
+      this.scheduleRetry();
+    }
+  }
+
+}
+
+
+
+  const bootstrap = async () => {
+    const store = new FavoritesStore();
+    await store.init();
+
+    const sidebar = new SidebarRenderer(store);
+    sidebar.init();
+
+    const funnelButton = new ChannelFavoriteButton(store);
+    funnelButton.init();
+
+    const overlay = new FavoritesOverlay(store);
+    const topNav = new TopNavManager(overlay);
+    topNav.init();
+
+    window.addEventListener('focus', () => store.refreshLiveData());
+  };
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', bootstrap);
+  } else {
+    bootstrap();
+  }
+})();
+
+
