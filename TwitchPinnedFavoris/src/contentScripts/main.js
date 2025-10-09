@@ -5,7 +5,8 @@
     categories: [],
     preferences: {
       sortMode: 'viewersDesc',
-      uncategorizedCollapsed: false
+      uncategorizedCollapsed: false,
+      liveFavoritesCollapsed: false
     }
   };
 
@@ -177,17 +178,74 @@
         this.state.preferences = { sortMode: 'viewersDesc', uncategorizedCollapsed: false };
       }
       if (!Object.prototype.hasOwnProperty.call(this.state.preferences, 'sortMode')) {
-        this.state.preferences.sortMode = 'viewersDesc';
+      this.state.preferences.sortMode = 'viewersDesc';
       }
       if (!Object.prototype.hasOwnProperty.call(this.state.preferences, 'uncategorizedCollapsed')) {
         this.state.preferences.uncategorizedCollapsed = false;
       }
+      if (!Object.prototype.hasOwnProperty.call(this.state.preferences, 'liveFavoritesCollapsed')) {
+        this.state.preferences.liveFavoritesCollapsed = false;
+      }
+      const categoryIdMap = new Map();
+      this.state.categories.forEach((category, index) => {
+        if (!category || typeof category !== 'object') {
+          this.state.categories[index] = {
+            id: `cat_${Date.now()}_${index}`,
+            name: 'Favoris',
+            collapsed: false,
+            sortOrder: Date.now() + index,
+            parentId: null
+          };
+          category = this.state.categories[index];
+        }
+        if (typeof category.id !== 'string' || !category.id.trim()) {
+          category.id = `cat_${Date.now()}_${index}`;
+        }
+        if (typeof category.name !== 'string' || !category.name.trim()) {
+          category.name = 'Favoris';
+        }
+        if (typeof category.collapsed !== 'boolean') {
+          category.collapsed = false;
+        }
+        if (typeof category.sortOrder !== 'number') {
+          category.sortOrder = Date.now() + index;
+        }
+        if (typeof category.parentId !== 'string' || !category.parentId.trim()) {
+          category.parentId = null;
+        }
+        categoryIdMap.set(category.id, category);
+      });
+      this.state.categories.forEach((category) => {
+        if (!category.parentId) {
+          category.parentId = null;
+          return;
+        }
+        if (!categoryIdMap.has(category.parentId) || category.parentId === category.id) {
+          category.parentId = null;
+          return;
+        }
+        const visited = new Set([category.id]);
+        let current = category.parentId;
+        while (current) {
+          if (visited.has(current)) {
+            category.parentId = null;
+            break;
+          }
+          visited.add(current);
+          const parent = categoryIdMap.get(current);
+          if (!parent || !parent.parentId) {
+            break;
+          }
+          current = parent.parentId;
+        }
+      });
       if (!this.state.categories.length) {
         this.state.categories.push({
           id: `cat_${Date.now()}`,
           name: 'Favoris',
           collapsed: false,
-          sortOrder: Date.now()
+          sortOrder: Date.now(),
+          parentId: null
         });
       }
       Object.entries(this.state.favorites).forEach(([login, fav]) => {
@@ -244,19 +302,127 @@
       await chrome.storage.local.set({ [STORAGE_KEY]: this.state });
     }
 
-    async updateState(mutator, emit = true) {
-      const draft = deepCopy(this.state);
-      mutator(draft);
-      this.state = draft;
-      this.ensureStateIntegrity();
-      await this.persistState();
-      if (emit) {
-        this.emitter.emit({ kind: CHANGE_KIND.STATE, state: this.getSnapshot() });
+  async updateState(mutator, emit = true) {
+    const draft = deepCopy(this.state);
+    mutator(draft);
+    this.state = draft;
+    this.ensureStateIntegrity();
+    await this.persistState();
+    if (emit) {
+      this.emitter.emit({ kind: CHANGE_KIND.STATE, state: this.getSnapshot() });
+    }
+  }
+
+  getBackupData() {
+    return {
+      version: 1,
+      generatedAt: new Date().toISOString(),
+      favorites: deepCopy(this.state.favorites),
+      categories: deepCopy(this.state.categories),
+      preferences: deepCopy(this.state.preferences)
+    };
+  }
+
+  async restoreFromBackup(payload = {}) {
+    if (!payload || typeof payload !== 'object') {
+      throw new Error('Backup invalide');
+    }
+    const safeFavorites = {};
+    const sourceFavorites = payload.favorites && typeof payload.favorites === 'object' ? payload.favorites : {};
+    Object.entries(sourceFavorites).forEach(([login, raw]) => {
+      if (!login || typeof login !== 'string' || !raw || typeof raw !== 'object') {
+        return;
+      }
+      const normalized = login.toLowerCase();
+      const entry = {
+        login: normalized,
+        displayName: typeof raw.displayName === 'string' && raw.displayName ? raw.displayName : normalized,
+        avatarUrl: typeof raw.avatarUrl === 'string' && raw.avatarUrl ? raw.avatarUrl : DEFAULT_AVATAR,
+        categories: Array.isArray(raw.categories)
+          ? raw.categories.filter((id) => typeof id === 'string' && id)
+          : [],
+        addedAt: typeof raw.addedAt === 'number' ? raw.addedAt : Date.now()
+      };
+      if (!entry.categories.length && typeof raw.category === 'string' && raw.category) {
+        entry.categories = [raw.category];
+      }
+      safeFavorites[normalized] = entry;
+    });
+
+    const safeCategories = [];
+    const sourceCategories = Array.isArray(payload.categories) ? payload.categories : [];
+    const idUsage = new Set();
+    sourceCategories.forEach((raw, index) => {
+      if (!raw || typeof raw !== 'object') {
+        return;
+      }
+      let id = typeof raw.id === 'string' && raw.id.trim() ? raw.id.trim() : `cat_${Date.now()}_${index}`;
+      const baseId = id;
+      let dedupe = 1;
+      while (idUsage.has(id)) {
+        id = `${baseId}_${dedupe++}`;
+      }
+      idUsage.add(id);
+      const name = typeof raw.name === 'string' && raw.name.trim() ? raw.name.trim() : `Cat\u00e9gorie ${index + 1}`;
+      const sortOrder = typeof raw.sortOrder === 'number' ? raw.sortOrder : Date.now() + index;
+      const collapsed = typeof raw.collapsed === 'boolean' ? raw.collapsed : false;
+      const parentId = typeof raw.parentId === 'string' && raw.parentId.trim() ? raw.parentId.trim() : null;
+      safeCategories.push({ id, name, sortOrder, collapsed, parentId });
+    });
+
+    const safePreferences = {};
+    if (payload.preferences && typeof payload.preferences === 'object') {
+      if (typeof payload.preferences.sortMode === 'string') {
+        safePreferences.sortMode = payload.preferences.sortMode;
+      }
+      if (typeof payload.preferences.uncategorizedCollapsed === 'boolean') {
+        safePreferences.uncategorizedCollapsed = payload.preferences.uncategorizedCollapsed;
+      }
+      if (typeof payload.preferences.liveFavoritesCollapsed === 'boolean') {
+        safePreferences.liveFavoritesCollapsed = payload.preferences.liveFavoritesCollapsed;
       }
     }
 
-    getCategoriesSorted() {
-      return [...this.state.categories].sort((a, b) => a.sortOrder - b.sortOrder);
+    await this.updateState((draft) => {
+      draft.favorites = safeFavorites;
+      draft.categories = safeCategories;
+      draft.preferences = { ...draft.preferences, ...safePreferences };
+    });
+    this.liveData = {};
+    await this.refreshLiveData();
+  }
+
+    getCategoriesTree() {
+      const nodes = this.state.categories.map((category) => ({
+        id: category.id,
+        name: category.name,
+        collapsed: Boolean(category.collapsed),
+        sortOrder: typeof category.sortOrder === 'number' ? category.sortOrder : 0,
+        parentId: category.parentId || null,
+        children: []
+      }));
+      const nodeMap = new Map();
+      nodes.forEach((node) => nodeMap.set(node.id, node));
+      const roots = [];
+      nodes.forEach((node) => {
+        if (node.parentId && nodeMap.has(node.parentId) && node.parentId !== node.id) {
+          nodeMap.get(node.parentId).children.push(node);
+        } else {
+          node.parentId = null;
+          roots.push(node);
+        }
+      });
+      const sortRecursive = (list) => {
+        list.sort((a, b) => {
+          if (a.sortOrder !== b.sortOrder) {
+            return a.sortOrder - b.sortOrder;
+          }
+          return a.name.localeCompare(b.name, 'fr');
+        });
+        list.forEach((child) => sortRecursive(child.children));
+      };
+      sortRecursive(roots);
+      return roots;
     }
 
     async addFavorite(login) {
@@ -294,7 +460,10 @@
       if (!normalized || !this.state.favorites[normalized]) {
         return;
       }
-      const target = categoryId ? String(categoryId) : null;
+      let target = categoryId ? String(categoryId) : null;
+      if (target && !this.state.categories.some((cat) => cat.id === target)) {
+        target = null;
+      }
       const currentFav = this.state.favorites[normalized];
       const currentCategory = Array.isArray(currentFav?.categories) && currentFav.categories.length ? currentFav.categories[0] : null;
       if ((currentCategory || null) === (target || null)) {
@@ -325,16 +494,21 @@
       }
     }
 
-    async createCategory(name) {
+    async createCategory(name, parentId = null) {
       const trimmed = (name || '').trim();
       if (!trimmed) return null;
+      let parent = typeof parentId === 'string' && parentId.trim() ? parentId.trim() : null;
+      if (parent && !this.state.categories.some((cat) => cat.id === parent)) {
+        parent = null;
+      }
       const id = `cat_${Date.now()}`;
       await this.updateState((draft) => {
         draft.categories.push({
           id,
           name: trimmed,
           collapsed: false,
-          sortOrder: Date.now()
+          sortOrder: Date.now(),
+          parentId: parent
         });
       });
       return id;
@@ -351,7 +525,14 @@
 
     async removeCategory(categoryId) {
       await this.updateState((draft) => {
+        const target = draft.categories.find((cat) => cat.id === categoryId);
+        const parentId = target?.parentId || null;
         draft.categories = draft.categories.filter((cat) => cat.id !== categoryId);
+        draft.categories.forEach((cat) => {
+          if (cat.parentId === categoryId) {
+            cat.parentId = parentId;
+          }
+        });
         Object.values(draft.favorites).forEach((fav) => {
           if (Array.isArray(fav.categories)) {
             fav.categories = fav.categories.filter((id) => id && id !== categoryId);
@@ -375,6 +556,13 @@
       if (this.state.preferences.uncategorizedCollapsed === desired) return;
       await this.updateState((draft) => {
         draft.preferences.uncategorizedCollapsed = desired;
+      });
+    }
+
+    async toggleLiveFavoritesCollapsed() {
+      await this.updateState((draft) => {
+        const prefs = draft.preferences || (draft.preferences = {});
+        prefs.liveFavoritesCollapsed = !Boolean(prefs.liveFavoritesCollapsed);
       });
     }
 
@@ -561,33 +749,31 @@
 
     collectGroups(state, liveData) {
       const sortMode = state.preferences?.sortMode || 'viewersDesc';
-      const categories = this.store.getCategoriesSorted();
-      const favorites = Object.values(state.favorites);
-      const groups = [];
-      const categoryMap = new Map();
-      categories.forEach((category) => {
-        const data = { ...category, entries: [] };
-        groups.push(data);
-        categoryMap.set(category.id, data);
-      });
-      const uncategorized = {
-        id: 'uncategorized',
-        name: 'Sans categorie',
-        collapsed: Boolean(state.preferences?.uncategorizedCollapsed),
-        entries: []
+      const categoryTree = this.store.getCategoriesTree();
+      const validCategoryIds = new Set();
+      const collectIds = (nodes) => {
+        nodes.forEach((node) => {
+          validCategoryIds.add(node.id);
+          if (node.children && node.children.length) {
+            collectIds(node.children);
+          }
+        });
       };
+      collectIds(categoryTree);
+      const favorites = Object.values(state.favorites);
+      const assignments = new Map();
+      const uncategorized = [];
       favorites.forEach((fav) => {
-        const assignments = Array.isArray(fav.categories) && fav.categories.length ? [fav.categories[0]] : null;
-        if (!assignments) {
-          uncategorized.entries.push(fav);
+        const categoryId = Array.isArray(fav.categories) && fav.categories.length ? fav.categories[0] : null;
+        if (!categoryId || !validCategoryIds.has(categoryId)) {
+          uncategorized.push(fav);
           return;
         }
-        assignments.forEach((catId) => {
-          const target = categoryMap.get(catId);
-          if (target) target.entries.push(fav);
-        });
+        if (!assignments.has(categoryId)) {
+          assignments.set(categoryId, []);
+        }
+        assignments.get(categoryId).push(fav);
       });
-      if (uncategorized.entries.length) groups.push(uncategorized);
       const comparator = (a, b) => {
         if (sortMode === 'alphabetical') return a.displayName.localeCompare(b.displayName, 'fr');
         if (sortMode === 'recent') return (b.addedAt || 0) - (a.addedAt || 0);
@@ -596,12 +782,76 @@
         if (viewersB !== viewersA) return viewersB - viewersA;
         return a.displayName.localeCompare(b.displayName, 'fr');
       };
-      groups.forEach((group) => {
-        group.entries = group.entries
-          .filter((fav) => liveData[fav.login]?.isLive)
-          .sort(comparator);
+      const buildNode = (node) => {
+        const children = node.children.map((child) => buildNode(child)).filter(Boolean);
+        const rawEntries = assignments.get(node.id) || [];
+        const entries = rawEntries.filter((fav) => liveData[fav.login]?.isLive).sort(comparator);
+        const totalEntries = entries.length + children.reduce((sum, child) => sum + child.totalEntries, 0);
+        if (!totalEntries) {
+          return null;
+        }
+        return {
+          id: node.id,
+          name: node.name,
+          collapsed: node.collapsed,
+          parentId: node.parentId,
+          entries,
+          children,
+          totalEntries
+        };
+      };
+      const groups = [];
+      categoryTree.forEach((root) => {
+        const built = buildNode(root);
+        if (built) {
+          groups.push(built);
+        }
       });
-      return groups.filter((group) => group.entries.length);
+      const uncategorizedEntries = uncategorized
+        .filter((fav) => liveData[fav.login]?.isLive)
+        .sort(comparator);
+      if (uncategorizedEntries.length) {
+        groups.push({
+          id: 'uncategorized',
+          name: 'Sans cat\u00e9gorie',
+          collapsed: Boolean(state.preferences?.uncategorizedCollapsed),
+          entries: uncategorizedEntries,
+          children: [],
+          totalEntries: uncategorizedEntries.length,
+          isUncategorized: true
+        });
+      }
+      return groups;
+    }
+
+    createFavoriteEntry(fav, liveData) {
+      const live = liveData[fav.login];
+      const anchor = document.createElement('a');
+      anchor.className = 'tfr-favorite-entry';
+      anchor.classList.add('side-nav-card__link', 'tw-link');
+      anchor.href = `https://www.twitch.tv/${fav.login}`;
+      anchor.target = '_self';
+      anchor.rel = 'noopener noreferrer';
+
+      const avatar = document.createElement('img');
+      avatar.className = 'tfr-favorite-entry__avatar';
+      avatar.src = (live && live.avatarUrl) || fav.avatarUrl || DEFAULT_AVATAR;
+      avatar.alt = fav.displayName;
+
+      const info = document.createElement('div');
+      info.className = 'tfr-favorite-entry__info';
+      const nameLine = document.createElement('span');
+      nameLine.className = 'tfr-favorite-entry__name';
+      nameLine.textContent = live?.displayName || fav.displayName;
+      const viewerLine = document.createElement('span');
+      viewerLine.className = 'tfr-favorite-entry__viewers';
+      viewerLine.textContent = `${formatViewers(live?.viewers || 0)} spectateurs`;
+      info.appendChild(nameLine);
+      info.appendChild(viewerLine);
+
+      anchor.appendChild(avatar);
+      anchor.appendChild(info);
+      return anchor;
     }
 
     render() {
@@ -612,93 +862,104 @@
 
       const state = this.store.getState();
       const liveData = this.store.getLiveData();
-      const groups = this.collectGroups(state, liveData);
+    const groups = this.collectGroups(state, liveData);
+    const totalLive = groups.reduce((sum, group) => sum + group.totalEntries, 0);
+    const isCollapsed = Boolean(state.preferences?.liveFavoritesCollapsed);
 
       if (!window.__tfrRenderLogged) {
         console.log('[TFR] rendering favorites sidebar');
         window.__tfrRenderLogged = true;
       }
       this.container.innerHTML = '';
-      const header = document.createElement('div');
-      header.className = 'tfr-nav-header';
-      header.textContent = 'Favoris en live';
-      this.container.appendChild(header);
+    const header = document.createElement('button');
+    header.type = 'button';
+    header.className = 'tfr-nav-header';
+    if (isCollapsed) header.classList.add('is-collapsed');
+    header.textContent = totalLive ? `Favoris en live (${totalLive})` : 'Favoris en live';
+    header.setAttribute('aria-expanded', String(!isCollapsed));
+    header.addEventListener('click', () => this.store.toggleLiveFavoritesCollapsed());
+    this.container.appendChild(header);
 
-      if (!groups.length) {
-        const empty = document.createElement('div');
-        empty.className = 'tfr-empty';
-        empty.textContent = 'Aucun favori en direct pour le moment.';
-        this.container.appendChild(empty);
-        return;
-      }
+    if (!totalLive) {
+      const empty = document.createElement('div');
+      empty.className = 'tfr-empty';
+      empty.textContent = 'Aucun favori en direct pour le moment.';
+      this.container.appendChild(empty);
+      return;
+    }
 
-      groups.forEach((group) => {
-        const block = document.createElement('div');
-        block.className = 'tfr-category-block';
-        if (group.collapsed) block.classList.add('is-collapsed');
+    if (isCollapsed) {
+      const collapsedNotice = document.createElement('div');
+      collapsedNotice.className = 'tfr-empty';
+      collapsedNotice.textContent = 'Favoris masqu\u00E9s. Cliquez sur le titre pour les afficher.';
+      this.container.appendChild(collapsedNotice);
+      return;
+    }
 
-        const headerRow = document.createElement('button');
-        headerRow.type = 'button';
-        headerRow.className = 'tfr-category-header';
-        const label = document.createElement('span');
-        label.className = 'tfr-category-header-label';
-        const chevron = document.createElement('span');
-        chevron.className = 'tfr-chevron';
-        chevron.textContent = '>\u00a0';
-        const name = document.createElement('span');
-        name.textContent = group.name;
-        const count = document.createElement('span');
-        count.className = 'tfr-category-count';
-        count.textContent = `${group.entries.length}`;
-        label.appendChild(chevron);
-        label.appendChild(name);
-        headerRow.appendChild(label);
-        headerRow.appendChild(count);
-        headerRow.addEventListener('click', () => {
-          if (group.id === 'uncategorized') {
-            this.store.setUncategorizedCollapsed(!group.collapsed);
-          } else {
-            this.store.toggleCategoryCollapse(group.id);
-          }
-        });
+    const renderGroup = (group, depth = 0) => {
+      const block = document.createElement('div');
+      block.className = 'tfr-category-block';
+      block.dataset.depth = String(depth);
+      if (group.collapsed) block.classList.add('is-collapsed');
 
+      const headerRow = document.createElement('button');
+      headerRow.type = 'button';
+      headerRow.className = 'tfr-category-header';
+      headerRow.style.paddingLeft = `${12 + depth * 16}px`;
+      const label = document.createElement('span');
+      label.className = 'tfr-category-header-label';
+      const chevron = document.createElement('span');
+      chevron.className = 'tfr-chevron';
+      chevron.textContent = '>';
+      chevron.setAttribute('aria-hidden', 'true');
+      const name = document.createElement('span');
+      name.textContent = group.name;
+      const count = document.createElement('span');
+      count.className = 'tfr-category-count';
+      count.textContent = `${group.totalEntries}`;
+      label.appendChild(chevron);
+      label.appendChild(name);
+      headerRow.appendChild(label);
+      headerRow.appendChild(count);
+      headerRow.setAttribute('aria-expanded', String(!group.collapsed));
+      headerRow.addEventListener('click', () => {
+        if (group.isUncategorized) {
+          this.store.setUncategorizedCollapsed(!group.collapsed);
+        } else {
+          this.store.toggleCategoryCollapse(group.id);
+        }
+      });
+
+      block.appendChild(headerRow);
+      if (group.entries.length) {
         const list = document.createElement('div');
         list.className = 'tfr-category-list';
+        list.style.paddingLeft = `${depth * 16}px`;
         group.entries.forEach((fav) => {
-          const live = liveData[fav.login];
-
-          const anchor = document.createElement('a');
-          anchor.className = 'tfr-favorite-entry';
-          anchor.classList.add('side-nav-card__link', 'tw-link');
-          anchor.href = `https://www.twitch.tv/${fav.login}`;
-          anchor.target = '_self';
-          anchor.rel = 'noopener noreferrer';
-
-          const avatar = document.createElement('img');
-          avatar.className = 'tfr-favorite-entry__avatar';
-          avatar.src = (live && live.avatarUrl) || fav.avatarUrl || DEFAULT_AVATAR;
-          avatar.alt = fav.displayName;
-
-          const info = document.createElement('div');
-          info.className = 'tfr-favorite-entry__info';
-          const nameLine = document.createElement('span');
-          nameLine.className = 'tfr-favorite-entry__name';
-          nameLine.textContent = live?.displayName || fav.displayName;
-          const viewerLine = document.createElement('span');
-          viewerLine.className = 'tfr-favorite-entry__viewers';
-          viewerLine.textContent = `${formatViewers(live?.viewers || 0)} spectateurs`;
-          info.appendChild(nameLine);
-          info.appendChild(viewerLine);
-
-          anchor.appendChild(avatar);
-          anchor.appendChild(info);
-          list.appendChild(anchor);
+          list.appendChild(this.createFavoriteEntry(fav, liveData));
         });
-
-        block.appendChild(headerRow);
         block.appendChild(list);
+      }
+      if (group.children && group.children.length) {
+        const childContainer = document.createElement('div');
+        childContainer.className = 'tfr-subcategory-container';
+        group.children.forEach((child) => {
+          const childBlock = renderGroup(child, depth + 1);
+          if (childBlock) {
+            childContainer.appendChild(childBlock);
+          }
+        });
+        block.appendChild(childContainer);
+      }
+      return block;
+    };
+
+    groups.forEach((group) => {
+      const block = renderGroup(group, 0);
+      if (block) {
         this.container.appendChild(block);
-      });
+      }
+    });
     }
   }
 
@@ -859,6 +1120,9 @@ class FavoritesOverlay {
     this.closeListeners = new Set();
     this.searchTerm = '';
     this.sortMode = this.store.getState().preferences?.sortMode || 'viewersDesc';
+    this.backupInput = null;
+    this.isImportingBackup = false;
+    this.draggedLogin = null;
     this.unsubscribe = this.store.subscribe(() => {
       if (this.isOpen) {
         this.render();
@@ -937,6 +1201,8 @@ class FavoritesOverlay {
     }
     this.isOpen = false;
     this.root?.remove();
+    this.backupInput = null;
+    this.draggedLogin = null;
     this.closeListeners.forEach((callback) => {
       try {
         callback();
@@ -982,7 +1248,7 @@ class FavoritesOverlay {
     sortSelect.innerHTML = `
       <option value="viewersDesc">Trier par viewers (desc.)</option>
       <option value="alphabetical">Trier A -> Z</option>
-      <option value="recent">Trier par ajout récent</option>
+      <option value="recent">Trier par ajout rAcent</option>
     `;
     sortSelect.value = this.sortMode;
     sortSelect.addEventListener('change', async (event) => {
@@ -993,10 +1259,456 @@ class FavoritesOverlay {
     });
     controls.appendChild(searchInput);
     controls.appendChild(sortSelect);
+    controls.appendChild(this.renderBackupControls());
     content.appendChild(controls);
 
-    this.renderCategories(content, state);
-    this.renderFavorites(content, state, liveData);
+    const board = this.renderBoard(state, liveData);
+    content.appendChild(board);
+  }
+
+  renderBoard(state, liveData) {
+    const board = document.createElement('div');
+    board.className = 'tfr-board';
+    const term = this.searchTerm.trim().toLowerCase();
+    board.appendChild(this.renderFreeFavoritesColumn(state, liveData, term));
+    board.appendChild(this.renderCategoriesColumn(state, liveData, term));
+    return board;
+  }
+
+  renderFreeFavoritesColumn(state, liveData, term) {
+    const column = document.createElement('section');
+    column.className = 'tfr-board-column tfr-board-column--free';
+
+    const title = document.createElement('h3');
+    title.className = 'tfr-board-title';
+    title.textContent = 'Favoris disponibles';
+    column.appendChild(title);
+
+    const subtitle = document.createElement('p');
+    subtitle.className = 'tfr-board-subtitle';
+    subtitle.textContent = 'Glissez une pastille vers une categorie a droite pour organiser vos favoris.';
+    column.appendChild(subtitle);
+
+    const grid = document.createElement('div');
+    grid.className = 'tfr-free-grid';
+
+    const freeFavorites = Object.values(state.favorites)
+      .filter((fav) => {
+        const categoryId = Array.isArray(fav.categories) && fav.categories.length ? fav.categories[0] : null;
+        if (categoryId) {
+          return false;
+        }
+        if (!term) {
+          return true;
+        }
+        const label = (fav.displayName || fav.login || '').toLowerCase();
+        return label.includes(term);
+      })
+      .sort((a, b) => (a.displayName || a.login).localeCompare(b.displayName || b.login, 'fr'));
+
+    if (!freeFavorites.length) {
+      const empty = document.createElement('div');
+      empty.className = 'tfr-empty-state';
+      empty.textContent = term ? 'Aucun favori disponible ne correspond.' : 'Tous les favoris sont deja ranges.';
+      grid.appendChild(empty);
+    } else {
+      freeFavorites.forEach((fav) => {
+        const chip = this.createFavoriteChip(fav, liveData);
+        grid.appendChild(chip);
+      });
+    }
+
+    column.appendChild(grid);
+    this.enableUncategorizedDrop(grid);
+    return column;
+  }
+
+  createFavoriteChip(fav, liveData) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'tfr-free-avatar';
+    button.title = fav.displayName || fav.login;
+
+    const img = document.createElement('img');
+    img.src = (liveData[fav.login]?.avatarUrl) || fav.avatarUrl || DEFAULT_AVATAR;
+    img.alt = '';
+    button.appendChild(img);
+
+    const label = document.createElement('span');
+    label.className = 'tfr-visually-hidden';
+    label.textContent = fav.displayName || fav.login;
+    button.appendChild(label);
+
+    this.makeFavoriteDraggable(button, fav.login);
+    return button;
+  }
+
+  renderCategoriesColumn(state, liveData, term) {
+    const column = document.createElement('section');
+    column.className = 'tfr-board-column tfr-board-column--categories';
+
+    const header = document.createElement('div');
+    header.className = 'tfr-board-header';
+
+    const title = document.createElement('h3');
+    title.className = 'tfr-board-title';
+    title.textContent = 'Categories';
+    header.appendChild(title);
+
+    const addButton = document.createElement('button');
+    addButton.type = 'button';
+    addButton.className = 'tfr-chip-action';
+    addButton.textContent = 'Nouvelle categorie';
+    addButton.addEventListener('click', async () => {
+      const name = window.prompt('Nom de la categorie');
+      if (!name) return;
+      await this.store.createCategory(name);
+      this.render();
+    });
+    header.appendChild(addButton);
+
+    column.appendChild(header);
+
+    const categoriesTree = this.store.getCategoriesTree();
+
+    const categoryIdSet = new Set();
+    const collectIds = (nodes) => {
+      nodes.forEach((node) => {
+        categoryIdSet.add(node.id);
+        if (node.children && node.children.length) {
+          collectIds(node.children);
+        }
+      });
+    };
+    collectIds(categoriesTree);
+
+    const assignmentsMap = new Map();
+    Object.values(state.favorites).forEach((fav) => {
+      const categoryId = Array.isArray(fav.categories) && fav.categories.length ? fav.categories[0] : null;
+      if (!categoryId || !categoryIdSet.has(categoryId)) {
+        return;
+      }
+      if (!assignmentsMap.has(categoryId)) {
+        assignmentsMap.set(categoryId, []);
+      }
+      assignmentsMap.get(categoryId).push(fav);
+    });
+
+    const aggregatedCounts = new Map();
+    const computeTotals = (node) => {
+      const direct = assignmentsMap.get(node.id)?.length || 0;
+      const childTotal = (node.children || []).reduce((sum, child) => sum + computeTotals(child), 0);
+      const total = direct + childTotal;
+      aggregatedCounts.set(node.id, total);
+      return total;
+    };
+    categoriesTree.forEach((node) => computeTotals(node));
+
+    const cards = document.createElement('div');
+    cards.className = 'tfr-category-cards';
+    if (!categoriesTree.length) {
+      const empty = document.createElement('div');
+      empty.className = 'tfr-empty-state';
+      empty.textContent = 'Creez votre premiere categorie pour commencer.';
+      cards.appendChild(empty);
+    } else {
+      categoriesTree.forEach((node) => {
+        const card = this.buildCategoryCard(node, assignmentsMap, aggregatedCounts, liveData, term, 0);
+        cards.appendChild(card);
+      });
+    }
+
+    column.appendChild(cards);
+    return column;
+  }
+
+  buildCategoryCard(node, assignmentsMap, aggregatedCounts, liveData, term, depth) {
+    const card = document.createElement('div');
+    card.className = 'tfr-category-card';
+    card.dataset.categoryId = node.id;
+    card.style.setProperty('--card-depth', String(depth));
+    if (node.collapsed) {
+      card.classList.add('is-collapsed');
+    }
+
+    const header = document.createElement('div');
+    header.className = 'tfr-category-card__header';
+
+    const title = document.createElement('div');
+    title.className = 'tfr-category-card__title';
+    title.textContent = node.name;
+    header.appendChild(title);
+
+    const count = document.createElement('span');
+    count.className = 'tfr-category-card__count';
+    count.textContent = `${aggregatedCounts.get(node.id) || 0}`;
+    header.appendChild(count);
+
+    const actions = document.createElement('div');
+    actions.className = 'tfr-category-card__actions';
+
+    const collapseBtn = document.createElement('button');
+    collapseBtn.type = 'button';
+    collapseBtn.className = 'tfr-chip-action';
+    collapseBtn.textContent = node.collapsed ? 'Afficher' : 'Masquer';
+    collapseBtn.addEventListener('click', async () => {
+      await this.store.toggleCategoryCollapse(node.id);
+      this.render();
+    });
+    actions.appendChild(collapseBtn);
+
+    const addSubBtn = document.createElement('button');
+    addSubBtn.type = 'button';
+    addSubBtn.className = 'tfr-chip-action';
+    addSubBtn.textContent = 'Sous-cat.';
+    addSubBtn.addEventListener('click', async () => {
+      const name = window.prompt('Nom de la sous-categorie', `${node.name} ${node.children.length + 1}`);
+      if (!name) return;
+      await this.store.createCategory(name, node.id);
+      this.render();
+    });
+    actions.appendChild(addSubBtn);
+
+    const renameBtn = document.createElement('button');
+    renameBtn.type = 'button';
+    renameBtn.className = 'tfr-chip-action';
+    renameBtn.textContent = 'Renommer';
+    renameBtn.addEventListener('click', async () => {
+      const name = window.prompt('Nouveau nom de categorie', node.name);
+      if (!name) return;
+      await this.store.renameCategory(node.id, name);
+      this.render();
+    });
+    actions.appendChild(renameBtn);
+
+    const deleteBtn = document.createElement('button');
+    deleteBtn.type = 'button';
+    deleteBtn.className = 'tfr-chip-action tfr-chip-action--danger';
+    deleteBtn.textContent = 'Supprimer';
+    deleteBtn.addEventListener('click', async () => {
+      const confirmed = window.confirm(`Supprimer "${node.name}" ?`);
+      if (!confirmed) return;
+      await this.store.removeCategory(node.id);
+      this.render();
+    });
+    actions.appendChild(deleteBtn);
+
+    header.appendChild(actions);
+    card.appendChild(header);
+
+    const body = document.createElement('div');
+    body.className = 'tfr-category-card__body';
+    if (node.collapsed) {
+      body.classList.add('is-hidden');
+    }
+    card.appendChild(body);
+
+    const favoritesGrid = document.createElement('div');
+    favoritesGrid.className = 'tfr-category-card__grid';
+    const assigned = (assignmentsMap.get(node.id) || []).slice().sort((a, b) =>
+      (a.displayName || a.login).localeCompare(b.displayName || b.login, 'fr')
+    );
+    const filtered = term
+      ? assigned.filter((fav) => (fav.displayName || fav.login || '').toLowerCase().includes(term))
+      : assigned;
+    if (!filtered.length) {
+      const empty = document.createElement('div');
+      empty.className = 'tfr-category-card__empty';
+      empty.textContent = term ? 'Aucun favori ne correspond.' : 'Glissez un favori ici';
+      favoritesGrid.appendChild(empty);
+    } else {
+      filtered.forEach((fav) => {
+        const square = this.createFavoriteSquare(fav, liveData, term);
+        favoritesGrid.appendChild(square);
+      });
+    }
+    body.appendChild(favoritesGrid);
+
+    const childrenWrap = document.createElement('div');
+    childrenWrap.className = 'tfr-category-card__children';
+    if (Array.isArray(node.children) && node.children.length) {
+      node.children.forEach((child) => {
+        const childCard = this.buildCategoryCard(child, assignmentsMap, aggregatedCounts, liveData, term, depth + 1);
+        childrenWrap.appendChild(childCard);
+      });
+    }
+    body.appendChild(childrenWrap);
+
+    this.setupCategoryDropTarget(card, node.id);
+    this.setupCategoryDropTarget(favoritesGrid, node.id);
+    return card;
+  }
+
+  createFavoriteSquare(fav, liveData, term) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'tfr-category-square';
+    button.title = `Retirer ${fav.displayName || fav.login} de cette categorie`;
+
+    const avatar = document.createElement('img');
+    avatar.className = 'tfr-category-square__avatar';
+    avatar.src = (liveData[fav.login]?.avatarUrl) || fav.avatarUrl || DEFAULT_AVATAR;
+    avatar.alt = '';
+    button.appendChild(avatar);
+
+    const label = document.createElement('span');
+    label.className = 'tfr-visually-hidden';
+    label.textContent = fav.displayName || fav.login;
+    button.appendChild(label);
+
+    this.makeFavoriteDraggable(button, fav.login);
+    button.addEventListener('click', async () => {
+      await this.store.clearFavoriteCategory(fav.login);
+      this.render();
+    });
+    return button;
+  }
+
+  makeFavoriteDraggable(element, login) {
+    element.draggable = true;
+    element.dataset.login = login;
+    element.addEventListener('dragstart', (event) => {
+      if (event.dataTransfer) {
+        event.dataTransfer.setData('text/plain', login);
+        event.dataTransfer.effectAllowed = 'move';
+      }
+      element.classList.add('is-dragging');
+      this.draggedLogin = login;
+    });
+    element.addEventListener('dragend', () => {
+      element.classList.remove('is-dragging');
+      this.draggedLogin = null;
+    });
+  }
+
+  renderBackupControls() {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'tfr-backup-controls';
+
+    const exportButton = document.createElement('button');
+    exportButton.type = 'button';
+    exportButton.className = 'tfr-button';
+    exportButton.textContent = 'Exporter le backup';
+    exportButton.addEventListener('click', () => this.handleExportBackup());
+
+    const importButton = document.createElement('button');
+    importButton.type = 'button';
+    importButton.className = 'tfr-button tfr-button--ghost';
+    importButton.textContent = this.isImportingBackup ? 'Import en cours...' : 'Importer un backup';
+    importButton.disabled = this.isImportingBackup;
+
+    const importFileInput = document.createElement('input');
+    importFileInput.type = 'file';
+    importFileInput.accept = 'application/json';
+    importFileInput.className = 'tfr-backup-file-input';
+    importFileInput.addEventListener('change', (event) => {
+      const file = event.target.files && event.target.files[0];
+      event.target.value = '';
+      if (file) {
+        this.importBackupFromFile(file);
+      }
+    });
+    importButton.addEventListener('click', () => {
+      if (!this.isImportingBackup) {
+        importFileInput.click();
+      }
+    });
+
+    const pasteButton = document.createElement('button');
+    pasteButton.type = 'button';
+    pasteButton.className = 'tfr-button tfr-button--ghost';
+    pasteButton.textContent = 'Coller un JSON';
+    pasteButton.addEventListener('click', () => this.importBackupFromText());
+
+    wrapper.appendChild(exportButton);
+    wrapper.appendChild(importButton);
+    wrapper.appendChild(pasteButton);
+    wrapper.appendChild(importFileInput);
+    this.backupInput = importFileInput;
+    return wrapper;
+  }
+
+  async handleExportBackup() {
+    try {
+      const payload = this.store.getBackupData();
+      const serialized = JSON.stringify(payload, null, 2);
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const blob = new Blob([serialized], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `twitch-favoris-backup-${timestamp}.json`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      document.body.removeChild(anchor);
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (error) {
+      console.error('[TFR] Export backup error', error);
+      window.alert('Impossible de gAnArer le backup. Consultez la console pour plus de dAtails.');
+    }
+  }
+
+  async importBackupFromFile(file) {
+    this.isImportingBackup = true;
+    try {
+      const content = await file.text();
+      await this.applyBackupContent(content);
+    } catch (error) {
+      console.error('[TFR] Backup file import error', error);
+      const message =
+        error?.message === 'JSON invalide' || error?.message === 'Contenu vide'
+          ? 'Le fichier ne contient pas un JSON de backup valide.'
+          : 'Lecture du fichier impossible. Essayez un autre fichier JSON.';
+      window.alert(message);
+    } finally {
+      this.isImportingBackup = false;
+      if (this.isOpen) {
+        this.render();
+      }
+    }
+  }
+
+  async importBackupFromText() {
+    const input = window.prompt('Collez ici le contenu JSON du backup :');
+    const trimmed = typeof input === 'string' ? input.trim() : '';
+    if (!trimmed) {
+      return;
+    }
+    this.isImportingBackup = true;
+    try {
+      await this.applyBackupContent(trimmed);
+    } catch (error) {
+      console.error('[TFR] Backup paste error', error);
+      const message =
+        error?.message === 'JSON invalide' || error?.message === 'Contenu vide'
+          ? 'Le contenu fourni naTMest pas un JSON de backup valide.'
+          : 'Import impossible. RAessayez.';
+      window.alert(message);
+    } finally {
+      this.isImportingBackup = false;
+      if (this.isOpen) {
+        this.render();
+      }
+    }
+  }
+
+  async applyBackupContent(rawText) {
+    const normalizedText = typeof rawText === 'string' ? rawText.trim() : '';
+    if (!normalizedText) {
+      throw new Error('Contenu vide');
+    }
+    let parsed = null;
+    try {
+      parsed = JSON.parse(normalizedText);
+    } catch (error) {
+      throw new Error('JSON invalide');
+    }
+    const confirmed = window.confirm('Importer ce backup remplacera vos favoris actuels. Continuer ?');
+    if (!confirmed) {
+      return;
+    }
+    await this.store.restoreFromBackup(parsed);
+    window.alert('Backup importe avec succes !');
   }
 
   renderCategories(content, state) {
@@ -1005,14 +1717,14 @@ class FavoritesOverlay {
 
     const header = document.createElement('div');
     header.className = 'tfr-categories-header';
-    header.textContent = 'Catégories';
+    header.textContent = 'Cat\u00e9gories';
 
     const addCategory = document.createElement('button');
     addCategory.type = 'button';
     addCategory.className = 'tfr-button';
-    addCategory.textContent = 'Ajouter une catégorie';
+    addCategory.textContent = 'Ajouter une cat\u00e9gorie';
     addCategory.addEventListener('click', async () => {
-      const name = window.prompt('Nom de la nouvelle catégorie');
+      const name = window.prompt('Nom de la nouvelle cat\u00e9gorie');
       if (!name) {
         return;
       }
@@ -1022,81 +1734,368 @@ class FavoritesOverlay {
 
     const list = document.createElement('div');
     list.className = 'tfr-category-list';
+    const favoritesArray = Object.values(state.favorites);
 
-    const categories = this.store.getCategoriesSorted();
-    if (!categories.length) {
+    const categoriesTree = this.store.getCategoriesTree();
+    const categoryIdSet = new Set();
+    const collectIds = (nodes) => {
+      nodes.forEach((node) => {
+        categoryIdSet.add(node.id);
+        if (node.children && node.children.length) {
+          collectIds(node.children);
+        }
+      });
+    };
+    collectIds(categoriesTree);
+    const assignmentsMap = new Map();
+    const uncategorizedFavorites = [];
+    Object.values(state.favorites).forEach((fav) => {
+      const categoryId = Array.isArray(fav.categories) && fav.categories.length ? fav.categories[0] : null;
+      if (categoryId && categoryIdSet.has(categoryId)) {
+        if (!assignmentsMap.has(categoryId)) {
+          assignmentsMap.set(categoryId, []);
+        }
+        assignmentsMap.get(categoryId).push(fav);
+      } else {
+        uncategorizedFavorites.push(fav);
+      }
+    });
+    const aggregatedCounts = new Map();
+    const computeTotals = (node) => {
+      const direct = assignmentsMap.get(node.id)?.length || 0;
+      const childTotal = (node.children || []).reduce((sum, child) => sum + computeTotals(child), 0);
+      const total = direct + childTotal;
+      aggregatedCounts.set(node.id, total);
+      return total;
+    };
+    categoriesTree.forEach((node) => computeTotals(node));
+    if (!categoriesTree.length) {
       const empty = document.createElement('div');
       empty.className = 'tfr-empty-state';
-      empty.textContent = 'Aucune catégorie pour le moment.';
+      empty.textContent = 'Aucune cat\u00e9gorie pour le moment.';
       list.appendChild(empty);
     } else {
-      categories.forEach((category) => {
-        const item = document.createElement('div');
-        item.className = 'tfr-category-item';
-
+      categoriesTree.forEach((category) => {
+        this.appendCategoryListItem(list, category, 0, assignmentsMap, aggregatedCounts, favoritesArray);
+      });
+      if (uncategorizedFavorites.length) {
+        const uncategorizedItem = document.createElement('div');
+        uncategorizedItem.className = 'tfr-category-item tfr-category-item--uncategorized';
         const title = document.createElement('div');
         title.className = 'tfr-category-item-title';
         const name = document.createElement('span');
-        name.textContent = category.name;
+        name.textContent = 'Sans cat\u00e9gorie';
         const meta = document.createElement('span');
         meta.className = 'tfr-category-meta';
-        const count = Object.values(state.favorites).filter((fav) => fav.categories?.includes(category.id)).length;
-        meta.textContent = `${count} favori${count > 1 ? 's' : ''}`;
+        meta.textContent = `${uncategorizedFavorites.length} favori${uncategorizedFavorites.length > 1 ? 's' : ''} sans cat\u00e9gorie`;
         title.appendChild(name);
         title.appendChild(meta);
 
-        const actions = document.createElement('div');
-        actions.className = 'tfr-category-item-actions';
-
-        const toggle = document.createElement('button');
-        toggle.type = 'button';
-        toggle.className = 'tfr-button tfr-button--ghost';
-        toggle.textContent = category.collapsed ? 'Développer' : 'Réduire';
-        toggle.addEventListener('click', async () => {
-          await this.store.toggleCategoryCollapse(category.id);
-          this.render();
+        const chips = document.createElement('div');
+        chips.className = 'tfr-category-assigned';
+        uncategorizedFavorites.forEach((fav) => {
+          const chip = document.createElement('span');
+          chip.className = 'tfr-category-chip';
+          const chipAvatar = document.createElement('img');
+          chipAvatar.className = 'tfr-category-chip-avatar';
+          chipAvatar.src = fav.avatarUrl || DEFAULT_AVATAR;
+          chipAvatar.alt = '';
+          const chipLabel = document.createElement('span');
+          chipLabel.textContent = fav.displayName || fav.login;
+          chip.appendChild(chipAvatar);
+          chip.appendChild(chipLabel);
+          chips.appendChild(chip);
         });
 
-        const rename = document.createElement('button');
-        rename.type = 'button';
-        rename.className = 'tfr-button tfr-button--ghost';
-        rename.textContent = 'Renommer';
-        rename.addEventListener('click', async () => {
-          const next = window.prompt('Nouveau nom de catégorie', category.name);
-          if (!next) {
-            return;
-          }
-          await this.store.renameCategory(category.id, next);
-          this.render();
-        });
-
-        const remove = document.createElement('button');
-        remove.type = 'button';
-        remove.className = 'tfr-button tfr-button--danger';
-        remove.textContent = 'Supprimer';
-        remove.addEventListener('click', async () => {
-          const confirmed = window.confirm('Supprimer cette catégorie ? Les favoris resteront enregistrés.');
-          if (!confirmed) {
-            return;
-          }
-          await this.store.removeCategory(category.id);
-          this.render();
-        });
-
-        actions.appendChild(toggle);
-        actions.appendChild(rename);
-        actions.appendChild(remove);
-
-        item.appendChild(title);
-        item.appendChild(actions);
-        list.appendChild(item);
-      });
+        const hint = document.createElement('div');
+        hint.className = 'tfr-category-assigned tfr-category-assigned--empty';
+        hint.textContent = 'Attribuez une cat\u00e9gorie via la liste des favoris ci-dessous.';
+        uncategorizedItem.appendChild(chips);
+        uncategorizedItem.appendChild(hint);
+        this.enableUncategorizedDrop(uncategorizedItem);
+        list.appendChild(uncategorizedItem);
+      }
     }
 
     categoriesSection.appendChild(header);
     categoriesSection.appendChild(addCategory);
     categoriesSection.appendChild(list);
     content.appendChild(categoriesSection);
+  }
+
+  appendCategoryListItem(container, category, depth, assignmentsMap, aggregatedCounts, favoritesArray) {
+    const item = document.createElement('div');
+    item.className = 'tfr-category-item';
+    item.dataset.depth = String(depth);
+    item.style.marginLeft = `${depth * 16}px`;
+
+    const title = document.createElement('div');
+    title.className = 'tfr-category-item-title';
+    const name = document.createElement('span');
+    const indent = depth > 1 ? '  '.repeat(depth - 1) : '';
+    const bullet = depth ? '- ' : '';
+    name.textContent = `${indent}${bullet}${category.name}`;
+    const meta = document.createElement('span');
+    meta.className = 'tfr-category-meta';
+    const totalCount = aggregatedCounts.get(category.id) || 0;
+    meta.textContent = `${totalCount} favori${totalCount > 1 ? 's' : ''}`;
+    title.appendChild(name);
+    title.appendChild(meta);
+
+    const actions = document.createElement('div');
+    actions.className = 'tfr-category-item-actions';
+
+    const toggle = document.createElement('button');
+    toggle.type = 'button';
+    toggle.className = 'tfr-button tfr-button--ghost';
+    toggle.textContent = category.collapsed ? 'D\u00e9velopper' : 'R\u00e9duire';
+    toggle.addEventListener('click', async () => {
+      await this.store.toggleCategoryCollapse(category.id);
+      this.render();
+    });
+
+    const rename = document.createElement('button');
+    rename.type = 'button';
+    rename.className = 'tfr-button tfr-button--ghost';
+    rename.textContent = 'Renommer';
+    rename.addEventListener('click', async () => {
+      const next = window.prompt('Nouveau nom de cat\u00e9gorie', category.name);
+      if (!next) {
+        return;
+      }
+      await this.store.renameCategory(category.id, next);
+      this.render();
+    });
+
+    const addSub = document.createElement('button');
+    addSub.type = 'button';
+    addSub.className = 'tfr-button tfr-button--ghost';
+    addSub.textContent = 'Ajouter une sous-cat\u00e9gorie';
+    addSub.addEventListener('click', async () => {
+      const nameValue = window.prompt('Nom de la nouvelle sous-cat\u00e9gorie');
+      if (!nameValue) {
+        return;
+      }
+      await this.store.createCategory(nameValue, category.id);
+      this.render();
+    });
+
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.className = 'tfr-button tfr-button--danger';
+    remove.textContent = 'Supprimer';
+    remove.addEventListener('click', async () => {
+      const confirmed = window.confirm('Supprimer cette cat\u00e9gorie ? Les favoris resteront enregistr\u00e9s.');
+      if (!confirmed) {
+        return;
+      }
+      await this.store.removeCategory(category.id);
+      this.render();
+    });
+
+    actions.appendChild(toggle);
+    actions.appendChild(rename);
+    actions.appendChild(addSub);
+    actions.appendChild(remove);
+    const headerRow = document.createElement('div');
+    headerRow.className = 'tfr-category-item-header';
+    headerRow.appendChild(title);
+    headerRow.appendChild(actions);
+    item.appendChild(headerRow);
+
+    
+    
+    container.appendChild(item);
+
+    const directAssignments = assignmentsMap.get(category.id) || [];
+    if (directAssignments.length) {
+      const chips = document.createElement('div');
+      chips.className = 'tfr-category-assigned';
+      directAssignments.forEach((fav) => {
+        const chipButton = document.createElement('button');
+        chipButton.type = 'button';
+        chipButton.className = 'tfr-category-chip-btn';
+        chipButton.title = 'Retirer de cette cat\u00e9gorie';
+        const chipAvatar = document.createElement('img');
+        chipAvatar.className = 'tfr-category-chip-btn__avatar';
+        chipAvatar.src = fav.avatarUrl || DEFAULT_AVATAR;
+        chipAvatar.alt = '';
+        const chipLabel = document.createElement('span');
+        chipLabel.textContent = fav.displayName || fav.login;
+        chipButton.appendChild(chipAvatar);
+        chipButton.appendChild(chipLabel);
+        chipButton.addEventListener('click', async () => {
+          await this.store.clearFavoriteCategory(fav.login);
+          this.render();
+        });
+        chips.appendChild(chipButton);
+      });
+      item.appendChild(chips);
+    } else if (!category.children || !category.children.length) {
+      const empty = document.createElement('div');
+      empty.className = 'tfr-category-assigned tfr-category-assigned--empty';
+      empty.textContent = 'Aucun favori assign\u00e9 pour le moment.';
+      item.appendChild(empty);
+    }
+
+    const assignableFavorites = favoritesArray.filter((fav) => {
+      const current = Array.isArray(fav.categories) && fav.categories.length ? fav.categories[0] : null;
+      return current !== category.id;
+    });
+    if (assignableFavorites.length) {
+      const assignWrap = document.createElement('div');
+      assignWrap.className = 'tfr-category-assign';
+
+      const assignSelect = document.createElement('select');
+      assignSelect.className = 'tfr-category-assign-select';
+      const placeholder = document.createElement('option');
+      placeholder.value = '';
+      placeholder.textContent = 'Assigner un favori...';
+      assignSelect.appendChild(placeholder);
+      assignableFavorites
+        .sort((a, b) => (a.displayName || a.login).localeCompare(b.displayName || b.login, 'fr'))
+        .forEach((fav) => {
+          const option = document.createElement('option');
+          option.value = fav.login;
+          const current = Array.isArray(fav.categories) && fav.categories.length ? fav.categories[0] : null;
+          const suffix = current ? ` (actuellement: ${this.findCategoryName(current)})` : '';
+        option.textContent = (fav.displayName || fav.login) + suffix;
+        assignSelect.appendChild(option);
+      });
+
+      const assignButton = document.createElement('button');
+      assignButton.type = 'button';
+      assignButton.className = 'tfr-button tfr-button--ghost';
+      assignButton.textContent = 'Assigner';
+      assignButton.disabled = true;
+      assignSelect.addEventListener('change', () => {
+        assignButton.disabled = assignSelect.value === '';
+      });
+      assignButton.addEventListener('click', async () => {
+        const selected = assignSelect.value;
+        if (!selected) return;
+        await this.store.setFavoriteCategory(selected, category.id);
+        assignSelect.value = '';
+        assignButton.disabled = true;
+        this.render();
+      });
+
+      assignWrap.appendChild(assignSelect);
+      assignWrap.appendChild(assignButton);
+      item.appendChild(assignWrap);
+    }
+
+    this.setupCategoryDropTarget(item, category.id);
+
+    if (Array.isArray(category.children) && category.children.length) {
+      category.children.forEach((child) =>
+        this.appendCategoryListItem(container, child, depth + 1, assignmentsMap, aggregatedCounts, favoritesArray)
+      );
+    }
+  }
+
+  setupCategoryDropTarget(element, categoryId) {
+    const highlight = () => element.classList.add('is-drop-target');
+    const removeHighlight = () => element.classList.remove('is-drop-target');
+    const canHandle = (event) => {
+      const types = event.dataTransfer?.types;
+      return types && (types.includes('text/plain') || types.includes('Text'));
+    };
+    element.addEventListener('dragover', (event) => {
+      if (!canHandle(event)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      event.dataTransfer.dropEffect = 'move';
+      highlight();
+    });
+    element.addEventListener('dragenter', (event) => {
+      if (!canHandle(event)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      highlight();
+    });
+    element.addEventListener('dragleave', (event) => {
+      if (!element.contains(event.relatedTarget)) {
+        removeHighlight();
+      }
+    });
+    element.addEventListener('drop', async (event) => {
+      if (!canHandle(event)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      removeHighlight();
+      const login = event.dataTransfer?.getData('text/plain') || this.draggedLogin || '';
+      if (!login) return;
+      const fav = this.store.getState().favorites?.[login];
+      const current = Array.isArray(fav?.categories) && fav.categories.length ? fav.categories[0] : null;
+      if (current === categoryId) {
+        return;
+      }
+      try {
+        await this.store.setFavoriteCategory(login, categoryId);
+      } finally {
+        this.draggedLogin = null;
+        this.render();
+      }
+    });
+  }
+
+  enableUncategorizedDrop(element) {
+    const highlight = () => element.classList.add('is-drop-target');
+    const removeHighlight = () => element.classList.remove('is-drop-target');
+    const canHandle = (event) => {
+      const types = event.dataTransfer?.types;
+      return types && (types.includes('text/plain') || types.includes('Text'));
+    };
+    element.addEventListener('dragover', (event) => {
+      if (!canHandle(event)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      event.dataTransfer.dropEffect = 'move';
+      highlight();
+    });
+    element.addEventListener('dragenter', (event) => {
+      if (!canHandle(event)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      highlight();
+    });
+    element.addEventListener('dragleave', (event) => {
+      if (!element.contains(event.relatedTarget)) {
+        removeHighlight();
+      }
+    });
+    element.addEventListener('drop', async (event) => {
+      if (!canHandle(event)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      removeHighlight();
+      const login = event.dataTransfer?.getData('text/plain') || this.draggedLogin || '';
+      if (!login) return;
+      try {
+        await this.store.clearFavoriteCategory(login);
+      } finally {
+        this.draggedLogin = null;
+        this.render();
+      }
+    });
+  }
+
+  findCategoryName(categoryId) {
+    if (!categoryId) {
+      return 'Sans cat\u00e9gorie';
+    }
+    const stack = [...this.store.getCategoriesTree()];
+    while (stack.length) {
+      const node = stack.pop();
+      if (node.id === categoryId) {
+        return node.name;
+      }
+      if (node.children && node.children.length) {
+        stack.push(...node.children);
+      }
+    }
+    return 'Sans cat\u00e9gorie';
   }
 
   renderFavorites(content, state, liveData) {
@@ -1118,7 +2117,17 @@ class FavoritesOverlay {
       return fav.login.toLowerCase().includes(term) || (fav.displayName || '').toLowerCase().includes(term);
     });
 
-    const categories = this.store.getCategoriesSorted();
+    const categoryTree = this.store.getCategoriesTree();
+    const flatCategories = [];
+    const flattenForSelect = (nodes, depth = 0) => {
+      nodes.forEach((node) => {
+        flatCategories.push({ id: node.id, name: node.name, depth });
+        if (node.children && node.children.length) {
+          flattenForSelect(node.children, depth + 1);
+        }
+      });
+    };
+    flattenForSelect(categoryTree);
     const sorters = {
       viewersDesc: (a, b) => {
         const av = liveData[a.login]?.viewers || 0;
@@ -1134,7 +2143,7 @@ class FavoritesOverlay {
     if (!filtered.length) {
       const empty = document.createElement('div');
       empty.className = 'tfr-empty-state';
-      empty.textContent = term ? 'Aucun favori ne correspond à la recherche.' : 'Ajoutez vos streamers favoris pour les gérer ici.';
+      empty.textContent = term ? 'Aucun favori ne correspond a la recherche.' : 'Ajoutez vos streamers favoris pour les gerer ici.';
       list.appendChild(empty);
     } else {
       filtered.forEach((fav) => {
@@ -1142,6 +2151,20 @@ class FavoritesOverlay {
 
         const row = document.createElement('div');
         row.className = 'tfr-favorite-row';
+        row.draggable = true;
+        row.dataset.login = fav.login;
+        row.addEventListener('dragstart', (event) => {
+          if (event.dataTransfer) {
+            event.dataTransfer.setData('text/plain', fav.login);
+            event.dataTransfer.effectAllowed = 'move';
+          }
+          row.classList.add('is-dragging');
+          this.draggedLogin = fav.login;
+        });
+        row.addEventListener('dragend', () => {
+          row.classList.remove('is-dragging');
+          this.draggedLogin = null;
+        });
 
         const info = document.createElement('div');
         info.className = 'tfr-favorite-row__info';
@@ -1158,7 +2181,7 @@ class FavoritesOverlay {
         meta.className = 'tfr-favorite-row__meta';
         if (live?.isLive) {
           meta.classList.add('is-live');
-          meta.textContent = `En live à ${formatViewers(live.viewers)} spectateurs`;
+          meta.textContent = `En live \u00e0 ${formatViewers(live.viewers)} spectateurs`;
         } else {
           meta.textContent = 'Hors ligne';
         }
@@ -1173,27 +2196,28 @@ class FavoritesOverlay {
         categorySelect.className = 'tfr-category-select';
         const placeholderOption = document.createElement('option');
         placeholderOption.value = '';
-        placeholderOption.textContent = categories.length ? 'Sans cat\u00E9gorie' : 'Aucune cat\u00E9gorie disponible';
+        placeholderOption.textContent = flatCategories.length ? 'Sans cat\u00e9gorie' : 'Aucune cat\u00e9gorie disponible';
         categorySelect.appendChild(placeholderOption);
-        categories.forEach((category) => {
+        flatCategories.forEach((category) => {
           const option = document.createElement('option');
           option.value = category.id;
-          option.textContent = category.name;
+          const prefix = category.depth ? `${'  '.repeat(category.depth)}- ` : '';
+          option.textContent = `${prefix}${category.name}`;
           categorySelect.appendChild(option);
         });
         const currentCategory = Array.isArray(fav.categories) && fav.categories.length ? fav.categories[0] : '';
         categorySelect.value = currentCategory || '';
-        categorySelect.disabled = !categories.length;
+        categorySelect.disabled = !flatCategories.length;
         categorySelect.addEventListener('change', async (event) => {
           const value = event.target.value;
           await this.store.setFavoriteCategory(fav.login, value || null);
           this.render();
         });
         categoriesWrap.appendChild(categorySelect);
-        if (!categories.length) {
+        if (!flatCategories.length) {
           const hint = document.createElement('span');
           hint.className = 'tfr-empty-state';
-          hint.textContent = 'Cr\u00E9ez une cat\u00E9gorie pour organiser ce favori.';
+          hint.textContent = 'Cr\u00e9ez une cat\u00e9gorie pour organiser ce favori.';
           categoriesWrap.appendChild(hint);
         }
 
@@ -1672,5 +2696,9 @@ class TopNavManager {
     bootstrap();
   }
 })();
+
+
+
+
 
 
