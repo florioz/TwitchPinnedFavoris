@@ -1,16 +1,16 @@
-﻿.tfr-inline-button {
+.tfr-inline-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
   min-height: 32px;
-  padding: 6px 14px;
+  padding: 0 16px;
   margin-left: 8px;
-  margin-top: 6px;
+  margin-top: 0;
   background: #9147ff;
   color: #ffffff;
   border: none;
-  border-radius: 8px;
+  border-radius: 999px;
   font-size: 13px;
   font-weight: 600;
   line-height: 1;
@@ -18,6 +18,12 @@
   white-space: nowrap;
   transition: background 0.15s ease, transform 0.1s ease;
   flex-shrink: 0;
+  box-sizing: border-box;
+}
+
+.tfr-inline-button__icon {
+  fill: currentColor;
+  pointer-events: none;
 }
 
 .tfr-inline-button:hover {
@@ -93,5 +99,9 @@
   align-items: center;
   justify-content: center;
   pointer-events: auto;
+  margin: 0 6px;
 }
+
+
+
 
