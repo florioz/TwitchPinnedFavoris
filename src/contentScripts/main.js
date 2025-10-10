@@ -1066,6 +1066,13 @@
       anchor.href = `https://www.twitch.tv/${fav.login}`;
       anchor.target = '_self';
       anchor.rel = 'noopener noreferrer';
+      if (live?.title) {
+        anchor.title = live.title;
+      } else if (live?.displayName) {
+        anchor.title = live.displayName;
+      } else {
+        anchor.title = fav.displayName;
+      }
 
       const avatar = document.createElement('img');
       avatar.className = 'tfr-favorite-entry__avatar';
@@ -1077,10 +1084,16 @@
       const nameLine = document.createElement('span');
       nameLine.className = 'tfr-favorite-entry__name';
       nameLine.textContent = live?.displayName || fav.displayName;
+      const categoryLine = document.createElement('span');
+      categoryLine.className = 'tfr-favorite-entry__category';
+      categoryLine.textContent = live?.game || '';
       const viewerLine = document.createElement('span');
       viewerLine.className = 'tfr-favorite-entry__viewers';
       viewerLine.textContent = `${formatViewers(live?.viewers || 0)} spectateurs`;
       info.appendChild(nameLine);
+      if (categoryLine.textContent) {
+        info.appendChild(categoryLine);
+      }
       info.appendChild(viewerLine);
 
       anchor.appendChild(avatar);
