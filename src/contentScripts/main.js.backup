@@ -1,4 +1,4 @@
-﻿(() => {
+(() => {
   const STORAGE_KEY = 'tfr_state';
   const DEFAULT_STATE = {
     favorites: {},
@@ -3373,20 +3373,11 @@ class TopNavManager {
       const anchorGrand = anchorParent?.parentElement || null;
       if (anchorParent && this.isUsableParent(anchorParent) && anchorParent !== parent) {
         insertionParent = anchorParent;
-        insertionReference = anchor || null;
+        insertionReference = anchor?.nextElementSibling || null;
       }
       if (anchorGrand && this.isUsableParent(anchorGrand) && anchorGrand !== parent && anchorGrand !== insertionParent) {
+        insertionReference = anchorParent?.nextElementSibling || null;
         insertionParent = anchorGrand;
-        insertionReference = anchorParent || anchor || null;
-      }
-      if (anchor && anchor.parentElement === insertionParent) {
-        insertionReference = anchor;
-      } else if (anchorParent && anchorParent.parentElement === insertionParent) {
-        insertionReference = anchorParent;
-      }
-      if (!insertionReference) {
-        // Force the slot before existing actions so the button renders on the left.
-        insertionReference = Array.from(insertionParent.children).find((child) => child !== slot) || null;
       }
       if (insertionReference === slot) {
         insertionReference = slot.nextElementSibling;
