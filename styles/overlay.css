@@ -83,13 +83,28 @@
 
 .tfr-board-column--free {
   max-width: 320px;
+  align-self: stretch;
+  padding: 0;
+  box-sizing: border-box;
+  background: transparent;
+  border: none;
+  display: flex;
+}
+
+.tfr-free-sticky {
   position: sticky;
   top: 18px;
-  align-self: flex-start;
+  background: rgba(32, 21, 54, 0.55);
+  border: 1px solid rgba(145, 71, 255, 0.2);
+  border-radius: 12px;
+  padding: 16px 24px 16px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
   max-height: calc(92vh - 140px);
   overflow-y: auto;
   overflow-x: hidden;
-  padding-right: 24px;
+  padding-right: 12px;
   box-sizing: border-box;
   scrollbar-gutter: stable both-edges;
 }

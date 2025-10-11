@@ -1,4 +1,4 @@
-﻿(() => {
+(() => {
   const STORAGE_KEY = 'tfr_state';
   const DEFAULT_STATE = {
     favorites: {},
@@ -1545,8 +1545,6 @@ class FavoritesOverlay {
     this.sortMode = state.preferences?.sortMode || this.sortMode;
 
     const content = this.root.querySelector('.tfr-overlay-content');
-    const previousScrollTop = content.scrollTop;
-    const previousScrollLeft = content.scrollLeft;
     content.innerHTML = '';
 
     const controls = document.createElement('div');
@@ -1586,17 +1584,6 @@ class FavoritesOverlay {
     content.appendChild(board);
 
     this.renderFavoriteDetailsPanel(state, liveData);
-    requestAnimationFrame(() => {
-      if (!content.isConnected) {
-        return;
-      }
-      if (content.scrollTop !== previousScrollTop) {
-        content.scrollTop = previousScrollTop;
-      }
-      if (content.scrollLeft !== previousScrollLeft) {
-        content.scrollLeft = previousScrollLeft;
-      }
-    });
   }
 
   renderRecentLiveSettings(state) {
@@ -1708,19 +1695,16 @@ class FavoritesOverlay {
   renderFreeFavoritesColumn(state, liveData, term) {
     const column = document.createElement('section');
     column.className = 'tfr-board-column tfr-board-column--free';
-    const sticky = document.createElement('div');
-    sticky.className = 'tfr-free-sticky';
-    column.appendChild(sticky);
 
     const title = document.createElement('h3');
     title.className = 'tfr-board-title';
     title.textContent = 'Favoris disponibles';
-    sticky.appendChild(title);
+    column.appendChild(title);
 
     const subtitle = document.createElement('p');
     subtitle.className = 'tfr-board-subtitle';
     subtitle.textContent = 'Glissez une pastille vers une categorie a droite pour organiser vos favoris.';
-    sticky.appendChild(subtitle);
+    column.appendChild(subtitle);
 
     const grid = document.createElement('div');
     grid.className = 'tfr-free-grid';
@@ -1751,7 +1735,7 @@ class FavoritesOverlay {
       });
     }
 
-    sticky.appendChild(grid);
+    column.appendChild(grid);
     this.enableUncategorizedDrop(grid);
     return column;
   }
@@ -3389,20 +3373,11 @@ class TopNavManager {
       const anchorGrand = anchorParent?.parentElement || null;
       if (anchorParent && this.isUsableParent(anchorParent) && anchorParent !== parent) {
         insertionParent = anchorParent;
-        insertionReference = anchor || null;
+        insertionReference = anchor?.nextElementSibling || null;
       }
       if (anchorGrand && this.isUsableParent(anchorGrand) && anchorGrand !== parent && anchorGrand !== insertionParent) {
+        insertionReference = anchorParent?.nextElementSibling || null;
         insertionParent = anchorGrand;
-        insertionReference = anchorParent || anchor || null;
-      }
-      if (anchor && anchor.parentElement === insertionParent) {
-        insertionReference = anchor;
-      } else if (anchorParent && anchorParent.parentElement === insertionParent) {
-        insertionReference = anchorParent;
-      }
-      if (!insertionReference) {
-        // Force the slot before existing actions so the button renders on the left.
-        insertionReference = Array.from(insertionParent.children).find((child) => child !== slot) || null;
       }
       if (insertionReference === slot) {
         insertionReference = slot.nextElementSibling;

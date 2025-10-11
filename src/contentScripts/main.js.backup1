@@ -1,4 +1,4 @@
-﻿(() => {
+(() => {
   const STORAGE_KEY = 'tfr_state';
   const DEFAULT_STATE = {
     favorites: {},
@@ -6,10 +6,7 @@
     preferences: {
       sortMode: 'viewersDesc',
       uncategorizedCollapsed: false,
-      liveFavoritesCollapsed: false,
-      recentLiveEnabled: false,
-      recentLiveThresholdMinutes: 10,
-      recentLiveCollapsed: false
+      liveFavoritesCollapsed: false
     }
   };
 
@@ -30,19 +27,6 @@
             name
           }
           title
-          createdAt
-        }
-      }
-    }
-  `;
-  const CATEGORY_SUGGESTIONS_QUERY = `
-    query CategorySuggestions($query: String!, $first: Int!) {
-      searchCategories(query: $query, first: $first) {
-        edges {
-          node {
-            id
-            name
-          }
         }
       }
     }
@@ -60,107 +44,11 @@
 
   const deepCopy = (value) => (value ? JSON.parse(JSON.stringify(value)) : value);
 
-  const fetchCategorySuggestions = async (term, limit = 10) => {
-    const trimmed = (term || '').trim();
-    if (!trimmed) {
-      return [];
-    }
-    try {
-      const response = await fetch(TWITCH_GRAPHQL_ENDPOINT, {
-        method: 'POST',
-        mode: 'cors',
-        credentials: 'omit',
-        headers: {
-          'Client-ID': TWITCH_CLIENT_ID,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          query: CATEGORY_SUGGESTIONS_QUERY,
-          variables: { query: trimmed, first: limit }
-        })
-      });
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-      }
-      const payload = await response.json();
-      const edges = payload?.data?.searchCategories?.edges;
-      if (!Array.isArray(edges)) {
-        return [];
-      }
-      return edges
-        .map((edge) => edge?.node?.name)
-        .filter((name) => typeof name === 'string' && name.trim());
-    } catch (error) {
-      console.error('[TFR] Failed to fetch category suggestions', term, error);
-      return [];
-    }
-  };
-
   const formatViewers = (count) => {
     if (!count || Number.isNaN(count)) return '0';
     if (count < 1000) return `${count}`;
     if (count < 1000000) return `${(count / 1000).toFixed(1).replace(/\.0$/, '')}K`;
     return `${(count / 1000000).toFixed(1).replace(/\.0$/, '')}M`;
-  };
-
-  const normalizeCategoryName = (value) => {
-    if (!value) return '';
-    let output = String(value).trim().toLocaleLowerCase();
-    if (typeof output.normalize === 'function') {
-      output = output.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-    }
-    return output;
-  };
-
-  const sanitizeCategoryList = (values) => {
-    if (!Array.isArray(values)) {
-      return [];
-    }
-    const seen = new Set();
-    const sanitized = [];
-    values.forEach((value) => {
-      if (typeof value !== 'string') return;
-      const raw = value.trim();
-      if (!raw) return;
-      const key = normalizeCategoryName(raw);
-      if (!key || seen.has(key)) return;
-      seen.add(key);
-      sanitized.push(raw);
-    });
-    return sanitized;
-  };
-
-  const shouldDisplayFavorite = (favoriteEntry, liveEntry) => {
-    if (!liveEntry || !liveEntry.isLive) {
-      return false;
-    }
-    const filter = favoriteEntry?.categoryFilter;
-    if (!filter || !filter.enabled) {
-      return true;
-    }
-    const categories = Array.isArray(filter.categories)
-      ? filter.categories
-      : typeof filter.category === 'string'
-      ? [filter.category]
-      : [];
-    if (!categories.length) {
-      return true;
-    }
-    const requiredSet = new Set();
-    categories.forEach((category) => {
-      const normalized = normalizeCategoryName(category);
-      if (normalized) {
-        requiredSet.add(normalized);
-      }
-    });
-    if (!requiredSet.size) {
-      return true;
-    }
-    const currentCategory = normalizeCategoryName(liveEntry.game);
-    if (!currentCategory) {
-      return false;
-    }
-    return requiredSet.has(currentCategory);
   };
 
   const getChannelFromLocation = (locationLike = window.location) => {
@@ -195,8 +83,7 @@
           isLive: false,
           viewers: 0,
           title: '',
-          game: '',
-          startedAt: null
+          game: ''
         };
       }
       const stream = user.stream;
@@ -207,8 +94,7 @@
         isLive: Boolean(stream),
         viewers: stream?.viewersCount || 0,
         title: stream?.title || '',
-        game: stream?.game?.name || '',
-        startedAt: stream?.createdAt || null
+        game: stream?.game?.name || ''
       };
     } catch (error) {
       console.error('[TFR] Failed to fetch live data', login, error);
@@ -219,8 +105,7 @@
         isLive: false,
         viewers: 0,
         title: '',
-        game: '',
-        startedAt: null
+        game: ''
       };
     }
   };
@@ -290,40 +175,16 @@
         this.state.categories = [];
       }
       if (!this.state.preferences) {
-        this.state.preferences = {
-          sortMode: 'viewersDesc',
-          uncategorizedCollapsed: false,
-          liveFavoritesCollapsed: false,
-          recentLiveEnabled: false,
-          recentLiveThresholdMinutes: 10,
-          recentLiveCollapsed: false
-        };
+        this.state.preferences = { sortMode: 'viewersDesc', uncategorizedCollapsed: false };
       }
       if (!Object.prototype.hasOwnProperty.call(this.state.preferences, 'sortMode')) {
-        this.state.preferences.sortMode = 'viewersDesc';
+      this.state.preferences.sortMode = 'viewersDesc';
       }
       if (!Object.prototype.hasOwnProperty.call(this.state.preferences, 'uncategorizedCollapsed')) {
         this.state.preferences.uncategorizedCollapsed = false;
       }
       if (!Object.prototype.hasOwnProperty.call(this.state.preferences, 'liveFavoritesCollapsed')) {
         this.state.preferences.liveFavoritesCollapsed = false;
-      }
-      if (!Object.prototype.hasOwnProperty.call(this.state.preferences, 'recentLiveEnabled')) {
-        this.state.preferences.recentLiveEnabled = false;
-      } else {
-        this.state.preferences.recentLiveEnabled = Boolean(this.state.preferences.recentLiveEnabled);
-      }
-      if (!Object.prototype.hasOwnProperty.call(this.state.preferences, 'recentLiveThresholdMinutes')) {
-        this.state.preferences.recentLiveThresholdMinutes = 10;
-      } else {
-        const parsed = Number(this.state.preferences.recentLiveThresholdMinutes);
-        const sanitized = Number.isFinite(parsed) ? Math.max(1, Math.min(120, Math.round(parsed))) : 10;
-        this.state.preferences.recentLiveThresholdMinutes = sanitized;
-      }
-      if (!Object.prototype.hasOwnProperty.call(this.state.preferences, 'recentLiveCollapsed')) {
-        this.state.preferences.recentLiveCollapsed = false;
-      } else {
-        this.state.preferences.recentLiveCollapsed = Boolean(this.state.preferences.recentLiveCollapsed);
       }
       const categoryIdMap = new Map();
       this.state.categories.forEach((category, index) => {
@@ -403,21 +264,6 @@
           fav.categories = [fav.categories];
         } else if (fav.categories != null) {
           delete fav.categories;
-        }
-        if (!fav.categoryFilter || typeof fav.categoryFilter !== 'object') {
-          fav.categoryFilter = { enabled: false, categories: [] };
-        } else {
-          let categories = [];
-          if (Array.isArray(fav.categoryFilter.categories)) {
-            categories = sanitizeCategoryList(fav.categoryFilter.categories);
-          } else if (typeof fav.categoryFilter.category === 'string') {
-            categories = sanitizeCategoryList([fav.categoryFilter.category]);
-          }
-          const enabled = Boolean(fav.categoryFilter.enabled);
-          fav.categoryFilter = {
-            enabled,
-            categories
-          };
         }
       });
     }
@@ -500,20 +346,6 @@
       if (!entry.categories.length && typeof raw.category === 'string' && raw.category) {
         entry.categories = [raw.category];
       }
-      const rawFilter = raw.categoryFilter && typeof raw.categoryFilter === 'object' ? raw.categoryFilter : null;
-      let categoryFilter = { enabled: false, categories: [] };
-      if (rawFilter) {
-        let categories = [];
-        if (Array.isArray(rawFilter.categories)) {
-          categories = sanitizeCategoryList(rawFilter.categories);
-        } else if (typeof rawFilter.category === 'string') {
-          categories = sanitizeCategoryList([rawFilter.category]);
-        }
-        categoryFilter = { enabled: Boolean(rawFilter.enabled), categories };
-      } else if (typeof raw.requiredCategory === 'string' && raw.requiredCategory.trim()) {
-        categoryFilter = { enabled: true, categories: sanitizeCategoryList([raw.requiredCategory]) };
-      }
-      entry.categoryFilter = categoryFilter;
       safeFavorites[normalized] = entry;
     });
 
@@ -548,18 +380,6 @@
       }
       if (typeof payload.preferences.liveFavoritesCollapsed === 'boolean') {
         safePreferences.liveFavoritesCollapsed = payload.preferences.liveFavoritesCollapsed;
-      }
-      if (typeof payload.preferences.recentLiveEnabled === 'boolean') {
-        safePreferences.recentLiveEnabled = payload.preferences.recentLiveEnabled;
-      }
-      if (typeof payload.preferences.recentLiveCollapsed === 'boolean') {
-        safePreferences.recentLiveCollapsed = payload.preferences.recentLiveCollapsed;
-      }
-      if (payload.preferences.recentLiveThresholdMinutes != null) {
-        const parsed = Number(payload.preferences.recentLiveThresholdMinutes);
-        if (Number.isFinite(parsed)) {
-          safePreferences.recentLiveThresholdMinutes = Math.max(1, Math.min(120, Math.round(parsed)));
-        }
       }
     }
 
@@ -614,8 +434,7 @@
         displayName: live?.displayName || normalized,
         avatarUrl: live?.avatarUrl || DEFAULT_AVATAR,
         categories: [],
-        addedAt: Date.now(),
-        categoryFilter: { enabled: false, categories: [] }
+        addedAt: Date.now()
       };
       await this.updateState((draft) => {
         draft.favorites[normalized] = favoriteEntry;
@@ -665,39 +484,6 @@
 
     async clearFavoriteCategory(login) {
       await this.setFavoriteCategory(login, null);
-    }
-
-    async setFavoriteCategoryFilter(login, payload = {}) {
-      const normalized = login?.toLowerCase();
-      if (!normalized || !this.state.favorites[normalized]) {
-        return;
-      }
-      await this.updateState((draft) => {
-        const fav = draft.favorites[normalized];
-        if (!fav) {
-          return;
-        }
-        const currentFilter =
-          fav.categoryFilter && typeof fav.categoryFilter === 'object'
-            ? fav.categoryFilter
-            : { enabled: false, categories: [] };
-        let categories = Array.isArray(currentFilter.categories) ? currentFilter.categories : [];
-        if (Array.isArray(payload.categories)) {
-          categories = sanitizeCategoryList(payload.categories);
-        } else if (typeof payload.category === 'string') {
-          categories = sanitizeCategoryList([payload.category]);
-        } else {
-          categories = sanitizeCategoryList(categories);
-        }
-        const enabled =
-          payload.enabled === undefined || payload.enabled === null
-            ? Boolean(currentFilter.enabled)
-            : Boolean(payload.enabled);
-        fav.categoryFilter = {
-          enabled,
-          categories
-        };
-      });
     }
 
     async toggleCategoryAssignment(login, categoryId, assign) {
@@ -777,38 +563,6 @@
       await this.updateState((draft) => {
         const prefs = draft.preferences || (draft.preferences = {});
         prefs.liveFavoritesCollapsed = !Boolean(prefs.liveFavoritesCollapsed);
-      });
-    }
-
-    async setRecentLiveEnabled(enabled) {
-      if (Boolean(this.state.preferences?.recentLiveEnabled) === Boolean(enabled)) {
-        return;
-      }
-      await this.updateState((draft) => {
-        const prefs = draft.preferences || (draft.preferences = {});
-        prefs.recentLiveEnabled = Boolean(enabled);
-      });
-    }
-
-    async setRecentLiveThreshold(minutes) {
-      const numeric = Number(minutes);
-      if (!Number.isFinite(numeric)) {
-        return;
-      }
-      const sanitized = Math.max(1, Math.min(120, Math.round(numeric)));
-      if (Math.round(Number(this.state.preferences?.recentLiveThresholdMinutes)) === sanitized) {
-        return;
-      }
-      await this.updateState((draft) => {
-        const prefs = draft.preferences || (draft.preferences = {});
-        prefs.recentLiveThresholdMinutes = sanitized;
-      });
-    }
-
-    async toggleRecentLiveCollapsed() {
-      await this.updateState((draft) => {
-        const prefs = draft.preferences || (draft.preferences = {});
-        prefs.recentLiveCollapsed = !Boolean(prefs.recentLiveCollapsed);
       });
     }
 
@@ -1031,9 +785,7 @@
       const buildNode = (node) => {
         const children = node.children.map((child) => buildNode(child)).filter(Boolean);
         const rawEntries = assignments.get(node.id) || [];
-        const entries = rawEntries
-          .filter((fav) => shouldDisplayFavorite(fav, liveData[fav.login]))
-          .sort(comparator);
+        const entries = rawEntries.filter((fav) => liveData[fav.login]?.isLive).sort(comparator);
         const totalEntries = entries.length + children.reduce((sum, child) => sum + child.totalEntries, 0);
         if (!totalEntries) {
           return null;
@@ -1055,42 +807,8 @@
           groups.push(built);
         }
       });
-      const preferences = state.preferences || {};
-      if (preferences.recentLiveEnabled) {
-        const thresholdMinutes = Number(preferences.recentLiveThresholdMinutes);
-        const sanitizedMinutes = Number.isFinite(thresholdMinutes) ? Math.max(1, Math.min(120, Math.round(thresholdMinutes))) : 10;
-        const thresholdMs = sanitizedMinutes * 60000;
-        const now = Date.now();
-        const recentEntries = favorites
-          .filter((fav) => shouldDisplayFavorite(fav, liveData[fav.login]))
-          .filter((fav) => {
-            const live = liveData[fav.login];
-            if (!live?.isLive) {
-              return false;
-            }
-            const startedAt = live.startedAt ? Date.parse(live.startedAt) : NaN;
-            if (!Number.isFinite(startedAt)) {
-              return false;
-            }
-            const diff = now - startedAt;
-            return diff >= 0 && diff <= thresholdMs;
-          })
-          .sort(comparator);
-        if (recentEntries.length) {
-          groups.unshift({
-            id: 'recentLive',
-            name: 'D\u00e9but de live',
-            collapsed: Boolean(preferences.recentLiveCollapsed),
-            parentId: null,
-            entries: recentEntries,
-            children: [],
-            totalEntries: recentEntries.length,
-            isRecentLive: true
-          });
-        }
-      }
       const uncategorizedEntries = uncategorized
-        .filter((fav) => shouldDisplayFavorite(fav, liveData[fav.login]))
+        .filter((fav) => liveData[fav.login]?.isLive)
         .sort(comparator);
       if (uncategorizedEntries.length) {
         groups.push({
@@ -1114,13 +832,6 @@
       anchor.href = `https://www.twitch.tv/${fav.login}`;
       anchor.target = '_self';
       anchor.rel = 'noopener noreferrer';
-      if (live?.title) {
-        anchor.title = live.title;
-      } else if (live?.displayName) {
-        anchor.title = live.displayName;
-      } else {
-        anchor.title = fav.displayName;
-      }
 
       const avatar = document.createElement('img');
       avatar.className = 'tfr-favorite-entry__avatar';
@@ -1132,16 +843,10 @@
       const nameLine = document.createElement('span');
       nameLine.className = 'tfr-favorite-entry__name';
       nameLine.textContent = live?.displayName || fav.displayName;
-      const categoryLine = document.createElement('span');
-      categoryLine.className = 'tfr-favorite-entry__category';
-      categoryLine.textContent = live?.game || '';
       const viewerLine = document.createElement('span');
       viewerLine.className = 'tfr-favorite-entry__viewers';
       viewerLine.textContent = `${formatViewers(live?.viewers || 0)} spectateurs`;
       info.appendChild(nameLine);
-      if (categoryLine.textContent) {
-        info.appendChild(categoryLine);
-      }
       info.appendChild(viewerLine);
 
       anchor.appendChild(avatar);
@@ -1196,12 +901,10 @@
       block.className = 'tfr-category-block';
       block.dataset.depth = String(depth);
       if (group.collapsed) block.classList.add('is-collapsed');
-      if (group.isRecentLive) block.classList.add('tfr-category-block--recent');
 
       const headerRow = document.createElement('button');
       headerRow.type = 'button';
       headerRow.className = 'tfr-category-header';
-      if (group.isRecentLive) headerRow.classList.add('tfr-category-header--recent');
       headerRow.style.paddingLeft = `${12 + depth * 16}px`;
       const label = document.createElement('span');
       label.className = 'tfr-category-header-label';
@@ -1220,9 +923,7 @@
       headerRow.appendChild(count);
       headerRow.setAttribute('aria-expanded', String(!group.collapsed));
       headerRow.addEventListener('click', () => {
-        if (group.isRecentLive) {
-          this.store.toggleRecentLiveCollapsed();
-        } else if (group.isUncategorized) {
+        if (group.isUncategorized) {
           this.store.setUncategorizedCollapsed(!group.collapsed);
         } else {
           this.store.toggleCategoryCollapse(group.id);
@@ -1347,18 +1048,7 @@
       const button = document.createElement('button');
       button.type = 'button';
       button.className = 'tfr-inline-button';
-      button.style.marginLeft = '8px';
-      button.style.marginTop = '0';
-      button.style.alignSelf = 'center';
-      button.style.pointerEvents = 'auto';
-      button.textContent = '';
-      button.innerHTML = '<svg class="tfr-inline-button__icon" width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 17.27L18.18 21 16.54 13.97 22 9.24 14.81 8.63 12 2 9.19 8.63 2 9.24 7.46 13.97 5.82 21z"></path></svg>';
-      const stopHoverPropagation = (event) => {
-        event.stopPropagation();
-      };
-      ['pointerenter', 'pointerover', 'mouseenter', 'mouseover', 'mouseleave', 'pointerleave'].forEach((eventName) => {
-        button.addEventListener(eventName, stopHoverPropagation, true);
-      });
+      button.textContent = 'Ajouter aux favoris';
       button.addEventListener('click', async () => {
         if (!this.currentLogin) return;
         const normalized = this.currentLogin.toLowerCase();
@@ -1410,13 +1100,13 @@
       const normalized = this.currentLogin.toLowerCase();
       const isFavorite = Boolean(this.store.getState().favorites[normalized]);
       button.disabled = false;
-        if (isFavorite) {
-          button.classList.add('is-remove');
-          button.innerHTML = '<svg class="tfr-inline-button__icon" width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 17.27L18.18 21 16.54 13.97 22 9.24 14.81 8.63 12 2 9.19 8.63 2 9.24 7.46 13.97 5.82 21z"></path></svg>';
-        } else {
-          button.classList.remove('is-remove');
-          button.innerHTML = '<svg class="tfr-inline-button__icon" width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 17.27L18.18 21 16.54 13.97 22 9.24 14.81 8.63 12 2 9.19 8.63 2 9.24 7.46 13.97 5.82 21z"></path></svg>';
-        }
+      if (isFavorite) {
+        button.textContent = 'Retirer des favoris';
+        button.classList.add('is-remove');
+      } else {
+        button.textContent = 'Ajouter aux favoris';
+        button.classList.remove('is-remove');
+      }
     }
   }
 
@@ -1433,8 +1123,6 @@ class FavoritesOverlay {
     this.backupInput = null;
     this.isImportingBackup = false;
     this.draggedLogin = null;
-    this.activeFavoriteLogin = null;
-    this.categorySuggestionCache = new Map();
     this.unsubscribe = this.store.subscribe(() => {
       if (this.isOpen) {
         this.render();
@@ -1515,7 +1203,6 @@ class FavoritesOverlay {
     this.root?.remove();
     this.backupInput = null;
     this.draggedLogin = null;
-    this.activeFavoriteLogin = null;
     this.closeListeners.forEach((callback) => {
       try {
         callback();
@@ -1545,8 +1232,6 @@ class FavoritesOverlay {
     this.sortMode = state.preferences?.sortMode || this.sortMode;
 
     const content = this.root.querySelector('.tfr-overlay-content');
-    const previousScrollTop = content.scrollTop;
-    const previousScrollLeft = content.scrollLeft;
     content.innerHTML = '';
 
     const controls = document.createElement('div');
@@ -1577,123 +1262,8 @@ class FavoritesOverlay {
     controls.appendChild(this.renderBackupControls());
     content.appendChild(controls);
 
-    const recentSettings = this.renderRecentLiveSettings(state);
-    if (recentSettings) {
-      content.appendChild(recentSettings);
-    }
-
     const board = this.renderBoard(state, liveData);
     content.appendChild(board);
-
-    this.renderFavoriteDetailsPanel(state, liveData);
-    requestAnimationFrame(() => {
-      if (!content.isConnected) {
-        return;
-      }
-      if (content.scrollTop !== previousScrollTop) {
-        content.scrollTop = previousScrollTop;
-      }
-      if (content.scrollLeft !== previousScrollLeft) {
-        content.scrollLeft = previousScrollLeft;
-      }
-    });
-  }
-
-  renderRecentLiveSettings(state) {
-    const prefs = state.preferences || {};
-    const wrapper = document.createElement('section');
-    wrapper.className = 'tfr-recent-live-settings';
-
-    const rawThreshold = Number(prefs.recentLiveThresholdMinutes);
-    const currentThreshold = Number.isFinite(rawThreshold)
-      ? Math.max(1, Math.min(120, Math.round(rawThreshold)))
-      : 10;
-
-    const toggleLabel = document.createElement('label');
-    toggleLabel.className = 'tfr-recent-live-toggle';
-    const toggle = document.createElement('input');
-    toggle.type = 'checkbox';
-    toggle.className = 'tfr-recent-live-toggle__input';
-    toggle.checked = Boolean(prefs.recentLiveEnabled);
-    const toggleId = 'tfr-recent-live-toggle';
-    toggle.id = toggleId;
-    toggleLabel.setAttribute('for', toggleId);
-    const toggleText = document.createElement('span');
-    toggleText.textContent = 'Activer la section \u00ab D\u00e9but de live \u00bb';
-    toggleLabel.appendChild(toggle);
-    toggleLabel.appendChild(toggleText);
-    wrapper.appendChild(toggleLabel);
-
-    const thresholdWrapper = document.createElement('div');
-    thresholdWrapper.className = 'tfr-recent-live-threshold';
-    const thresholdLabel = document.createElement('label');
-    thresholdLabel.textContent = 'Dur\u00e9e maximale :';
-    thresholdWrapper.appendChild(thresholdLabel);
-    const thresholdInput = document.createElement('input');
-    thresholdInput.type = 'number';
-    thresholdInput.min = '1';
-    thresholdInput.max = '120';
-    thresholdInput.value = String(currentThreshold);
-    thresholdInput.className = 'tfr-recent-live-threshold__input';
-    thresholdInput.disabled = !toggle.checked;
-    const thresholdInputId = 'tfr-recent-live-threshold';
-    thresholdInput.id = thresholdInputId;
-    thresholdLabel.setAttribute('for', thresholdInputId);
-    thresholdWrapper.appendChild(thresholdInput);
-    const thresholdSuffix = document.createElement('span');
-    thresholdSuffix.textContent = 'minutes';
-    thresholdWrapper.appendChild(thresholdSuffix);
-    wrapper.appendChild(thresholdWrapper);
-
-    const hint = document.createElement('p');
-    hint.className = 'tfr-recent-live-hint';
-    hint.textContent = 'Affiche les streamers qui viennent de lancer leur live pendant une dur\u00e9e limit\u00e9e.';
-    wrapper.appendChild(hint);
-
-    toggle.addEventListener('change', async (event) => {
-      const enabled = event.target.checked;
-      thresholdInput.disabled = !enabled;
-      await this.store.setRecentLiveEnabled(enabled);
-      this.render();
-    });
-
-    thresholdInput.addEventListener('change', async (event) => {
-      const parsed = Number(event.target.value);
-      if (!Number.isFinite(parsed)) {
-        event.target.value = String(currentThreshold);
-        return;
-      }
-      const sanitized = Math.max(1, Math.min(120, Math.round(parsed)));
-      event.target.value = String(sanitized);
-      await this.store.setRecentLiveThreshold(sanitized);
-      this.render();
-    });
-
-    return wrapper;
-  }
-
-  async getCategorySuggestions(term) {
-    const normalized = normalizeCategoryName(term);
-    if (!normalized || normalized.length < 2) {
-      return [];
-    }
-    if (this.categorySuggestionCache.has(normalized)) {
-      return this.categorySuggestionCache.get(normalized);
-    }
-    const results = await fetchCategorySuggestions(term, 20);
-    const unique = [];
-    const seen = new Set();
-    results.forEach((name) => {
-      const trimmed = typeof name === 'string' ? name.trim() : '';
-      const key = normalizeCategoryName(trimmed);
-      if (!trimmed || !key || seen.has(key)) {
-        return;
-      }
-      seen.add(key);
-      unique.push(trimmed);
-    });
-    this.categorySuggestionCache.set(normalized, unique);
-    return unique;
   }
 
   renderBoard(state, liveData) {
@@ -1708,19 +1278,16 @@ class FavoritesOverlay {
   renderFreeFavoritesColumn(state, liveData, term) {
     const column = document.createElement('section');
     column.className = 'tfr-board-column tfr-board-column--free';
-    const sticky = document.createElement('div');
-    sticky.className = 'tfr-free-sticky';
-    column.appendChild(sticky);
 
     const title = document.createElement('h3');
     title.className = 'tfr-board-title';
     title.textContent = 'Favoris disponibles';
-    sticky.appendChild(title);
+    column.appendChild(title);
 
     const subtitle = document.createElement('p');
     subtitle.className = 'tfr-board-subtitle';
     subtitle.textContent = 'Glissez une pastille vers une categorie a droite pour organiser vos favoris.';
-    sticky.appendChild(subtitle);
+    column.appendChild(subtitle);
 
     const grid = document.createElement('div');
     grid.className = 'tfr-free-grid';
@@ -1751,7 +1318,7 @@ class FavoritesOverlay {
       });
     }
 
-    sticky.appendChild(grid);
+    column.appendChild(grid);
     this.enableUncategorizedDrop(grid);
     return column;
   }
@@ -1951,7 +1518,7 @@ class FavoritesOverlay {
       favoritesGrid.appendChild(empty);
     } else {
       filtered.forEach((fav) => {
-        const square = this.createFavoriteSquare(fav, liveData);
+        const square = this.createFavoriteSquare(fav, liveData, term);
         favoritesGrid.appendChild(square);
       });
     }
@@ -1972,11 +1539,11 @@ class FavoritesOverlay {
     return card;
   }
 
-  createFavoriteSquare(fav, liveData) {
+  createFavoriteSquare(fav, liveData, term) {
     const button = document.createElement('button');
     button.type = 'button';
     button.className = 'tfr-category-square';
-    button.title = `Param\u00e9trer ${fav.displayName || fav.login}`;
+    button.title = `Retirer ${fav.displayName || fav.login} de cette categorie`;
 
     const avatar = document.createElement('img');
     avatar.className = 'tfr-category-square__avatar';
@@ -1990,15 +1557,9 @@ class FavoritesOverlay {
     button.appendChild(label);
 
     this.makeFavoriteDraggable(button, fav.login);
-    if (this.activeFavoriteLogin === fav.login?.toLowerCase()) {
-      button.classList.add('is-active');
-    }
-    button.addEventListener('click', (event) => {
-      event.preventDefault();
-      if (this.draggedLogin) {
-        return;
-      }
-      this.openFavoriteDetails(fav.login);
+    button.addEventListener('click', async () => {
+      await this.store.clearFavoriteCategory(fav.login);
+      this.render();
     });
     return button;
   }
@@ -2354,8 +1915,7 @@ class FavoritesOverlay {
         const chipButton = document.createElement('button');
         chipButton.type = 'button';
         chipButton.className = 'tfr-category-chip-btn';
-        chipButton.title = 'Param\u00e8tres du streamer';
-        chipButton.dataset.login = fav.login;
+        chipButton.title = 'Retirer de cette cat\u00e9gorie';
         const chipAvatar = document.createElement('img');
         chipAvatar.className = 'tfr-category-chip-btn__avatar';
         chipAvatar.src = fav.avatarUrl || DEFAULT_AVATAR;
@@ -2364,11 +1924,10 @@ class FavoritesOverlay {
         chipLabel.textContent = fav.displayName || fav.login;
         chipButton.appendChild(chipAvatar);
         chipButton.appendChild(chipLabel);
-        chipButton.addEventListener('click', () => this.openFavoriteDetails(fav.login));
-        chipButton.addEventListener('dragstart', (event) => event.preventDefault());
-        if (this.activeFavoriteLogin === fav.login?.toLowerCase()) {
-          chipButton.classList.add('is-active');
-        }
+        chipButton.addEventListener('click', async () => {
+          await this.store.clearFavoriteCategory(fav.login);
+          this.render();
+        });
         chips.appendChild(chipButton);
       });
       item.appendChild(chips);
@@ -2522,27 +2081,6 @@ class FavoritesOverlay {
     });
   }
 
-  openFavoriteDetails(login) {
-    if (!login) {
-      return;
-    }
-    const normalized = login.toLowerCase();
-    if (this.activeFavoriteLogin === normalized) {
-      this.closeFavoriteDetails();
-      return;
-    }
-    this.activeFavoriteLogin = normalized;
-    this.render();
-  }
-
-  closeFavoriteDetails() {
-    if (!this.activeFavoriteLogin) {
-      return;
-    }
-    this.activeFavoriteLogin = null;
-    this.render();
-  }
-
   findCategoryName(categoryId) {
     if (!categoryId) {
       return 'Sans cat\u00e9gorie';
@@ -2560,21 +2098,25 @@ class FavoritesOverlay {
     return 'Sans cat\u00e9gorie';
   }
 
-  renderFavoriteDetailsPanel(state, liveData) {
-    const panelContainer = this.root?.querySelector('.tfr-overlay-panel');
-    panelContainer?.querySelector('.tfr-favorite-details')?.remove();
-    if (panelContainer) {
-      panelContainer.classList.remove('tfr-overlay-panel--with-details');
-    }
-    const login = this.activeFavoriteLogin;
-    if (!panelContainer || !login) {
-      return;
-    }
-    const favorite = state.favorites?.[login];
-    if (!favorite) {
-      this.activeFavoriteLogin = null;
-      return;
-    }
+  renderFavorites(content, state, liveData) {
+    const favoritesSection = document.createElement('section');
+    favoritesSection.className = 'tfr-favorites-section';
+
+    const header = document.createElement('div');
+    header.className = 'tfr-favorites-header';
+    header.textContent = 'Favoris';
+    favoritesSection.appendChild(header);
+
+    const list = document.createElement('div');
+    list.className = 'tfr-favorites-list';
+
+    const allFavorites = Object.values(state.favorites);
+    const term = this.searchTerm.trim().toLowerCase();
+    const filtered = allFavorites.filter((fav) => {
+      if (!term) return true;
+      return fav.login.toLowerCase().includes(term) || (fav.displayName || '').toLowerCase().includes(term);
+    });
+
     const categoryTree = this.store.getCategoriesTree();
     const flatCategories = [];
     const flattenForSelect = (nodes, depth = 0) => {
@@ -2586,401 +2128,132 @@ class FavoritesOverlay {
       });
     };
     flattenForSelect(categoryTree);
-    const knownCategoriesSet = new Set();
-    Object.values(liveData).forEach((live) => {
-      if (live?.game) {
-        const trimmed = typeof live.game === 'string' ? live.game.trim() : '';
-        if (trimmed) {
-          knownCategoriesSet.add(trimmed);
-        }
-      }
-    });
-    Object.values(state.favorites).forEach((fav) => {
-      const filterCategories = Array.isArray(fav.categoryFilter?.categories) ? fav.categoryFilter.categories : [];
-      filterCategories.forEach((category) => {
-        const trimmed = typeof category === 'string' ? category.trim() : '';
-        if (trimmed) {
-          knownCategoriesSet.add(trimmed);
-        }
-      });
-    });
-    const knownCategories = Array.from(knownCategoriesSet).sort((a, b) => a.localeCompare(b, 'fr'));
-    const detailsPanel = this.renderFavoriteDetails(state, liveData, flatCategories, knownCategories);
-    if (detailsPanel) {
-      panelContainer.appendChild(detailsPanel);
-      panelContainer.classList.add('tfr-overlay-panel--with-details');
-    }
-  }
+    const sorters = {
+      viewersDesc: (a, b) => {
+        const av = liveData[a.login]?.viewers || 0;
+        const bv = liveData[b.login]?.viewers || 0;
+        if (bv !== av) return bv - av;
+        return a.displayName.localeCompare(b.displayName, 'fr');
+      },
+      alphabetical: (a, b) => a.displayName.localeCompare(b.displayName, 'fr'),
+      recent: (a, b) => (b.addedAt || 0) - (a.addedAt || 0)
+    };
+    filtered.sort(sorters[this.sortMode] || sorters.viewersDesc);
 
-  renderFavoriteDetails(state, liveData, flatCategories, knownCategories) {
-    const login = this.activeFavoriteLogin;
-    if (!login) {
-      return null;
-    }
-    const favorite = state.favorites?.[login];
-    if (!favorite) {
-      this.activeFavoriteLogin = null;
-      return null;
-    }
-    const live = liveData[login];
-    const prefs = state.preferences || {};
-    const filterCategories = Array.isArray(favorite.categoryFilter?.categories)
-      ? favorite.categoryFilter.categories
-      : [];
-    const panel = document.createElement('aside');
-    panel.className = 'tfr-favorite-details';
-    panel.setAttribute('role', 'dialog');
-    panel.setAttribute('aria-label', `Param\u00e8tres pour ${favorite.displayName}`);
-    panel.tabIndex = -1;
-    requestAnimationFrame(() => {
-      try {
-        panel.focus();
-      } catch {
-        // ignore focus errors
-      }
-    });
-
-    const header = document.createElement('div');
-    header.className = 'tfr-favorite-details__header';
-    const headerInfo = document.createElement('div');
-    headerInfo.className = 'tfr-favorite-details__header-info';
-    const avatar = document.createElement('img');
-    avatar.className = 'tfr-favorite-details__avatar';
-    avatar.src = live?.avatarUrl || favorite.avatarUrl || DEFAULT_AVATAR;
-    avatar.alt = favorite.displayName;
-    headerInfo.appendChild(avatar);
-    const titleWrapper = document.createElement('div');
-    titleWrapper.className = 'tfr-favorite-details__title-wrapper';
-    const title = document.createElement('h3');
-    title.className = 'tfr-favorite-details__title';
-    title.textContent = favorite.displayName;
-    const subtitle = document.createElement('span');
-    subtitle.className = 'tfr-favorite-details__subtitle';
-    subtitle.textContent = `@${favorite.login}`;
-    titleWrapper.appendChild(title);
-    titleWrapper.appendChild(subtitle);
-    headerInfo.appendChild(titleWrapper);
-    header.appendChild(headerInfo);
-    const closeButton = document.createElement('button');
-    closeButton.type = 'button';
-    closeButton.className = 'tfr-favorite-details__close';
-    closeButton.setAttribute('aria-label', `Fermer les param\u00e8tres de ${favorite.displayName}`);
-    closeButton.textContent = '\u00D7';
-    closeButton.addEventListener('click', () => this.closeFavoriteDetails());
-    header.appendChild(closeButton);
-    panel.appendChild(header);
-
-    const body = document.createElement('div');
-    body.className = 'tfr-favorite-details__body';
-    panel.appendChild(body);
-
-    const categorySection = document.createElement('section');
-    categorySection.className = 'tfr-details-section';
-    const categoryTitle = document.createElement('h4');
-    categoryTitle.className = 'tfr-details-section__title';
-    categoryTitle.textContent = 'Cat\u00e9gorie dans l\'extension';
-    categorySection.appendChild(categoryTitle);
-    const categorySelect = document.createElement('select');
-    categorySelect.className = 'tfr-category-select tfr-category-select--wide';
-    const placeholderOption = document.createElement('option');
-    placeholderOption.value = '';
-    placeholderOption.textContent = flatCategories.length ? 'Sans cat\u00e9gorie' : 'Aucune cat\u00e9gorie disponible';
-    categorySelect.appendChild(placeholderOption);
-    flatCategories.forEach((category) => {
-      const option = document.createElement('option');
-      option.value = category.id;
-      const prefix = category.depth ? `${'  '.repeat(category.depth)}- ` : '';
-      option.textContent = `${prefix}${category.name}`;
-      categorySelect.appendChild(option);
-    });
-    const currentCategory =
-      Array.isArray(favorite.categories) && favorite.categories.length ? favorite.categories[0] : '';
-    categorySelect.value = currentCategory || '';
-    categorySelect.disabled = !flatCategories.length;
-    categorySelect.addEventListener('change', async (event) => {
-      const value = event.target.value;
-      await this.store.setFavoriteCategory(favorite.login, value || null);
-      this.render();
-    });
-    categorySection.appendChild(categorySelect);
-    if (!flatCategories.length) {
-      const categoryHint = document.createElement('p');
-      categoryHint.className = 'tfr-details-hint';
-      categoryHint.textContent = 'Cr\u00e9ez une cat\u00e9gorie dans la colonne de gauche pour l\'assigner.';
-      categorySection.appendChild(categoryHint);
-    }
-    body.appendChild(categorySection);
-
-    const filterSection = document.createElement('section');
-    filterSection.className = 'tfr-details-section';
-    const filterTitle = document.createElement('h4');
-    filterTitle.className = 'tfr-details-section__title';
-    filterTitle.textContent = 'Filtre de cat\u00e9gorie Twitch';
-    filterSection.appendChild(filterTitle);
-    const filterContainer = document.createElement('div');
-    filterContainer.className = 'tfr-category-filter';
-    const filterToggleId = `tfr-detail-filter-${favorite.login}`;
-    const filterToggleLabel = document.createElement('label');
-    filterToggleLabel.className = 'tfr-category-filter__toggle';
-    filterToggleLabel.setAttribute('for', filterToggleId);
-    const filterToggle = document.createElement('input');
-    filterToggle.type = 'checkbox';
-    filterToggle.id = filterToggleId;
-    filterToggle.className = 'tfr-category-filter__checkbox';
-    filterToggle.checked = Boolean(favorite.categoryFilter?.enabled);
-    const filterToggleText = document.createElement('span');
-    filterToggleText.textContent = 'Afficher seulement lorsque le streamer est sur ces cat\u00e9gories';
-    filterToggleLabel.appendChild(filterToggle);
-    filterToggleLabel.appendChild(filterToggleText);
-    filterContainer.appendChild(filterToggleLabel);
-    const listWrapper = document.createElement('div');
-    listWrapper.className = 'tfr-category-filter__list';
-    if (!filterCategories.length) {
-      const empty = document.createElement('span');
-      empty.className = 'tfr-category-filter__empty';
-      empty.textContent = filterToggle.checked
-        ? 'Aucune cat\u00e9gorie s\u00e9lectionn\u00e9e.'
-        : 'Activez le filtre pour ajouter des cat\u00e9gories.';
-      listWrapper.appendChild(empty);
+    if (!filtered.length) {
+      const empty = document.createElement('div');
+      empty.className = 'tfr-empty-state';
+      empty.textContent = term ? 'Aucun favori ne correspond a la recherche.' : 'Ajoutez vos streamers favoris pour les gerer ici.';
+      list.appendChild(empty);
     } else {
-      filterCategories.forEach((category) => {
-        const chip = document.createElement('span');
-        chip.className = 'tfr-category-filter__chip';
-        chip.textContent = category;
-        const removeButton = document.createElement('button');
-        removeButton.type = 'button';
-        removeButton.className = 'tfr-category-filter__remove';
-        removeButton.setAttribute('aria-label', `Retirer ${category}`);
-        removeButton.textContent = '\u00D7';
-        removeButton.addEventListener('click', async () => {
-          const latestCategories =
-            this.store.getState().favorites?.[favorite.login]?.categoryFilter?.categories;
-          const source = Array.isArray(latestCategories) ? latestCategories : filterCategories;
-          const next = source.filter(
-            (value) => normalizeCategoryName(value) !== normalizeCategoryName(category)
-          );
-          await this.store.setFavoriteCategoryFilter(favorite.login, {
-            categories: next,
-            enabled: next.length ? filterToggle.checked : false
-          });
+      filtered.forEach((fav) => {
+        const live = liveData[fav.login];
+
+        const row = document.createElement('div');
+        row.className = 'tfr-favorite-row';
+        row.draggable = true;
+        row.dataset.login = fav.login;
+        row.addEventListener('dragstart', (event) => {
+          if (event.dataTransfer) {
+            event.dataTransfer.setData('text/plain', fav.login);
+            event.dataTransfer.effectAllowed = 'move';
+          }
+          row.classList.add('is-dragging');
+          this.draggedLogin = fav.login;
+        });
+        row.addEventListener('dragend', () => {
+          row.classList.remove('is-dragging');
+          this.draggedLogin = null;
+        });
+
+        const info = document.createElement('div');
+        info.className = 'tfr-favorite-row__info';
+        const avatar = document.createElement('img');
+        avatar.className = 'tfr-favorite-row__avatar';
+        avatar.src = (live && live.avatarUrl) || fav.avatarUrl || DEFAULT_AVATAR;
+        avatar.alt = fav.displayName;
+        const textWrapper = document.createElement('div');
+        textWrapper.className = 'tfr-favorite-row__text';
+        const name = document.createElement('span');
+        name.className = 'tfr-favorite-row__name';
+        name.textContent = fav.displayName;
+        const meta = document.createElement('span');
+        meta.className = 'tfr-favorite-row__meta';
+        if (live?.isLive) {
+          meta.classList.add('is-live');
+          meta.textContent = `En live \u00e0 ${formatViewers(live.viewers)} spectateurs`;
+        } else {
+          meta.textContent = 'Hors ligne';
+        }
+        textWrapper.appendChild(name);
+        textWrapper.appendChild(meta);
+        info.appendChild(avatar);
+        info.appendChild(textWrapper);
+
+        const categoriesWrap = document.createElement('div');
+        categoriesWrap.className = 'tfr-favorite-row__categories';
+        const categorySelect = document.createElement('select');
+        categorySelect.className = 'tfr-category-select';
+        const placeholderOption = document.createElement('option');
+        placeholderOption.value = '';
+        placeholderOption.textContent = flatCategories.length ? 'Sans cat\u00e9gorie' : 'Aucune cat\u00e9gorie disponible';
+        categorySelect.appendChild(placeholderOption);
+        flatCategories.forEach((category) => {
+          const option = document.createElement('option');
+          option.value = category.id;
+          const prefix = category.depth ? `${'  '.repeat(category.depth)}- ` : '';
+          option.textContent = `${prefix}${category.name}`;
+          categorySelect.appendChild(option);
+        });
+        const currentCategory = Array.isArray(fav.categories) && fav.categories.length ? fav.categories[0] : '';
+        categorySelect.value = currentCategory || '';
+        categorySelect.disabled = !flatCategories.length;
+        categorySelect.addEventListener('change', async (event) => {
+          const value = event.target.value;
+          await this.store.setFavoriteCategory(fav.login, value || null);
           this.render();
         });
-        chip.appendChild(removeButton);
-        listWrapper.appendChild(chip);
-      });
-    }
-    filterContainer.appendChild(listWrapper);
-    const inputRow = document.createElement('div');
-    inputRow.className = 'tfr-category-filter__input-row';
-    const filterInput = document.createElement('input');
-    filterInput.type = 'text';
-    filterInput.className = 'tfr-category-filter__input';
-    filterInput.placeholder = 'Ajouter une cat\u00e9gorie Twitch (ex : Just Chatting)';
-    filterInput.value = '';
-    filterInput.autocomplete = 'off';
-    filterInput.spellcheck = false;
-    const datalistId = `${filterToggleId}-list`;
-    filterInput.setAttribute('list', datalistId);
-    const addButton = document.createElement('button');
-    addButton.type = 'button';
-    addButton.className = 'tfr-category-filter__add';
-    addButton.textContent = 'Ajouter';
-    inputRow.appendChild(filterInput);
-    inputRow.appendChild(addButton);
-    const datalist = document.createElement('datalist');
-    datalist.id = datalistId;
-    knownCategories.forEach((category) => {
-      const option = document.createElement('option');
-      option.value = category;
-      datalist.appendChild(option);
-    });
-    filterContainer.appendChild(inputRow);
-    filterContainer.appendChild(datalist);
-    const suggestions = document.createElement('div');
-    suggestions.className = 'tfr-category-filter__suggestions';
-    filterContainer.appendChild(suggestions);
-    const liveCategoryInfo = document.createElement('small');
-    liveCategoryInfo.className = 'tfr-category-filter__hint';
-    if (live?.isLive) {
-      liveCategoryInfo.textContent = live?.game
-        ? `Cat\u00e9gorie actuelle : ${live.game}`
-        : 'Cat\u00e9gorie actuelle indisponible';
-    } else {
-      liveCategoryInfo.textContent = 'Actuellement hors ligne';
-    }
-    filterContainer.appendChild(liveCategoryInfo);
-    const applyToggleState = (enabled) => {
-      filterInput.disabled = !enabled;
-      addButton.disabled = !enabled;
-    };
-    applyToggleState(filterToggle.checked);
-    const normalizedKnownCategories = knownCategories.map((name) => ({
-      raw: name,
-      normalized: normalizeCategoryName(name)
-    }));
-    const clearSuggestions = () => {
-      suggestions.innerHTML = '';
-      suggestions.classList.remove('is-visible');
-    };
-    const getCurrentCategories = () => {
-      const latestCategories =
-        this.store.getState().favorites?.[favorite.login]?.categoryFilter?.categories;
-      return Array.isArray(latestCategories) ? latestCategories : filterCategories;
-    };
-    let suggestionToken = 0;
-    const updateSuggestions = async () => {
-      const typedRaw = filterInput.value;
-      const normalizedTerm = normalizeCategoryName(typedRaw);
-      const currentToken = ++suggestionToken;
-      suggestions.innerHTML = '';
-      suggestions.classList.remove('is-visible');
-      if (!normalizedTerm) {
-        return;
-      }
-      const current = getCurrentCategories();
-      const normalizedCurrent = new Set(
-        current.map((entry) => normalizeCategoryName(entry)).filter(Boolean)
-      );
-      const candidateMap = new Map();
-      const remoteNames = await this.getCategorySuggestions(typedRaw);
-      if (currentToken !== suggestionToken) {
-        return;
-      }
-      remoteNames.forEach((name) => {
-        const normalized = normalizeCategoryName(name);
-        if (normalized && !candidateMap.has(normalized)) {
-          candidateMap.set(normalized, name);
+        categoriesWrap.appendChild(categorySelect);
+        if (!flatCategories.length) {
+          const hint = document.createElement('span');
+          hint.className = 'tfr-empty-state';
+          hint.textContent = 'Cr\u00e9ez une cat\u00e9gorie pour organiser ce favori.';
+          categoriesWrap.appendChild(hint);
         }
-      });
-      normalizedKnownCategories.forEach(({ raw, normalized }) => {
-        if (normalized && !candidateMap.has(normalized)) {
-          candidateMap.set(normalized, raw);
-        }
-      });
-      const matches = [];
-      candidateMap.forEach((raw, normalized) => {
-        if (!normalizedCurrent.has(normalized) && normalized.includes(normalizedTerm)) {
-          matches.push(raw);
-        }
-      });
-      if (!matches.length) {
-        return;
-      }
-      matches.slice(0, 8).forEach((name) => {
-        const suggestion = document.createElement('button');
-        suggestion.type = 'button';
-        suggestion.className = 'tfr-category-suggestion';
-        suggestion.textContent = name;
-        suggestion.addEventListener('mousedown', (event) => {
-          event.preventDefault();
-          addCategory(name);
-        });
-        suggestions.appendChild(suggestion);
-      });
-      suggestions.classList.add('is-visible');
-    };
-    filterToggle.addEventListener('change', async (event) => {
-      const enabled = event.target.checked;
-      applyToggleState(enabled);
-      if (!enabled) {
-        clearSuggestions();
-      } else {
-        updateSuggestions();
-      }
-      const payloadCategories = getCurrentCategories();
-      await this.store.setFavoriteCategoryFilter(favorite.login, {
-        enabled,
-        categories: Array.isArray(payloadCategories) ? [...payloadCategories] : []
-      });
-      this.render();
-    });
-    const addCategory = async (rawValue) => {
-      const value = (typeof rawValue === 'string' ? rawValue : filterInput.value).trim();
-      if (!value) {
-        filterInput.value = '';
-        clearSuggestions();
-        return;
-      }
-      const current = getCurrentCategories();
-      const exists = current.some(
-        (entry) => normalizeCategoryName(entry) === normalizeCategoryName(value)
-      );
-      if (exists) {
-        filterInput.value = '';
-        clearSuggestions();
-        return;
-      }
-      const next = [...current, value];
-      await this.store.setFavoriteCategoryFilter(favorite.login, {
-        categories: next,
-        enabled: true
-      });
-      filterToggle.checked = true;
-      applyToggleState(true);
-      filterInput.value = '';
-      clearSuggestions();
-      this.render();
-    };
-    addButton.addEventListener('click', () => addCategory());
-    filterInput.addEventListener('keydown', (event) => {
-      if (event.key === 'Enter') {
-        event.preventDefault();
-        addCategory();
-      }
-    });
-    filterInput.addEventListener('input', () => {
-      updateSuggestions();
-    });
-    filterInput.addEventListener('focus', () => {
-      updateSuggestions();
-    });
-    filterInput.addEventListener('blur', () => {
-      setTimeout(clearSuggestions, 120);
-    });
-    filterSection.appendChild(filterContainer);
-    body.appendChild(filterSection);
 
-    const infoSection = document.createElement('section');
-    infoSection.className = 'tfr-details-section tfr-details-section--info';
-    const statusLine = document.createElement('p');
-    statusLine.className = 'tfr-details-info';
-    let highlightLine = null;
-    if (live?.isLive) {
-      const viewers = formatViewers(live.viewers || 0);
-      const startedAtValue = live.startedAt ? Date.parse(live.startedAt) : NaN;
-      if (Number.isFinite(startedAtValue)) {
-        const elapsedMinutes = Math.max(0, Math.floor((Date.now() - startedAtValue) / 60000));
-        const gameLabel = live.game || 'cat\u00e9gorie inconnue';
-        statusLine.textContent = `En direct depuis ${elapsedMinutes} min sur ${gameLabel} avec ${viewers} spectateurs.`;
-        if (prefs.recentLiveEnabled) {
-          const thresholdMinutes = Number.isFinite(Number(prefs.recentLiveThresholdMinutes))
-            ? Math.max(1, Math.min(120, Math.round(Number(prefs.recentLiveThresholdMinutes))))
-            : 10;
-          if (elapsedMinutes <= thresholdMinutes) {
-            highlightLine = document.createElement('p');
-            highlightLine.className = 'tfr-details-info tfr-details-info--highlight';
-            highlightLine.textContent = `Appara\u00eet dans la section \u00ab D\u00e9but de live \u00bb (limite : ${thresholdMinutes} min).`;
+        const actions = document.createElement('div');
+        actions.className = 'tfr-favorite-row__actions';
+        const visit = document.createElement('a');
+        visit.href = `https://www.twitch.tv/${fav.login}`;
+        visit.target = '_blank';
+        visit.rel = 'noopener noreferrer';
+        visit.className = 'tfr-button tfr-button--ghost';
+        visit.textContent = 'Ouvrir';
+        const remove = document.createElement('button');
+        remove.type = 'button';
+        remove.className = 'tfr-button tfr-button--danger';
+        remove.textContent = 'Supprimer';
+        remove.addEventListener('click', async () => {
+          const confirmed = window.confirm(`Retirer ${fav.displayName} des favoris ?`);
+          if (!confirmed) {
+            return;
           }
-        }
-      } else {
-        statusLine.textContent = `En direct sur ${live.game || 'cat\u00e9gorie inconnue'} avec ${viewers} spectateurs.`;
-      }
-    } else {
-      statusLine.textContent = 'Ce streamer n\'est pas en direct pour le moment.';
-    }
-    infoSection.appendChild(statusLine);
-    if (highlightLine) {
-      infoSection.appendChild(highlightLine);
-    }
-    const closeLink = document.createElement('button');
-    closeLink.type = 'button';
-    closeLink.className = 'tfr-details-close';
-    closeLink.textContent = 'Fermer';
-    closeLink.addEventListener('click', () => this.closeFavoriteDetails());
-    infoSection.appendChild(closeLink);
-    body.appendChild(infoSection);
+          await this.store.removeFavorite(fav.login);
+          this.render();
+        });
 
-    return panel;
+        actions.appendChild(visit);
+        actions.appendChild(remove);
+
+        row.appendChild(info);
+        row.appendChild(categoriesWrap);
+        row.appendChild(actions);
+        list.appendChild(row);
+      });
+    }
+
+    favoritesSection.appendChild(list);
+    content.appendChild(favoritesSection);
   }
 
   destroy() {
@@ -3092,13 +2365,6 @@ class TopNavManager {
       this.slot.style.display = 'inline-flex';
       this.slot.style.alignItems = 'center';
       this.slot.style.justifyContent = 'center';
-      this.slot.style.position = 'relative';
-      const stopHoverPropagation = (event) => {
-        event.stopPropagation();
-      };
-      ['pointerenter', 'pointerover', 'mouseenter', 'mouseover', 'mouseleave', 'pointerleave'].forEach((eventName) => {
-        this.slot.addEventListener(eventName, stopHoverPropagation, true);
-      });
     }
     return this.slot;
   }
@@ -3142,7 +2408,6 @@ class TopNavManager {
       '[data-test-selector="top-nav"]',
       '[data-a-target="top-nav"]',
       '[data-test-selector="top-nav-bar-prime"]',
-      '.Layout-sc-1xcs6mc-0.bZYcrx',
       'header div[role="menubar"]',
       'header [data-test-selector="tw-top-nav"]',
       'header nav'
@@ -3191,13 +2456,15 @@ class TopNavManager {
       if (!parent || !this.isUsableParent(parent)) {
         continue;
       }
+      const anchor = findAnchorInParent(parent);
+      const reference = anchor ? anchor.nextElementSibling : null;
       this.log('mount-point', {
         strategy: 'container',
         selector,
-        anchorTag: null,
-        hasReference: false
+        anchorTag: anchor?.tagName,
+        hasReference: Boolean(reference)
       });
-      return { parent, reference: null, anchor: null };
+      return { parent, reference, anchor };
     }
 
     for (const selector of anchorSelectors) {
@@ -3248,7 +2515,7 @@ class TopNavManager {
     button.setAttribute('aria-label', 'Favoris');
     button.setAttribute('aria-pressed', 'false');
     button.title = 'Favoris';
-    button.innerHTML = '<svg class="tfr-topnav-action__icon" width="20" height="20" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 2c-2.761 0-5 2.239-5 5 0 3.727 3.533 8.275 4.63 9.513a.5.5 0 0 0 .74 0C13.467 15.275 17 10.727 17 7c0-2.761-2.239-5-5-5z" fill="currentColor"></path><path d="M12 5.2l.985 1.996 2.203.32-1.594 1.554.376 2.194L12 9.8l-1.97 1.464.376-2.194-1.594-1.554 2.203-.32z" fill="none" stroke="currentColor" stroke-linejoin="round" stroke-width="1.2"></path></svg>';
+    button.innerHTML = '<svg class="tfr-topnav-action__icon" width="20" height="20" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 17.27L18.18 21 16.54 13.97 22 9.24 14.81 8.63 12 2 9.19 8.63 2 9.24 7.46 13.97 5.82 21z"></path></svg>';
     button.addEventListener('click', (event) => {
       event.preventDefault();
       event.stopPropagation();
@@ -3286,54 +2553,34 @@ class TopNavManager {
       button.classList.remove('is-active');
     }
     if (!source) {
-      slot.style.margin = '0 6px';
+      slot.style.margin = '';
       slot.style.width = '';
       slot.style.height = '';
-      button.style.width = '32px';
-      button.style.height = '32px';
+      button.style.width = '';
+      button.style.height = '';
       button.style.margin = '0';
       this.log('sync-anchor-missing');
       return slot;
     }
-    const style = source ? window.getComputedStyle(source) : null;
-    const parseMargin = (value, fallback) => {
-      if (!value || value === 'auto') return fallback;
-      const numeric = parseFloat(value);
-      if (!Number.isFinite(numeric) || Math.abs(numeric) < 1) return fallback;
-      return value;
-    };
-    const marginTop = style?.marginTop || '0';
-    const marginBottom = style?.marginBottom || '0';
-    const marginLeft = parseMargin(style?.marginLeft, '6px');
-    const marginRight = parseMargin(style?.marginRight, '6px');
-    slot.style.margin = `${marginTop} ${marginRight} ${marginBottom} ${marginLeft}`;
-    let width = '';
-    if (style?.width && style.width !== 'auto') {
-      width = style.width;
-    } else if (source?.offsetWidth) {
-      width = `${source.offsetWidth}px`;
+    const style = window.getComputedStyle(source);
+    if (style) {
+      slot.style.margin = style.margin;
+      if (style.width && style.width !== 'auto') {
+        slot.style.width = style.width;
+        button.style.width = '100%';
+      } else {
+        slot.style.width = '';
+        button.style.width = '';
+      }
+      if (style.height && style.height !== 'auto') {
+        slot.style.height = style.height;
+        button.style.height = '100%';
+      } else {
+        slot.style.height = '';
+        button.style.height = '';
+      }
+      button.style.margin = '0';
     }
-    if (width) {
-      slot.style.width = width;
-      button.style.width = width;
-    } else {
-      slot.style.width = '';
-      button.style.width = '32px';
-    }
-    let height = '';
-    if (style?.height && style.height !== 'auto') {
-      height = style.height;
-    } else if (source?.offsetHeight) {
-      height = `${source.offsetHeight}px`;
-    }
-    if (height) {
-      slot.style.height = height;
-      button.style.height = height;
-    } else {
-      slot.style.height = '';
-      button.style.height = '32px';
-    }
-    button.style.margin = '0';
     this.log('sync-anchor', { sourceTag: source?.tagName });
     return slot;
   }
@@ -3389,20 +2636,11 @@ class TopNavManager {
       const anchorGrand = anchorParent?.parentElement || null;
       if (anchorParent && this.isUsableParent(anchorParent) && anchorParent !== parent) {
         insertionParent = anchorParent;
-        insertionReference = anchor || null;
+        insertionReference = anchor?.nextElementSibling || null;
       }
       if (anchorGrand && this.isUsableParent(anchorGrand) && anchorGrand !== parent && anchorGrand !== insertionParent) {
+        insertionReference = anchorParent?.nextElementSibling || null;
         insertionParent = anchorGrand;
-        insertionReference = anchorParent || anchor || null;
-      }
-      if (anchor && anchor.parentElement === insertionParent) {
-        insertionReference = anchor;
-      } else if (anchorParent && anchorParent.parentElement === insertionParent) {
-        insertionReference = anchorParent;
-      }
-      if (!insertionReference) {
-        // Force the slot before existing actions so the button renders on the left.
-        insertionReference = Array.from(insertionParent.children).find((child) => child !== slot) || null;
       }
       if (insertionReference === slot) {
         insertionReference = slot.nextElementSibling;
@@ -3458,3 +2696,9 @@ class TopNavManager {
     bootstrap();
   }
 })();
+
+
+
+
+
+
