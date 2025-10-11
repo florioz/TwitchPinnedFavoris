@@ -1,4 +1,4 @@
-﻿(() => {
+(() => {
   const STORAGE_KEY = 'tfr_state';
   const DEFAULT_STATE = {
     favorites: {},
@@ -35,18 +35,6 @@
       }
     }
   `;
-  const CATEGORY_SUGGESTIONS_QUERY = `
-    query CategorySuggestions($query: String!, $first: Int!) {
-      searchCategories(query: $query, first: $first) {
-        edges {
-          node {
-            id
-            name
-          }
-        }
-      }
-    }
-  `;
   const DEFAULT_AVATAR = 'https://static-cdn.jtvnw.net/jtv_user_pictures/404_user_70x70.png';
 
   const RESERVED_PATHS = new Set([
@@ -59,42 +47,6 @@
   const LOCATION_CHECK_INTERVAL = 500;
 
   const deepCopy = (value) => (value ? JSON.parse(JSON.stringify(value)) : value);
-
-  const fetchCategorySuggestions = async (term, limit = 10) => {
-    const trimmed = (term || '').trim();
-    if (!trimmed) {
-      return [];
-    }
-    try {
-      const response = await fetch(TWITCH_GRAPHQL_ENDPOINT, {
-        method: 'POST',
-        mode: 'cors',
-        credentials: 'omit',
-        headers: {
-          'Client-ID': TWITCH_CLIENT_ID,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          query: CATEGORY_SUGGESTIONS_QUERY,
-          variables: { query: trimmed, first: limit }
-        })
-      });
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-      }
-      const payload = await response.json();
-      const edges = payload?.data?.searchCategories?.edges;
-      if (!Array.isArray(edges)) {
-        return [];
-      }
-      return edges
-        .map((edge) => edge?.node?.name)
-        .filter((name) => typeof name === 'string' && name.trim());
-    } catch (error) {
-      console.error('[TFR] Failed to fetch category suggestions', term, error);
-      return [];
-    }
-  };
 
   const formatViewers = (count) => {
     if (!count || Number.isNaN(count)) return '0';
@@ -1347,18 +1299,7 @@
       const button = document.createElement('button');
       button.type = 'button';
       button.className = 'tfr-inline-button';
-      button.style.marginLeft = '8px';
-      button.style.marginTop = '0';
-      button.style.alignSelf = 'center';
-      button.style.pointerEvents = 'auto';
-      button.textContent = '';
-      button.innerHTML = '<svg class="tfr-inline-button__icon" width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 17.27L18.18 21 16.54 13.97 22 9.24 14.81 8.63 12 2 9.19 8.63 2 9.24 7.46 13.97 5.82 21z"></path></svg>';
-      const stopHoverPropagation = (event) => {
-        event.stopPropagation();
-      };
-      ['pointerenter', 'pointerover', 'mouseenter', 'mouseover', 'mouseleave', 'pointerleave'].forEach((eventName) => {
-        button.addEventListener(eventName, stopHoverPropagation, true);
-      });
+      button.textContent = 'Ajouter aux favoris';
       button.addEventListener('click', async () => {
         if (!this.currentLogin) return;
         const normalized = this.currentLogin.toLowerCase();
@@ -1410,13 +1351,13 @@
       const normalized = this.currentLogin.toLowerCase();
       const isFavorite = Boolean(this.store.getState().favorites[normalized]);
       button.disabled = false;
-        if (isFavorite) {
-          button.classList.add('is-remove');
-          button.innerHTML = '<svg class="tfr-inline-button__icon" width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 17.27L18.18 21 16.54 13.97 22 9.24 14.81 8.63 12 2 9.19 8.63 2 9.24 7.46 13.97 5.82 21z"></path></svg>';
-        } else {
-          button.classList.remove('is-remove');
-          button.innerHTML = '<svg class="tfr-inline-button__icon" width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 17.27L18.18 21 16.54 13.97 22 9.24 14.81 8.63 12 2 9.19 8.63 2 9.24 7.46 13.97 5.82 21z"></path></svg>';
-        }
+      if (isFavorite) {
+        button.textContent = 'Retirer des favoris';
+        button.classList.add('is-remove');
+      } else {
+        button.textContent = 'Ajouter aux favoris';
+        button.classList.remove('is-remove');
+      }
     }
   }
 
@@ -1434,7 +1375,6 @@ class FavoritesOverlay {
     this.isImportingBackup = false;
     this.draggedLogin = null;
     this.activeFavoriteLogin = null;
-    this.categorySuggestionCache = new Map();
     this.unsubscribe = this.store.subscribe(() => {
       if (this.isOpen) {
         this.render();
@@ -1657,30 +1597,6 @@ class FavoritesOverlay {
     });
 
     return wrapper;
-  }
-
-  async getCategorySuggestions(term) {
-    const normalized = normalizeCategoryName(term);
-    if (!normalized || normalized.length < 2) {
-      return [];
-    }
-    if (this.categorySuggestionCache.has(normalized)) {
-      return this.categorySuggestionCache.get(normalized);
-    }
-    const results = await fetchCategorySuggestions(term, 20);
-    const unique = [];
-    const seen = new Set();
-    results.forEach((name) => {
-      const trimmed = typeof name === 'string' ? name.trim() : '';
-      const key = normalizeCategoryName(trimmed);
-      if (!trimmed || !key || seen.has(key)) {
-        return;
-      }
-      seen.add(key);
-      unique.push(trimmed);
-    });
-    this.categorySuggestionCache.set(normalized, unique);
-    return unique;
   }
 
   renderBoard(state, liveData) {
@@ -2780,9 +2696,6 @@ class FavoritesOverlay {
     });
     filterContainer.appendChild(inputRow);
     filterContainer.appendChild(datalist);
-    const suggestions = document.createElement('div');
-    suggestions.className = 'tfr-category-filter__suggestions';
-    filterContainer.appendChild(suggestions);
     const liveCategoryInfo = document.createElement('small');
     liveCategoryInfo.className = 'tfr-category-filter__hint';
     if (live?.isLive) {
@@ -2798,100 +2711,32 @@ class FavoritesOverlay {
       addButton.disabled = !enabled;
     };
     applyToggleState(filterToggle.checked);
-    const normalizedKnownCategories = knownCategories.map((name) => ({
-      raw: name,
-      normalized: normalizeCategoryName(name)
-    }));
-    const clearSuggestions = () => {
-      suggestions.innerHTML = '';
-      suggestions.classList.remove('is-visible');
-    };
-    const getCurrentCategories = () => {
-      const latestCategories =
-        this.store.getState().favorites?.[favorite.login]?.categoryFilter?.categories;
-      return Array.isArray(latestCategories) ? latestCategories : filterCategories;
-    };
-    let suggestionToken = 0;
-    const updateSuggestions = async () => {
-      const typedRaw = filterInput.value;
-      const normalizedTerm = normalizeCategoryName(typedRaw);
-      const currentToken = ++suggestionToken;
-      suggestions.innerHTML = '';
-      suggestions.classList.remove('is-visible');
-      if (!normalizedTerm) {
-        return;
-      }
-      const current = getCurrentCategories();
-      const normalizedCurrent = new Set(
-        current.map((entry) => normalizeCategoryName(entry)).filter(Boolean)
-      );
-      const candidateMap = new Map();
-      const remoteNames = await this.getCategorySuggestions(typedRaw);
-      if (currentToken !== suggestionToken) {
-        return;
-      }
-      remoteNames.forEach((name) => {
-        const normalized = normalizeCategoryName(name);
-        if (normalized && !candidateMap.has(normalized)) {
-          candidateMap.set(normalized, name);
-        }
-      });
-      normalizedKnownCategories.forEach(({ raw, normalized }) => {
-        if (normalized && !candidateMap.has(normalized)) {
-          candidateMap.set(normalized, raw);
-        }
-      });
-      const matches = [];
-      candidateMap.forEach((raw, normalized) => {
-        if (!normalizedCurrent.has(normalized) && normalized.includes(normalizedTerm)) {
-          matches.push(raw);
-        }
-      });
-      if (!matches.length) {
-        return;
-      }
-      matches.slice(0, 8).forEach((name) => {
-        const suggestion = document.createElement('button');
-        suggestion.type = 'button';
-        suggestion.className = 'tfr-category-suggestion';
-        suggestion.textContent = name;
-        suggestion.addEventListener('mousedown', (event) => {
-          event.preventDefault();
-          addCategory(name);
-        });
-        suggestions.appendChild(suggestion);
-      });
-      suggestions.classList.add('is-visible');
-    };
     filterToggle.addEventListener('change', async (event) => {
       const enabled = event.target.checked;
       applyToggleState(enabled);
-      if (!enabled) {
-        clearSuggestions();
-      } else {
-        updateSuggestions();
-      }
-      const payloadCategories = getCurrentCategories();
+      const latestCategories =
+        this.store.getState().favorites?.[favorite.login]?.categoryFilter?.categories;
+      const payloadCategories = Array.isArray(latestCategories) ? latestCategories : filterCategories;
       await this.store.setFavoriteCategoryFilter(favorite.login, {
         enabled,
         categories: Array.isArray(payloadCategories) ? [...payloadCategories] : []
       });
       this.render();
     });
-    const addCategory = async (rawValue) => {
-      const value = (typeof rawValue === 'string' ? rawValue : filterInput.value).trim();
+    const addCategory = async () => {
+      const value = filterInput.value.trim();
       if (!value) {
         filterInput.value = '';
-        clearSuggestions();
         return;
       }
-      const current = getCurrentCategories();
+      const latestCategories =
+        this.store.getState().favorites?.[favorite.login]?.categoryFilter?.categories;
+      const current = Array.isArray(latestCategories) ? latestCategories : filterCategories;
       const exists = current.some(
         (entry) => normalizeCategoryName(entry) === normalizeCategoryName(value)
       );
       if (exists) {
         filterInput.value = '';
-        clearSuggestions();
         return;
       }
       const next = [...current, value];
@@ -2902,24 +2747,14 @@ class FavoritesOverlay {
       filterToggle.checked = true;
       applyToggleState(true);
       filterInput.value = '';
-      clearSuggestions();
       this.render();
     };
-    addButton.addEventListener('click', () => addCategory());
+    addButton.addEventListener('click', addCategory);
     filterInput.addEventListener('keydown', (event) => {
       if (event.key === 'Enter') {
         event.preventDefault();
         addCategory();
       }
-    });
-    filterInput.addEventListener('input', () => {
-      updateSuggestions();
-    });
-    filterInput.addEventListener('focus', () => {
-      updateSuggestions();
-    });
-    filterInput.addEventListener('blur', () => {
-      setTimeout(clearSuggestions, 120);
     });
     filterSection.appendChild(filterContainer);
     body.appendChild(filterSection);
@@ -3076,13 +2911,6 @@ class TopNavManager {
       this.slot.style.display = 'inline-flex';
       this.slot.style.alignItems = 'center';
       this.slot.style.justifyContent = 'center';
-      this.slot.style.position = 'relative';
-      const stopHoverPropagation = (event) => {
-        event.stopPropagation();
-      };
-      ['pointerenter', 'pointerover', 'mouseenter', 'mouseover', 'mouseleave', 'pointerleave'].forEach((eventName) => {
-        this.slot.addEventListener(eventName, stopHoverPropagation, true);
-      });
     }
     return this.slot;
   }
@@ -3174,13 +3002,15 @@ class TopNavManager {
       if (!parent || !this.isUsableParent(parent)) {
         continue;
       }
+      const anchor = findAnchorInParent(parent);
+      const reference = anchor ? anchor.nextElementSibling : null;
       this.log('mount-point', {
         strategy: 'container',
         selector,
-        anchorTag: null,
-        hasReference: false
+        anchorTag: anchor?.tagName,
+        hasReference: Boolean(reference)
       });
-      return { parent, reference: null, anchor: null };
+      return { parent, reference, anchor };
     }
 
     for (const selector of anchorSelectors) {
@@ -3231,7 +3061,7 @@ class TopNavManager {
     button.setAttribute('aria-label', 'Favoris');
     button.setAttribute('aria-pressed', 'false');
     button.title = 'Favoris';
-    button.innerHTML = '<svg class="tfr-topnav-action__icon" width="20" height="20" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 2c-2.761 0-5 2.239-5 5 0 3.727 3.533 8.275 4.63 9.513a.5.5 0 0 0 .74 0C13.467 15.275 17 10.727 17 7c0-2.761-2.239-5-5-5z" fill="currentColor"></path><path d="M12 5.2l.985 1.996 2.203.32-1.594 1.554.376 2.194L12 9.8l-1.97 1.464.376-2.194-1.594-1.554 2.203-.32z" fill="none" stroke="currentColor" stroke-linejoin="round" stroke-width="1.2"></path></svg>';
+    button.innerHTML = '<svg class="tfr-topnav-action__icon" width="20" height="20" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 17.27L18.18 21 16.54 13.97 22 9.24 14.81 8.63 12 2 9.19 8.63 2 9.24 7.46 13.97 5.82 21z"></path></svg>';
     button.addEventListener('click', (event) => {
       event.preventDefault();
       event.stopPropagation();
@@ -3269,54 +3099,34 @@ class TopNavManager {
       button.classList.remove('is-active');
     }
     if (!source) {
-      slot.style.margin = '0 6px';
+      slot.style.margin = '';
       slot.style.width = '';
       slot.style.height = '';
-      button.style.width = '32px';
-      button.style.height = '32px';
+      button.style.width = '';
+      button.style.height = '';
       button.style.margin = '0';
       this.log('sync-anchor-missing');
       return slot;
     }
-    const style = source ? window.getComputedStyle(source) : null;
-    const parseMargin = (value, fallback) => {
-      if (!value || value === 'auto') return fallback;
-      const numeric = parseFloat(value);
-      if (!Number.isFinite(numeric) || Math.abs(numeric) < 1) return fallback;
-      return value;
-    };
-    const marginTop = style?.marginTop || '0';
-    const marginBottom = style?.marginBottom || '0';
-    const marginLeft = parseMargin(style?.marginLeft, '6px');
-    const marginRight = parseMargin(style?.marginRight, '6px');
-    slot.style.margin = `${marginTop} ${marginRight} ${marginBottom} ${marginLeft}`;
-    let width = '';
-    if (style?.width && style.width !== 'auto') {
-      width = style.width;
-    } else if (source?.offsetWidth) {
-      width = `${source.offsetWidth}px`;
+    const style = window.getComputedStyle(source);
+    if (style) {
+      slot.style.margin = style.margin;
+      if (style.width && style.width !== 'auto') {
+        slot.style.width = style.width;
+        button.style.width = '100%';
+      } else {
+        slot.style.width = '';
+        button.style.width = '';
+      }
+      if (style.height && style.height !== 'auto') {
+        slot.style.height = style.height;
+        button.style.height = '100%';
+      } else {
+        slot.style.height = '';
+        button.style.height = '';
+      }
+      button.style.margin = '0';
     }
-    if (width) {
-      slot.style.width = width;
-      button.style.width = width;
-    } else {
-      slot.style.width = '';
-      button.style.width = '32px';
-    }
-    let height = '';
-    if (style?.height && style.height !== 'auto') {
-      height = style.height;
-    } else if (source?.offsetHeight) {
-      height = `${source.offsetHeight}px`;
-    }
-    if (height) {
-      slot.style.height = height;
-      button.style.height = height;
-    } else {
-      slot.style.height = '';
-      button.style.height = '32px';
-    }
-    button.style.margin = '0';
     this.log('sync-anchor', { sourceTag: source?.tagName });
     return slot;
   }
@@ -3432,3 +3242,9 @@ class TopNavManager {
     bootstrap();
   }
 })();
+
+
+
+
+
+
