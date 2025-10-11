@@ -68,6 +68,7 @@
   grid-template-columns: minmax(240px, 1fr) minmax(360px, 2fr);
   gap: 24px;
   min-height: 420px;
+  align-items: flex-start;
 }
 
 .tfr-board-column {
@@ -82,6 +83,15 @@
 
 .tfr-board-column--free {
   max-width: 320px;
+  position: sticky;
+  top: 18px;
+  align-self: flex-start;
+  max-height: calc(92vh - 140px);
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 24px;
+  box-sizing: border-box;
+  scrollbar-gutter: stable both-edges;
 }
 
 .tfr-board-title {
