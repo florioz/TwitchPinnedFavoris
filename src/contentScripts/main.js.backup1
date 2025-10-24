@@ -1,4 +1,4 @@
-﻿(() => {
+(() => {
   const STORAGE_KEY = 'tfr_state';
   const DEFAULT_STATE = {
     favorites: {},
@@ -2809,7 +2809,7 @@
       if (entry.type === 'ban') {
         const baseBan = t('moderation.history.action.ban');
         if (entry.isPermanent || !Number.isFinite(entry.duration) || entry.duration <= 0) {
-          const suffix = CURRENT_LOCALE === 'fr' ? ' (definitif)' : ' (permanent)';
+          const suffix = CURRENT_LOCALE === 'fr' ? ' (définitif)' : ' (permanent)';
           actionLabel = `${baseBan}${suffix}`;
         } else {
           const banDurationLabel = formatDurationDetailed(entry.duration);
@@ -3074,6 +3074,9 @@
         '[data-a-target="viewer-card"]',
         '[data-test-selector="viewer-card"]',
         '[data-test-selector*="viewer-card"]',
+        '[data-test-selector="viewer-card-layer"] [data-a-target="viewer-card"]',
+        '[data-a-target="viewer-card-layer"] [data-a-target="viewer-card"]',
+        '[data-a-target="viewer-card-layer"] [data-test-selector*="viewer-card"]',
         '.viewer-card',
         'aside.viewer-card',
         'div.viewer-card',
@@ -3082,7 +3085,7 @@
       for (const selector of selectors) {
         try {
           const direct = document.querySelector(selector);
-          if (direct && this.isValidViewerCardElement(direct)) {
+          if (direct) {
             return direct;
           }
         } catch {
@@ -3090,13 +3093,12 @@
         }
       }
       const roots = this.getViewerRoots();
-      const card = this.querySelectors(roots, selectors);
-      return this.isValidViewerCardElement(card) ? card : null;
+      return this.querySelectors(roots, selectors);
     }
 
     syncCard() {
       const card = this.findViewerCard();
-      if (!card || !this.isValidViewerCardElement(card)) {
+      if (!card) {
         this.disposeCardObserver();
         this.currentCard = null;
         this.activeLogin = null;
@@ -3161,20 +3163,14 @@
         return;
       }
       this.rendering = true;
-      const roots = this.collectRelatedRoots(this.currentCard);
       const host =
-        this.querySelectors(roots, [
+        this.querySelectors(this.collectRelatedRoots(this.currentCard), [
           '[data-test-selector="viewer-card-modal-body"]',
           '[data-test-selector="viewer-card-body"]',
           '[data-a-target="viewer-card-body"]',
           '.viewer-card__body',
           '.viewer-card-body'
         ]) || this.currentCard;
-      if (!this.isValidViewerCardHost(host)) {
-        this.rendering = false;
-        return;
-      }
-      this.removeNativeRecentMessages(host);
       const history = this.tracker.getHistory(this.activeLogin);
       let container = host.querySelector('#tfr-viewer-history');
       const previousList = container?.querySelector('.tfr-viewer-history__list') || null;
@@ -3241,78 +3237,6 @@
         }
         this.rendering = false;
       });
-    }
-
-    removeNativeRecentMessages(host) {
-      if (!(host instanceof HTMLElement)) {
-        return;
-      }
-      const selectors = [
-        '[data-test-selector="recent-messages"]',
-        '[data-test-selector="viewer-card-recent-messages"]',
-        '[data-test-selector="viewer-card-recent-message"]',
-        '.recent-messages',
-        '.viewer-card__recent-messages',
-        '.viewer-card__recent-message'
-      ];
-      selectors.forEach((selector) => {
-        host.querySelectorAll(selector).forEach((node) => {
-          if (node && node.parentElement) {
-            node.parentElement.removeChild(node);
-          }
-        });
-      });
-    }
-
-    isValidViewerCardHost(element) {
-      if (!(element instanceof HTMLElement)) {
-        return false;
-      }
-      const disqualify = [
-        '[data-test-selector="whispers"]',
-        '[data-test-selector="whispers-thread"]',
-        '[data-test-selector="whisper-thread"]',
-        '[data-test-selector="chat-whispers"]',
-        '[data-a-target="whisper-thread"]',
-        '.whispers-thread',
-        '.whisper-thread',
-        '.whispers'
-      ];
-      for (const selector of disqualify) {
-        if (element.matches(selector) || element.closest(selector)) {
-          return false;
-        }
-      }
-      return true;
-    }
-
-    isValidViewerCardElement(element) {
-      if (!(element instanceof HTMLElement)) {
-        return false;
-      }
-      if (!this.isValidViewerCardHost(element)) {
-        return false;
-      }
-      const dataset = element.dataset || {};
-      if (dataset.aTarget === 'viewer-card' || dataset.testSelector === 'viewer-card') {
-        return true;
-      }
-      if (element.matches('[data-a-target="viewer-card"], [data-test-selector="viewer-card"]')) {
-        return true;
-      }
-      const layer = element.closest('[data-a-target="viewer-card-layer"], [data-test-selector="viewer-card-layer"]');
-      if (layer) {
-        return true;
-      }
-      if (element.classList.contains('viewer-card') || element.className.includes('viewer-card')) {
-        const hasUserName = element.querySelector(
-          '[data-a-target="viewer-card-user-name"], [data-test-selector="viewer-card-user-name"], [data-a-target="viewer-card-channel-link"]'
-        );
-        if (hasUserName) {
-          return true;
-        }
-      }
-      return false;
     }
   }
 
@@ -6036,8 +5960,6 @@ class TopNavManager {
     bootstrap();
   }
 })();
-
-
 
 
 
