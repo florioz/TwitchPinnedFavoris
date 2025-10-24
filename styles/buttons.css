@@ -102,6 +102,53 @@
   margin: 0 6px;
 }
 
+.tfr-chat-action-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  padding: 0;
+  margin: 0;
+  pointer-events: auto;
+  flex: 0 0 auto;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+
+.tfr-chat-action-button:hover,
+.tfr-chat-action-button:focus-visible {
+  background-color: var(--color-fill-tertiary, rgba(255, 255, 255, 0.12));
+  outline: none;
+}
+
+.tfr-chat-action-button.is-active {
+  color: #bf94ff;
+}
+
+.tfr-chat-action-button__icon {
+  width: 20px;
+  height: 20px;
+  fill: currentColor;
+  pointer-events: none;
+}
+
+.tfr-chat-action-button.has-data::after {
+  content: '';
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: #bf94ff;
+}
+
 
 
 

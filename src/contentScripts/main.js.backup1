@@ -1,4 +1,4 @@
-﻿(() => {
+(() => {
   const STORAGE_KEY = 'tfr_state';
   const DEFAULT_STATE = {
     favorites: {},
@@ -3195,6 +3195,10 @@
       title.textContent = t('history.title');
       container.appendChild(title);
       if (!history.length) {
+        const empty = document.createElement('p');
+        empty.className = 'tfr-viewer-history__empty';
+        empty.textContent = t('history.empty');
+        container.appendChild(empty);
         this.rendering = false;
         return;
       }
