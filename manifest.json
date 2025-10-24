@@ -13,7 +13,8 @@
   ],
   "host_permissions": [
     "https://gql.twitch.tv/*",
-    "https://www.twitch.tv/*"
+    "https://www.twitch.tv/*",
+    "https://api.github.com/*"
   ],
   "content_scripts": [
     {

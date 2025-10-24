@@ -1135,6 +1135,95 @@
   opacity: 0.7;
 }
 
+.tfr-update-banner {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 2147483644;
+  max-width: min(320px, calc(100vw - 32px));
+  background: linear-gradient(135deg, rgba(145, 71, 255, 0.95), rgba(65, 27, 120, 0.95));
+  color: #fdfcff;
+  border-radius: 14px;
+  padding: 16px 18px;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.35);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.tfr-update-banner__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.tfr-update-banner__title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.tfr-update-banner__close {
+  border: none;
+  background: transparent;
+  color: inherit;
+  font-size: 16px;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 6px;
+  line-height: 1;
+}
+
+.tfr-update-banner__close:hover,
+.tfr-update-banner__close:focus-visible {
+  background: rgba(255, 255, 255, 0.14);
+  outline: none;
+}
+
+.tfr-update-banner__body {
+  margin: 0;
+}
+
+.tfr-update-banner__actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.tfr-update-banner__button {
+  border: none;
+  cursor: pointer;
+  padding: 8px 14px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  transition: background 120ms ease, transform 120ms ease;
+}
+
+.tfr-update-banner__button--primary {
+  background: #ffffff;
+  color: #381b5a;
+}
+
+.tfr-update-banner__button--primary:hover {
+  background: rgba(255, 255, 255, 0.85);
+}
+
+.tfr-update-banner__button--ghost {
+  background: rgba(255, 255, 255, 0.08);
+  color: #fdfcff;
+}
+
+.tfr-update-banner__button--ghost:hover {
+  background: rgba(255, 255, 255, 0.16);
+}
+
 
 
 

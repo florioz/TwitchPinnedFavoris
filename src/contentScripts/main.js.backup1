@@ -1,4 +1,4 @@
-﻿(() => {
+(() => {
   const STORAGE_KEY = 'tfr_state';
   const DEFAULT_STATE = {
     favorites: {},
@@ -48,10 +48,6 @@
     }
   `;
   const DEFAULT_AVATAR = 'https://static-cdn.jtvnw.net/jtv_user_pictures/404_user_70x70.png';
-  const UPDATE_STORAGE_KEY = 'tfr_update_state';
-  const UPDATE_CHECK_INTERVAL_MS = 12 * 60 * 60 * 1000;
-  const UPDATE_REPO_API_URL = 'https://api.github.com/repos/florioz/TwitchPinnedFavoris/releases/latest';
-  const UPDATE_REPO_URL = 'https://github.com/florioz/TwitchPinnedFavoris';
 
   const I18N_MESSAGES = {
     fr: {
@@ -1528,58 +1524,25 @@
       if (!textContainer) {
         return '';
       }
-      const tokens = [];
-      const pushToken = (value) => {
-        if (!value) return;
-        const normalized = String(value).replace(/\s+/g, ' ').trim();
-        if (normalized) {
-          tokens.push(normalized);
-        }
-      };
+      const fragments = [];
       const collect = (node) => {
         if (!node) return;
         if (node.nodeType === Node.TEXT_NODE) {
-          pushToken(node.textContent);
-          return;
-        }
-        if (node.nodeType !== Node.ELEMENT_NODE) {
-          return;
-        }
-        const element = node;
-        const dataset = element.dataset || {};
-        const plain =
-          element.getAttribute('data-plain-text') ||
-          dataset.plainText ||
-          dataset.text ||
-          dataset.plaintext;
-        const aria = element.getAttribute('aria-label');
-        const title = element.getAttribute('title');
-        const alt = element.getAttribute('alt');
-        const dataTarget = (dataset.aTarget || '').toLowerCase();
-        const classList = element.classList || {};
-        const isEmote =
-          element.tagName === 'IMG' ||
-          classList.contains('chat-image__emoji') ||
-          classList.contains('emoji') ||
-          /emote/.test(dataTarget) ||
-          dataset.emoteId ||
-          dataset.emoteName;
-        if (isEmote) {
-          pushToken(plain || alt || aria || title || element.textContent);
-          return;
-        }
-        if (plain || aria || title || alt) {
-          pushToken(plain || aria || title || alt);
-        }
-        if (element.childNodes && element.childNodes.length) {
-          element.childNodes.forEach((child) => collect(child));
+          const value = node.textContent;
+          if (value && value.trim()) {
+            fragments.push(value);
+          }
+        } else if (node.nodeType === Node.ELEMENT_NODE) {
+          const alt = node.getAttribute('alt');
+          if (alt) {
+            fragments.push(alt);
+          } else if (node.childNodes && node.childNodes.length) {
+            node.childNodes.forEach((child) => collect(child));
+          }
         }
       };
       collect(textContainer);
-      if (!tokens.length) {
-        return textContainer.textContent?.replace(/\s+/g, ' ').trim() || '';
-      }
-      return tokens.join(' ').replace(/\s+/g, ' ').trim();
+      return fragments.join('').replace(/\s+/g, ' ').trim();
     }
 
     extractTimestamp(messageElement) {
@@ -1834,6 +1797,9 @@
         return;
       }
       const textContent = this.extractText(element);
+      if (!textContent) {
+        return;
+      }
       const dataset = element.dataset || {};
       if (dataset.tfrModerationTracked === 'true') {
         return;
@@ -1897,11 +1863,9 @@
         (typeof this.historyTracker?.extractTimestamp === 'function' && this.historyTracker.extractTimestamp(element)) ||
         Date.now();
       const simplified = this.normalizeText(rawText);
-      if (simplified && (simplified.includes('debann') || simplified.includes('unban'))) {
+      if (!simplified || simplified.includes('debann') || simplified.includes('unban')) {
         return null;
       }
-      const elementInnerText = this.normalizeText(element.innerText || '');
-      const analysisText = [simplified, elementInnerText].filter(Boolean).join(' ') || '';
       const loginCandidate =
         this.pickFirst([
           dataset.targetUser,
@@ -1927,7 +1891,7 @@
         (typeof this.historyTracker?.extractLogin === 'function'
           ? this.historyTracker.extractLogin(element)
           : '') ||
-        this.extractLoginFromText(analysisText);
+        this.extractLoginFromText(simplified);
       let login = this.sanitizeLogin(loginCandidate);
       if (!login) {
         return null;
@@ -1941,7 +1905,7 @@
           dataset.mod,
           element.getAttribute?.('data-moderator'),
           element.getAttribute?.('data-created-by')
-        ]) || this.extractModeratorFromText(analysisText);
+        ]) || this.extractModeratorFromText(simplified);
       const moderator = this.sanitizeLogin(moderatorCandidate);
       const displayName =
         this.pickFirst([
@@ -1983,51 +1947,31 @@
           { value: element.getAttribute?.('data-timeout-duration-ms'), unit: 'ms' }
         ]) || null;
 
-      const attributeHints = [
-        dataset.moderationActionType,
-        dataset.modAction,
-        dataset.action,
-        dataset.type,
-        dataset.messageType,
-        dataset.commandName,
-        dataset.noticeType,
-        dataset.eventType,
-        dataset.category,
-        element.getAttribute?.('data-a-target'),
-        element.getAttribute?.('data-test-selector'),
-        element.getAttribute?.('class'),
-        element.getAttribute?.('aria-label'),
-        element.getAttribute?.('role')
-      ];
-      const childHintNodes = Array.from(
-        element.querySelectorAll('[data-mod-action],[data-moderation-action-type],[data-test-selector],[data-a-target]')
-      ).slice(0, 6);
-      childHintNodes.forEach((node) => {
-        const nodeDataset = node.dataset || {};
-        Object.values(nodeDataset).forEach((value) => attributeHints.push(value));
-        attributeHints.push(node.getAttribute?.('data-a-target'));
-        attributeHints.push(node.getAttribute?.('data-test-selector'));
-        attributeHints.push(node.getAttribute?.('aria-label'));
-        attributeHints.push(node.className);
-      });
       const actionHint = this.normalizeText(
-        attributeHints
-          .filter((value) => typeof value === 'string' && value.trim())
-          .map((value) => value.toLowerCase())
-          .join(' ') || analysisText
+        [
+          dataset.moderationActionType,
+          dataset.modAction,
+          dataset.action,
+          dataset.type,
+          dataset.messageType,
+          dataset.commandName
+        ]
+          .filter((value) => typeof value === 'string' && value)
+          .join(' ')
       );
-
-      if (!type) {
-        if (/(ban permanent|perma|ban def|permanent ban)/.test(actionHint)) {
-          type = 'ban';
-        } else if (/(timeout|temporaire|tempo|silence|mute|timed out|masque)/.test(actionHint)) {
-          type = 'timeout';
-        } else if (/ban/.test(actionHint)) {
-          type = 'ban';
-        }
+      if (actionHint.includes('ban')) {
+        type = 'ban';
+      } else if (
+        actionHint.includes('timeout') ||
+        actionHint.includes('silence') ||
+        actionHint.includes('mute') ||
+        actionHint.includes('delete') ||
+        actionHint.includes('tempo')
+      ) {
+        type = 'timeout';
       }
 
-      const appendedBanMatch = analysisText.match(/^\s*(?<user>[@\w-]+).*?\((?:banni|ban|banned|perma)\)/);
+      const appendedBanMatch = simplified.match(/^\s*(?<user>[@\w-]+).*?\((?:banni|ban|banned|perma)\)/);
       if (!type && appendedBanMatch) {
         const candidate = this.sanitizeLogin(appendedBanMatch.groups?.user || login);
         if (candidate) {
@@ -2036,7 +1980,7 @@
         }
       }
 
-      const appendedTimeoutMatch = analysisText.match(
+      const appendedTimeoutMatch = simplified.match(
         /^\s*(?<user>[@\w-]+).*?\((?:tempo|timeout|timed\s*out|masque|mute|supprime|deleted|efface)\)/
       );
       if (!type && appendedTimeoutMatch) {
@@ -2046,11 +1990,11 @@
           type = 'timeout';
         }
         if (!Number.isFinite(durationSeconds)) {
-          durationSeconds = this.extractDurationFromText(analysisText);
+          durationSeconds = this.extractDurationFromText(simplified);
         }
       }
 
-      const deletionResult = this.detectDeletionAction(element, analysisText);
+      const deletionResult = this.detectDeletionAction(element, simplified);
       if (deletionResult) {
         if (!type) {
           type = deletionResult.type;
@@ -2061,7 +2005,7 @@
       }
 
       if (!type) {
-        const banMatch = analysisText.match(/^\s*(?<user>[^\s]+)\s+(?:a\s+ete|has|was)\s+(?:ete\s+)?bann/i);
+        const banMatch = simplified.match(/^\s*(?<user>[^\s]+)\s+(?:a\s+ete|has|was)\s+(?:ete\s+)?bann/i);
         if (banMatch) {
           const user = this.sanitizeLogin(banMatch.groups?.user || login);
           if (user) {
@@ -2072,8 +2016,8 @@
       }
 
       if (!type) {
-        const timeoutMatch = analysisText.match(
-          /^\s*(?<user>[^\s]+)\s+(?:a\s+ete\s+reduit\s+au\s+silence|a\s+ete\s+tempo|a\s+ete\s+mute|a\s+ete\s+temporaire|has\s+been\s+timed\s+out|was\s+timed\s+out|ban\s+temporaire)\s*(?:pour|pendant|for|de)?\s*(?<duration>\d+)?\s*(?<unit>seconde|secondes|seconds?|minute|minutes?|hour|hours?|heure|heures?|day|days?|jour|jours?|week|weeks?|semaine|semaines)?/
+        const timeoutMatch = simplified.match(
+          /^\s*(?<user>[^\s]+)\s+(?:a\s+ete\s+reduit\s+au\s+silence|a\s+ete\s+tempo|a\s+ete\s+mute|has\s+been\s+timed\s+out|was\s+timed\s+out)\s*(?:pour|pendant|for)?\s*(?<duration>\d+)?\s*(?<unit>seconde|secondes|seconds?|minute|minutes?|hour|hours?|heure|heures?|day|days?|jour|jours?|week|weeks?|semaine|semaines)?/
         );
         if (timeoutMatch) {
           const user = this.sanitizeLogin(timeoutMatch.groups?.user || login);
@@ -2088,19 +2032,11 @@
       }
 
       if (!type) {
-        if (/ban\s+temporaire/.test(analysisText) || /temporaire/.test(actionHint)) {
-          type = 'timeout';
-        } else if (/ban/.test(analysisText)) {
-          type = 'ban';
-        }
-      }
-
-      if (!type) {
         return null;
       }
 
       if (!Number.isFinite(durationSeconds)) {
-        durationSeconds = this.extractDurationFromText(analysisText);
+        durationSeconds = this.extractDurationFromText(simplified);
       }
       if (!Number.isFinite(durationSeconds)) {
         durationSeconds = this.extractDurationFromText(rawText);
@@ -2315,28 +2251,12 @@
         dataset.body,
         dataset.content,
         dataset.rawMessage,
-        dataset.plainText,
-        dataset.plaintext,
-        dataset.messagePlainText,
         element?.getAttribute?.('data-original-message'),
         element?.getAttribute?.('data-deleted-message'),
         element?.getAttribute?.('data-message'),
-        element?.getAttribute?.('data-msg'),
-        element?.getAttribute?.('data-plain-text')
+        element?.getAttribute?.('data-msg')
       ]);
       let message = candidate || '';
-      if (!message) {
-        const aria = element?.getAttribute?.('aria-label');
-        if (aria) {
-          message = aria;
-        }
-      }
-      if (!message) {
-        const title = element?.getAttribute?.('title');
-        if (title) {
-          message = title;
-        }
-      }
       if (!message && typeof this.historyTracker?.extractMessageText === 'function') {
         try {
           message = this.historyTracker.extractMessageText(element) || '';
@@ -2889,7 +2809,7 @@
       if (entry.type === 'ban') {
         const baseBan = t('moderation.history.action.ban');
         if (entry.isPermanent || !Number.isFinite(entry.duration) || entry.duration <= 0) {
-          const suffix = CURRENT_LOCALE === 'fr' ? ' (definitif)' : ' (permanent)';
+          const suffix = CURRENT_LOCALE === 'fr' ? ' (définitif)' : ' (permanent)';
           actionLabel = `${baseBan}${suffix}`;
         } else {
           const banDurationLabel = formatDurationDetailed(entry.duration);
@@ -3154,6 +3074,9 @@
         '[data-a-target="viewer-card"]',
         '[data-test-selector="viewer-card"]',
         '[data-test-selector*="viewer-card"]',
+        '[data-test-selector="viewer-card-layer"] [data-a-target="viewer-card"]',
+        '[data-a-target="viewer-card-layer"] [data-a-target="viewer-card"]',
+        '[data-a-target="viewer-card-layer"] [data-test-selector*="viewer-card"]',
         '.viewer-card',
         'aside.viewer-card',
         'div.viewer-card',
@@ -3162,7 +3085,7 @@
       for (const selector of selectors) {
         try {
           const direct = document.querySelector(selector);
-          if (direct && this.isValidViewerCardElement(direct)) {
+          if (direct) {
             return direct;
           }
         } catch {
@@ -3170,13 +3093,12 @@
         }
       }
       const roots = this.getViewerRoots();
-      const card = this.querySelectors(roots, selectors);
-      return this.isValidViewerCardElement(card) ? card : null;
+      return this.querySelectors(roots, selectors);
     }
 
     syncCard() {
       const card = this.findViewerCard();
-      if (!card || !this.isValidViewerCardElement(card)) {
+      if (!card) {
         this.disposeCardObserver();
         this.currentCard = null;
         this.activeLogin = null;
@@ -3241,20 +3163,14 @@
         return;
       }
       this.rendering = true;
-      const roots = this.collectRelatedRoots(this.currentCard);
       const host =
-        this.querySelectors(roots, [
+        this.querySelectors(this.collectRelatedRoots(this.currentCard), [
           '[data-test-selector="viewer-card-modal-body"]',
           '[data-test-selector="viewer-card-body"]',
           '[data-a-target="viewer-card-body"]',
           '.viewer-card__body',
           '.viewer-card-body'
         ]) || this.currentCard;
-      if (!this.isValidViewerCardHost(host)) {
-        this.rendering = false;
-        return;
-      }
-      this.removeNativeRecentMessages(host);
       const history = this.tracker.getHistory(this.activeLogin);
       let container = host.querySelector('#tfr-viewer-history');
       const previousList = container?.querySelector('.tfr-viewer-history__list') || null;
@@ -3321,301 +3237,6 @@
         }
         this.rendering = false;
       });
-    }
-
-    removeNativeRecentMessages(host) {
-      if (!(host instanceof HTMLElement)) {
-        return;
-      }
-      const selectors = [
-        '[data-test-selector="recent-messages"]',
-        '[data-test-selector="viewer-card-recent-messages"]',
-        '[data-test-selector="viewer-card-recent-message"]',
-        '[data-test-selector="viewer-card-recent-messages-header"]',
-        '[data-test-selector="recent-messages-header"]',
-        '.recent-messages',
-        '.viewer-card__recent-messages',
-        '.viewer-card__recent-message',
-        '.viewer-card__recent-messages-header',
-        '.viewer-card__recent-messages-container'
-      ];
-      selectors.forEach((selector) => {
-        host.querySelectorAll(selector).forEach((node) => {
-          if (!node) return;
-          const removable =
-            node.closest('[data-test-selector*="recent-messages"]') ||
-            node.closest('.viewer-card__recent-messages-container') ||
-            node.closest('section[data-test-selector*="recent"]') ||
-            node;
-          if (removable && removable !== host && removable.parentElement) {
-            removable.parentElement.removeChild(removable);
-          }
-        });
-      });
-    }
-
-    isValidViewerCardHost(element) {
-      if (!(element instanceof HTMLElement)) {
-        return false;
-      }
-      const disqualify = [
-        '[data-test-selector="whispers"]',
-        '[data-test-selector="whispers-thread"]',
-        '[data-test-selector="whisper-thread"]',
-        '[data-test-selector="chat-whispers"]',
-        '[data-a-target="whisper-thread"]',
-        '.whispers-thread',
-        '.whisper-thread',
-        '.whispers'
-      ];
-      for (const selector of disqualify) {
-        if (element.matches(selector) || element.closest(selector)) {
-          return false;
-        }
-      }
-      return true;
-    }
-
-    isValidViewerCardElement(element) {
-      if (!(element instanceof HTMLElement)) {
-        return false;
-      }
-      if (!this.isValidViewerCardHost(element)) {
-        return false;
-      }
-      const dataset = element.dataset || {};
-      if (dataset.aTarget === 'viewer-card' || dataset.testSelector === 'viewer-card') {
-        return true;
-      }
-      if (element.matches('[data-a-target="viewer-card"], [data-test-selector="viewer-card"]')) {
-        return true;
-      }
-      const layer = element.closest('[data-a-target="viewer-card-layer"], [data-test-selector="viewer-card-layer"]');
-      if (layer) {
-        return true;
-      }
-      if (element.classList.contains('viewer-card') || element.className.includes('viewer-card')) {
-        const hasUserName = element.querySelector(
-          '[data-a-target="viewer-card-user-name"], [data-test-selector="viewer-card-user-name"], [data-a-target="viewer-card-channel-link"]'
-        );
-        if (hasUserName) {
-          return true;
-        }
-      }
-      return false;
-    }
-  }
-
-  class UpdateNotifier {
-    constructor() {
-      this.storageKey = UPDATE_STORAGE_KEY;
-      this.apiUrl = UPDATE_REPO_API_URL;
-      this.repoUrl = UPDATE_REPO_URL;
-      this.checkInterval = UPDATE_CHECK_INTERVAL_MS;
-      this.currentVersion = chrome.runtime?.getManifest?.().version || '0.0.0';
-      this.banner = null;
-    }
-
-    async init() {
-      if (!chrome?.storage?.local || typeof fetch !== 'function') {
-        return;
-      }
-      try {
-        await this.checkForUpdates();
-      } catch (error) {
-        console.warn('[TFR] update notifier init failed', error);
-      }
-    }
-
-    async getState() {
-      try {
-        const stored = await chrome.storage.local.get(this.storageKey);
-        const value = stored?.[this.storageKey];
-        return value && typeof value === 'object' ? value : {};
-      } catch (error) {
-        console.warn('[TFR] update state read failed', error);
-        return {};
-      }
-    }
-
-    async setState(partial) {
-      const state = await this.getState();
-      const next = { ...state, ...partial };
-      await chrome.storage.local.set({ [this.storageKey]: next });
-      return next;
-    }
-
-    normalizeVersion(version) {
-      return String(version || '')
-        .trim()
-        .replace(/^v/i, '');
-    }
-
-    parseVersion(version) {
-      const cleaned = this.normalizeVersion(version);
-      if (!cleaned) return [0];
-      return cleaned.split('.').map((part) => {
-        const match = String(part).match(/\d+/);
-        return match ? Number(match[0]) : 0;
-      });
-    }
-
-    isVersionNewer(remote, local) {
-      const rParts = this.parseVersion(remote);
-      const lParts = this.parseVersion(local);
-      const length = Math.max(rParts.length, lParts.length);
-      for (let i = 0; i < length; i += 1) {
-        const r = rParts[i] ?? 0;
-        const l = lParts[i] ?? 0;
-        if (r > l) return true;
-        if (r < l) return false;
-      }
-      return false;
-    }
-
-    canShowVersion(version, state, now = Date.now()) {
-      if (!this.isVersionNewer(version, this.currentVersion)) {
-        return false;
-      }
-      if (state.dismissedVersion === version) {
-        return false;
-      }
-      if (state.snoozeUntil && now < state.snoozeUntil) {
-        return false;
-      }
-      return true;
-    }
-
-    async checkForUpdates() {
-      const now = Date.now();
-      const state = await this.getState();
-      if (state.latestVersion && this.canShowVersion(state.latestVersion, state, now)) {
-        this.showBanner(state.latestVersion, state.releaseUrl, state.releaseNotes);
-      }
-      if (state.lastCheck && now - state.lastCheck < this.checkInterval) {
-        return;
-      }
-      try {
-        const response = await fetch(this.apiUrl, {
-          headers: { Accept: 'application/vnd.github+json' },
-          cache: 'no-cache'
-        });
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}`);
-        }
-        const payload = await response.json();
-        const remoteVersion = this.normalizeVersion(payload?.tag_name || payload?.name);
-        if (!remoteVersion) {
-          await this.setState({ lastCheck: now });
-          return;
-        }
-        const releaseUrl = payload?.html_url || this.repoUrl;
-        const releaseNotes = (payload?.body || '').trim();
-        const previousVersion = state.latestVersion;
-        const nextState = {
-          ...state,
-          lastCheck: now,
-          latestVersion: remoteVersion,
-          releaseUrl,
-          releaseNotes
-        };
-        if (previousVersion !== remoteVersion) {
-          nextState.dismissedVersion = null;
-          nextState.snoozeUntil = null;
-        }
-        await chrome.storage.local.set({ [this.storageKey]: nextState });
-        if (this.canShowVersion(remoteVersion, nextState, now)) {
-          this.showBanner(remoteVersion, releaseUrl, releaseNotes);
-        } else if (this.banner) {
-          this.removeBanner();
-        }
-      } catch (error) {
-        console.warn('[TFR] update check failed', error);
-      }
-    }
-
-    removeBanner() {
-      if (this.banner?.parentElement) {
-        this.banner.parentElement.removeChild(this.banner);
-      }
-      this.banner = null;
-    }
-
-    async dismissVersion(version) {
-      await this.setState({ dismissedVersion: version, snoozeUntil: null });
-      this.removeBanner();
-    }
-
-    async snooze(hours = 6) {
-      const until = Date.now() + hours * 60 * 60 * 1000;
-      await this.setState({ snoozeUntil: until });
-      this.removeBanner();
-    }
-
-    showBanner(version, url, notes) {
-      if (this.banner || !document?.body) {
-        return;
-      }
-      const banner = document.createElement('aside');
-      banner.className = 'tfr-update-banner';
-
-      const header = document.createElement('div');
-      header.className = 'tfr-update-banner__header';
-
-      const title = document.createElement('p');
-      title.className = 'tfr-update-banner__title';
-      title.textContent = 'Nouvelle mise a jour disponible';
-      header.appendChild(title);
-
-      const closeButton = document.createElement('button');
-      closeButton.type = 'button';
-      closeButton.className = 'tfr-update-banner__close';
-      closeButton.setAttribute('aria-label', 'Fermer la notification de mise a jour');
-      closeButton.textContent = 'X';
-      closeButton.addEventListener('click', () => this.snooze());
-      header.appendChild(closeButton);
-
-      const body = document.createElement('p');
-      body.className = 'tfr-update-banner__body';
-      const summaryLine = (notes || '')
-        .split(/\r?\n/)
-        .map((line) => line.trim())
-        .find((line) => line.length);
-      const description = summaryLine ? `Notes : ${summaryLine}` : 'Consultez GitHub pour telecharger la derniere version.';
-      body.textContent = `Version ${version} est disponible. ${description}`;
-
-      const actions = document.createElement('div');
-      actions.className = 'tfr-update-banner__actions';
-
-      const primary = document.createElement('button');
-      primary.type = 'button';
-      primary.className = 'tfr-update-banner__button tfr-update-banner__button--primary';
-      primary.textContent = 'Ouvrir GitHub';
-      primary.addEventListener('click', () => {
-        try {
-          window.open(url || this.repoUrl, '_blank', 'noopener');
-        } catch {
-          window.location.href = url || this.repoUrl;
-        } finally {
-          this.dismissVersion(version);
-        }
-      });
-
-      const later = document.createElement('button');
-      later.type = 'button';
-      later.className = 'tfr-update-banner__button tfr-update-banner__button--ghost';
-      later.textContent = 'Plus tard';
-      later.addEventListener('click', () => this.snooze());
-
-      actions.appendChild(primary);
-      actions.appendChild(later);
-
-      banner.appendChild(header);
-      banner.appendChild(body);
-      banner.appendChild(actions);
-
-      document.body.appendChild(banner);
-      this.banner = banner;
     }
   }
 
@@ -6330,9 +5951,6 @@ class TopNavManager {
     const moderationHistoryUI = new ModerationHistoryUI(moderationTracker);
     moderationHistoryUI.init();
 
-    const updateNotifier = new UpdateNotifier();
-    updateNotifier.init();
-
     window.addEventListener('focus', () => store.refreshLiveData());
   };
 
@@ -6342,8 +5960,6 @@ class TopNavManager {
     bootstrap();
   }
 })();
-
-
 
 
 
