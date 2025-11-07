@@ -1,4 +1,5 @@
-﻿const STORAGE_KEY = 'tfr_state';
+const browserApi = globalThis.browser ?? globalThis.chrome;
+const STORAGE_KEY = 'tfr_state';
 const DEFAULT_STATE = {
   favorites: {},
   categories: [],
@@ -8,9 +9,9 @@ const DEFAULT_STATE = {
   }
 };
 
-chrome.runtime.onInstalled.addListener(async () => {
+browserApi.runtime.onInstalled.addListener(async () => {
   try {
-    const stored = await chrome.storage.local.get(STORAGE_KEY);
+    const stored = await browserApi.storage.local.get(STORAGE_KEY);
     if (!stored || !stored[STORAGE_KEY]) {
       const initialCategory = {
         id: `cat_${Date.now()}`,
@@ -18,7 +19,7 @@ chrome.runtime.onInstalled.addListener(async () => {
         collapsed: false,
         sortOrder: Date.now()
       };
-      await chrome.storage.local.set({
+      await browserApi.storage.local.set({
         [STORAGE_KEY]: {
           ...DEFAULT_STATE,
           categories: [initialCategory]
