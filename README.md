@@ -38,24 +38,57 @@ Twitch Favorites Sidebar recreates the left sidebar from twitch.tv, but makes it
   Background worker polls Twitch, syncs the badge with the number of live favorites, fires optional system notifications, and refreshes automatically via alarms.
 
 
-Twitch Favorites Sidebar
-Extension navigateur (Chrome & Firefox) qui apporte une liste dynamique de tes streamers Twitch favoris sur n’importe quel site.
+Twitch Favorites Sidebar — Extension Navigateur (Chrome & Firefox)
 
-Fonctionnalités principales
-Panneau flottant ou popup global : affiche à la demande la liste des streamers en direct, directement depuis le bouton de l’extension (Chrome) ou via un side panel (Firefox).
-Catégories intelligentes : organise tes favoris en groupes personnalisés, avec badge de compteur, tri avancé, filtres par jeu et possibilité de replier chaque catégorie. Les préférences de repli sont synchronisées.
-Toast notifications : alerte visuelle pour les démarrages de live avec avatar, titre, jeu et nombre de spectateurs. Les toasts respectent la direction artistique Twitch (verre fumé, accent violet) et se positionnent sous l’icône de l’extension.
-Gestion fine des favoris :
-Ajout/suppression depuis Twitch grâce à un bouton contextuel.
-Options par streamer (tri, jeu filtré, mise en avant “Début de live”, badge de viewers…).
-Section “Début de live” configurée par temps de mise en avant.
-Compatibilité multi-navigateurs :
+Ajoute une liste dynamique de tes streamers Twitch favoris sur n’importe quel site, avec une UI cohérente à l’identité Twitch.
+
+✨ Fonctionnalités principales
+
+Panneau flottant / popup global
+Affiche à la demande la liste des streamers en direct : via le bouton de l’extension (Chrome) ou un side panel (Firefox).
+
+Catégories intelligentes
+Groupes personnalisés avec badge compteur, tri avancé, filtres par jeu, et repli par catégorie.
+Les préférences de repli sont synchronisées.
+
+Toast notifications
+Alertes visuelles pour les démarrages de live : avatar, titre, jeu, viewers.
+Style verre fumé avec accent violet Twitch, positionnées sous l’icône de l’extension.
+
+Gestion fine des favoris
+Ajout/suppression depuis Twitch (bouton contextuel).
+Options par streamer : tri, jeu filtré, mise en avant “Début de live”, badge de viewers, etc.
+Section “Début de live” configurable (durée de mise en avant).
+
+🌐 Compatibilité & build
+
 Manifest V3 commun (Chrome, Edge, Opera).
-Build Firefox dédiée incluse (firefox/), prête à être chargée via about:debugging.
-Bouton d’action, side panel, et fallback popup pour les pages restreintes (new tab, etc.).
-UI responsive :
-Styles unifiés (styles/panelOverlay.css) : gradient, glassmorphism, boutons pill, scrollbar stylée.
-Pop-up/panel standalone avec même direction artistique que Twitch.
-Préférences persistantes via chrome.storage: mode tri, sections repliées, seuil “recent live”, durée des toasts, etc.
-Debug tools optionnels : possibilité d’ajouter facilement un bouton de test (non inclus par défaut) pour simuler les notifications instantanées.
-Notifications système (optionnelles dans le background) plus toasts in-extension, badge d’icône indiquant le nombre de lives actifs, actualisation automatique via alarmes.
+
+Build Firefox dédiée (firefox/), prête à charger via about:debugging.
+
+Bouton d’action, side panel, et fallback popup pour pages restreintes (nouvel onglet, etc.).
+
+🎨 UI & expérience
+
+UI responsive avec styles unifiés (styles/panelOverlay.css).
+
+Thèmes : gradient, glassmorphism, boutons pill, scrollbar stylée.
+
+Popup/panel standalone aligné avec la DA Twitch.
+
+⚙️ Préférences & persistance
+
+Stockage via chrome.storage :
+mode de tri, sections repliées, seuil “recent live”, durée des toasts, etc.
+
+🧪 Outils de debug (optionnels)
+
+Possibilité d’ajouter un bouton de test (non inclus par défaut) pour simuler des notifications instantanées.
+
+🔔 Notifications & actualisation
+
+Notifications système (optionnelles en background) + toasts dans l’extension.
+
+Badge d’icône indiquant le nombre de lives actifs.
+
+Actualisation automatique via alarmes.
