@@ -9,12 +9,19 @@
     "128": "assets/icon128.png"
   },
   "permissions": [
-    "storage"
+    "storage",
+    "alarms",
+    "tabs",
+    "scripting",
+    "sidePanel",
+    "windows"
   ],
   "host_permissions": [
     "https://gql.twitch.tv/*",
     "https://www.twitch.tv/*",
-    "https://api.github.com/*"
+    "https://api.github.com/*",
+    "https://*/*",
+    "http://*/*"
   ],
   "content_scripts": [
     {
@@ -30,10 +37,35 @@
         "styles/buttons.css"
       ],
       "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://*/*",
+        "http://*/*"
+      ],
+      "js": [
+        "src/contentScripts/overlayPanel.js"
+      ],
+      "css": [
+        "styles/panelOverlay.css"
+      ],
+      "run_at": "document_idle"
     }
   ],
   "background": {
     "service_worker": "src/background/serviceWorker.js",
     "type": "module"
+  },
+  "side_panel": {
+    "default_path": "panel/sidepanel.html"
+  },
+  "web_accessible_resources": [],
+  "action": {
+    "default_icon": {
+      "16": "assets/icon16.png",
+      "24": "assets/icon16.png",
+      "32": "assets/icon48.png"
+    },
+    "default_title": "Afficher les favoris Twitch"
   }
 }
