@@ -38,6 +38,11 @@ Twitch Favorites Sidebar recreates the left sidebar from twitch.tv, but makes it
   Background worker polls Twitch, syncs the badge with the number of live favorites, fires optional system notifications, and refreshes automatically via alarms.
 
 
+
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+
 Twitch Favorites Sidebar — Extension Navigateur (Chrome & Firefox)
 
 Ajoute une liste dynamique de tes streamers Twitch favoris sur n’importe quel site, avec une UI cohérente à l’identité Twitch.
