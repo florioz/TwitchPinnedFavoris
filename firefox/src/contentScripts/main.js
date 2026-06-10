@@ -5227,6 +5227,10 @@ class FavoritesOverlay {
     column.appendChild(header);
 
     const categoriesTree = this.store.getCategoriesTree();
+    const rootDropZone = document.createElement('div');
+    rootDropZone.className = 'tfr-category-root-dropzone';
+    rootDropZone.textContent = 'Déposer ici pour remettre au niveau racine';
+    this.setupCategoryDropTarget(rootDropZone, null);
 
     const categoryIdSet = new Set();
     const collectIds = (nodes) => {
@@ -5276,6 +5280,7 @@ class FavoritesOverlay {
     }
 
     this.setupCategoryDropTarget(cards, null);
+    column.appendChild(rootDropZone);
     column.appendChild(cards);
     return column;
   }
@@ -5530,14 +5535,21 @@ class FavoritesOverlay {
   }
 
   getCategoryDropPlacement(event, element) {
-    if (!element || !element.classList?.contains('tfr-category-item')) {
+    const isCategoryTarget =
+      element?.classList?.contains('tfr-category-item') || element?.classList?.contains('tfr-category-card');
+    if (!isCategoryTarget) {
       return 'inside';
     }
-    const rect = element.getBoundingClientRect();
+    const header =
+      element.querySelector?.('.tfr-category-item-header') || element.querySelector?.('.tfr-category-card__header');
+    const rect = (header || element).getBoundingClientRect();
     if (!rect.height) {
       return 'inside';
     }
     const offsetY = event.clientY - rect.top;
+    if (offsetY < 0 || offsetY > rect.height) {
+      return 'inside';
+    }
     if (offsetY < rect.height * 0.3) {
       return 'before';
     }
@@ -5727,7 +5739,7 @@ class FavoritesOverlay {
 
     const dragHint = document.createElement('div');
     dragHint.className = 'tfr-category-help';
-    dragHint.textContent = 'Glissez une catégorie sur une autre pour en faire une sous-catégorie, ou sur l’espace vide pour la remettre au niveau racine.';
+    dragHint.textContent = 'Glissez une catégorie sur l’en-tête d’un groupe pour la réordonner, au centre pour en faire une sous-catégorie, ou dans la zone racine pour la remonter.';
 
     const addCategory = document.createElement('button');
     addCategory.type = 'button';
@@ -5744,6 +5756,10 @@ class FavoritesOverlay {
 
     const list = document.createElement('div');
     list.className = 'tfr-category-list';
+    const rootDropZone = document.createElement('div');
+    rootDropZone.className = 'tfr-category-root-dropzone';
+    rootDropZone.textContent = 'Déposer ici pour remettre au niveau racine';
+    this.setupCategoryDropTarget(rootDropZone, null);
     const favoritesArray = Object.values(state.favorites);
 
     const categoriesTree = this.store.getCategoriesTree();
@@ -5831,6 +5847,7 @@ class FavoritesOverlay {
     categoriesSection.appendChild(header);
     categoriesSection.appendChild(dragHint);
     categoriesSection.appendChild(addCategory);
+    categoriesSection.appendChild(rootDropZone);
     categoriesSection.appendChild(list);
     content.appendChild(categoriesSection);
   }
