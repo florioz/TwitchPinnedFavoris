@@ -130,6 +130,18 @@ body {
   font: inherit;
 }
 
+.tfr-vods-field input[type="date"] {
+  color-scheme: dark;
+  cursor: pointer;
+}
+
+.tfr-vods-field small {
+  min-height: 16px;
+  color: var(--tfr-muted);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
 .tfr-vods-summary {
   min-height: 20px;
   color: var(--tfr-muted);

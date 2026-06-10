@@ -51,7 +51,8 @@
     refreshButton: document.getElementById('refreshButton'),
     searchInput: document.getElementById('searchInput'),
     groupSelect: document.getElementById('groupSelect'),
-    daySelect: document.getElementById('daySelect'),
+    dayInput: document.getElementById('dayInput'),
+    dayHint: document.getElementById('dayHint'),
     summary: document.getElementById('summary'),
     timeline: document.getElementById('timeline'),
     emptyState: document.getElementById('emptyState')
@@ -84,6 +85,22 @@
       day: '2-digit',
       month: 'short'
     }).format(date);
+  }
+
+  function formatDateValue(timestamp) {
+    const date = new Date(timestamp);
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
+
+  function parseDateValue(value) {
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value || ''));
+    if (!match) {
+      return startOfDay(new Date()).getTime();
+    }
+    return startOfDay(new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]))).getTime();
   }
 
   function escapeHtml(value) {
@@ -341,18 +358,19 @@
     });
     elements.groupSelect.value = currentGroup;
 
-    elements.daySelect.innerHTML = '';
     const dayCounts = getDayCounts();
     const today = startOfDay(new Date()).getTime();
-    for (let offset = 0; offset <= MAX_DAY_OFFSET; offset += 1) {
-      const timestamp = today - offset * DAY_MS;
-      const option = document.createElement('option');
-      const count = dayCounts.get(timestamp) || 0;
-      option.value = String(timestamp);
-      option.textContent = `${offset === 0 ? `Aujourd'hui - ${formatDayLabel(timestamp)}` : formatDayLabel(timestamp)}${count ? ` - ${count} VOD${count > 1 ? 's' : ''}` : ''}`;
-      elements.daySelect.appendChild(option);
+    const oldest = today - MAX_DAY_OFFSET * DAY_MS;
+    elements.dayInput.min = formatDateValue(oldest);
+    elements.dayInput.max = formatDateValue(today);
+    if (state.selectedDay < oldest || state.selectedDay > today) {
+      state.selectedDay = today;
     }
-    elements.daySelect.value = String(state.selectedDay);
+    elements.dayInput.value = formatDateValue(state.selectedDay);
+    const count = dayCounts.get(Number(state.selectedDay)) || 0;
+    elements.dayHint.textContent = count
+      ? `${formatDayLabel(state.selectedDay)} - ${count} VOD${count > 1 ? 's' : ''}`
+      : `${formatDayLabel(state.selectedDay)} - aucune VOD visible`;
   }
 
   function renderTimeline() {
@@ -460,8 +478,9 @@
       renderFilters();
       renderTimeline();
     });
-    elements.daySelect.addEventListener('change', (event) => {
-      state.selectedDay = Number(event.target.value) || startOfDay(new Date()).getTime();
+    elements.dayInput.addEventListener('change', (event) => {
+      state.selectedDay = parseDateValue(event.target.value);
+      renderFilters();
       renderTimeline();
     });
   }
