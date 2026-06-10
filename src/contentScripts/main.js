@@ -1278,8 +1278,29 @@
         if (!target) return;
         if (!target.parentId) return;
         const parent = draft.categories.find((cat) => cat.id === target.parentId);
-        target.parentId = parent?.parentId || null;
-        target.sortOrder = Date.now();
+        const previousParentId = target.parentId;
+        const nextParentId = parent?.parentId || null;
+        const siblings = draft.categories
+          .filter((cat) => (cat.parentId || null) === (nextParentId || null) && cat.id !== target.id)
+          .sort((a, b) => {
+            if (a.sortOrder !== b.sortOrder) return a.sortOrder - b.sortOrder;
+            return a.name.localeCompare(b.name, 'fr');
+          });
+        const parentIndex = siblings.findIndex((cat) => cat.id === parent?.id);
+        target.parentId = nextParentId;
+        siblings.splice(parentIndex >= 0 ? parentIndex + 1 : siblings.length, 0, target);
+        siblings.forEach((cat, index) => {
+          cat.sortOrder = (index + 1) * 1000;
+        });
+        draft.categories
+          .filter((cat) => (cat.parentId || null) === (previousParentId || null))
+          .sort((a, b) => {
+            if (a.sortOrder !== b.sortOrder) return a.sortOrder - b.sortOrder;
+            return a.name.localeCompare(b.name, 'fr');
+          })
+          .forEach((cat, index) => {
+            cat.sortOrder = (index + 1) * 1000;
+          });
       });
     }
 
@@ -5418,6 +5439,7 @@ class FavoritesOverlay {
     card.style.setProperty('--card-depth', String(depth));
     card.draggable = true;
     card.addEventListener('dragstart', (event) => {
+      event.stopPropagation();
       if (event.dataTransfer) {
         event.dataTransfer.setData('text/plain', node.id);
         event.dataTransfer.setData('application/json', JSON.stringify({ categoryId: node.id }));
@@ -5427,7 +5449,8 @@ class FavoritesOverlay {
       this.draggedCategoryId = node.id;
       this.draggedCategoryStartX = event.clientX || 0;
     });
-    card.addEventListener('dragend', () => {
+    card.addEventListener('dragend', (event) => {
+      event.stopPropagation();
       card.classList.remove('is-dragging');
       this.draggedCategoryId = null;
       this.draggedCategoryStartX = 0;
@@ -5451,6 +5474,44 @@ class FavoritesOverlay {
 
     const actions = document.createElement('div');
     actions.className = 'tfr-category-card__actions';
+
+    const moveUpBtn = document.createElement('button');
+    moveUpBtn.type = 'button';
+    moveUpBtn.className = 'tfr-chip-action';
+    moveUpBtn.textContent = '↑';
+    moveUpBtn.title = 'Déplacer vers le haut';
+    moveUpBtn.addEventListener('click', async (event) => {
+      event.stopPropagation();
+      await this.store.moveCategoryUp(node.id);
+      this.render();
+    });
+    actions.appendChild(moveUpBtn);
+
+    const moveDownBtn = document.createElement('button');
+    moveDownBtn.type = 'button';
+    moveDownBtn.className = 'tfr-chip-action';
+    moveDownBtn.textContent = '↓';
+    moveDownBtn.title = 'Déplacer vers le bas';
+    moveDownBtn.addEventListener('click', async (event) => {
+      event.stopPropagation();
+      await this.store.moveCategoryDown(node.id);
+      this.render();
+    });
+    actions.appendChild(moveDownBtn);
+
+    if (depth > 0) {
+      const outdentBtn = document.createElement('button');
+      outdentBtn.type = 'button';
+      outdentBtn.className = 'tfr-chip-action';
+      outdentBtn.textContent = '←';
+      outdentBtn.title = 'Remonter d’un niveau';
+      outdentBtn.addEventListener('click', async (event) => {
+        event.stopPropagation();
+        await this.store.outdentCategory(node.id);
+        this.render();
+      });
+      actions.appendChild(outdentBtn);
+    }
 
     const collapseBtn = document.createElement('button');
     collapseBtn.type = 'button';
@@ -5718,6 +5779,7 @@ class FavoritesOverlay {
     element.draggable = true;
     element.dataset.login = login;
     element.addEventListener('dragstart', (event) => {
+      event.stopPropagation();
       const normalized = login?.toLowerCase();
       let selected = [];
       if (normalized && this.selectedFavorites.has(normalized) && this.selectedFavorites.size > 1) {
@@ -5733,7 +5795,8 @@ class FavoritesOverlay {
       element.classList.add('is-dragging');
       this.draggedLogin = selected.length ? selected : normalized ? [normalized] : null;
     });
-    element.addEventListener('dragend', () => {
+    element.addEventListener('dragend', (event) => {
+      event.stopPropagation();
       element.classList.remove('is-dragging');
       this.draggedLogin = null;
     });
@@ -6024,6 +6087,7 @@ class FavoritesOverlay {
     item.draggable = true;
     item.dataset.categoryId = category.id;
     item.addEventListener('dragstart', (event) => {
+      event.stopPropagation();
       if (event.dataTransfer) {
         event.dataTransfer.setData('text/plain', category.id);
         event.dataTransfer.setData('application/json', JSON.stringify({ categoryId: category.id }));
@@ -6034,7 +6098,8 @@ class FavoritesOverlay {
       this.draggedCategoryId = category.id;
       this.draggedCategoryStartX = event.clientX || 0;
     });
-    item.addEventListener('dragend', () => {
+    item.addEventListener('dragend', (event) => {
+      event.stopPropagation();
       item.classList.remove('is-dragging');
       this.draggedCategoryId = null;
       this.draggedCategoryStartX = 0;
