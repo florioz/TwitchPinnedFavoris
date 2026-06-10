@@ -1323,7 +1323,7 @@
           return false;
         };
 
-        if (reference && isDescendant(reference.id, target.id)) return;
+        if (reference && placement !== 'root' && isDescendant(reference.id, target.id)) return;
 
         const normalizeSiblings = (parentId) => {
           draft.categories
