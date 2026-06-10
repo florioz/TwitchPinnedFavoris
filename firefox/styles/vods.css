@@ -72,14 +72,22 @@ body {
   border-radius: 8px;
   background: var(--tfr-purple);
   color: #fff;
-  min-height: 36px;
-  padding: 0 14px;
+  min-height: 40px;
+  padding: 0 16px;
   font-weight: 700;
   cursor: pointer;
+  white-space: nowrap;
+  box-shadow: 0 0 0 1px rgba(145, 71, 255, 0.16), 0 10px 26px rgba(0, 0, 0, 0.24);
 }
 
 .tfr-vods-button--ghost {
-  background: rgba(145, 71, 255, 0.14);
+  background: linear-gradient(135deg, rgba(145, 71, 255, 0.32), rgba(82, 49, 139, 0.28));
+}
+
+.tfr-vods-button:hover,
+.tfr-vods-button:focus-visible {
+  border-color: rgba(216, 181, 109, 0.78);
+  outline: none;
 }
 
 .tfr-vods-button:disabled {
@@ -145,7 +153,7 @@ body {
 .tfr-vods-row {
   display: grid;
   grid-template-columns: 210px minmax(0, 1fr);
-  min-width: calc(210px + 3456px);
+  min-width: calc(210px + var(--timeline-width, 3456px));
 }
 
 .tfr-vods-time-header {
@@ -158,7 +166,6 @@ body {
 
 .tfr-vods-hours {
   display: grid;
-  grid-template-columns: repeat(24, 144px);
   height: 42px;
   align-items: end;
 }
@@ -298,6 +305,6 @@ body {
   .tfr-vods-time-header,
   .tfr-vods-row {
     grid-template-columns: 160px minmax(0, 1fr);
-    min-width: calc(160px + 3456px);
+    min-width: calc(160px + var(--timeline-width, 3456px));
   }
 }

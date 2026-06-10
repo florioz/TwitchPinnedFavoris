@@ -6,8 +6,10 @@
   const DEFAULT_AVATAR = 'https://static-cdn.jtvnw.net/jtv_user_pictures/404_user_70x70.png';
   const DAY_MS = 24 * 60 * 60 * 1000;
   const HOUR_WIDTH = 144;
-  const TIMELINE_HOURS = 24;
-  const VIDEO_LIMIT = 12;
+  const MAX_DAY_OFFSET = 60;
+  const MAX_TIMELINE_HOURS = 24;
+  const MIN_TIMELINE_HOURS = 4;
+  const VIDEO_LIMIT = 60;
 
   const VODS_QUERY = `
     query TfrChannelVideos($login: String!, $limit: Int!) {
@@ -266,6 +268,64 @@
       });
   }
 
+  function getDayCounts(logins = getFilteredLogins()) {
+    const today = startOfDay(new Date()).getTime();
+    const oldest = today - MAX_DAY_OFFSET * DAY_MS;
+    const counts = new Map();
+    logins
+      .map((login) => state.videosByLogin.get(login))
+      .filter(Boolean)
+      .forEach((channel) => {
+        channel.videos.forEach((video) => {
+          const timestamp = new Date(video.createdAt).getTime();
+          if (!Number.isFinite(timestamp) || timestamp < oldest || timestamp >= today + DAY_MS) {
+            return;
+          }
+          const day = startOfDay(new Date(timestamp)).getTime();
+          counts.set(day, (counts.get(day) || 0) + 1);
+        });
+      });
+    return counts;
+  }
+
+  function ensureSelectedDayHasContent() {
+    if (state.searchTerm.trim()) {
+      return;
+    }
+    if (getVisibleRows().length) {
+      return;
+    }
+    const counts = getDayCounts();
+    const latestDay = Array.from(counts.keys()).sort((a, b) => b - a)[0];
+    if (latestDay) {
+      state.selectedDay = latestDay;
+    }
+  }
+
+  function getTimelineWindow(rows) {
+    const starts = [];
+    const ends = [];
+    rows.forEach((channel) => {
+      channel.videos.forEach((video) => {
+        const start = new Date(video.createdAt);
+        const minute = start.getHours() * 60 + start.getMinutes();
+        starts.push(minute);
+        ends.push(Math.min(MAX_TIMELINE_HOURS * 60, minute + Math.ceil((video.lengthSeconds || 3600) / 60)));
+      });
+    });
+    if (!starts.length) {
+      return { startHour: 0, hourCount: MAX_TIMELINE_HOURS, width: MAX_TIMELINE_HOURS * HOUR_WIDTH };
+    }
+    const startHour = Math.max(0, Math.floor(Math.min(...starts) / 60));
+    const desiredEndHour = Math.min(MAX_TIMELINE_HOURS, Math.ceil(Math.max(...ends) / 60));
+    const hourCount = Math.max(MIN_TIMELINE_HOURS, desiredEndHour - startHour);
+    return {
+      startHour,
+      hourCount: Math.min(MAX_TIMELINE_HOURS - startHour, hourCount),
+      width: Math.min(MAX_TIMELINE_HOURS - startHour, hourCount) * HOUR_WIDTH
+    };
+  }
+
   function renderFilters() {
     const currentGroup = state.selectedCategoryId;
     elements.groupSelect.innerHTML = '';
@@ -282,12 +342,14 @@
     elements.groupSelect.value = currentGroup;
 
     elements.daySelect.innerHTML = '';
+    const dayCounts = getDayCounts();
     const today = startOfDay(new Date()).getTime();
-    for (let offset = 0; offset < 8; offset += 1) {
+    for (let offset = 0; offset <= MAX_DAY_OFFSET; offset += 1) {
       const timestamp = today - offset * DAY_MS;
       const option = document.createElement('option');
+      const count = dayCounts.get(timestamp) || 0;
       option.value = String(timestamp);
-      option.textContent = offset === 0 ? `Aujourd'hui - ${formatDayLabel(timestamp)}` : formatDayLabel(timestamp);
+      option.textContent = `${offset === 0 ? `Aujourd'hui - ${formatDayLabel(timestamp)}` : formatDayLabel(timestamp)}${count ? ` - ${count} VOD${count > 1 ? 's' : ''}` : ''}`;
       elements.daySelect.appendChild(option);
     }
     elements.daySelect.value = String(state.selectedDay);
@@ -295,7 +357,10 @@
 
   function renderTimeline() {
     const rows = getVisibleRows();
+    const timelineWindow = getTimelineWindow(rows);
+    const timelineWidth = timelineWindow.width;
     elements.timeline.innerHTML = '';
+    elements.timeline.style.setProperty('--timeline-width', `${timelineWidth}px`);
     elements.emptyState.hidden = rows.length > 0 || state.isLoading;
 
     const header = document.createElement('div');
@@ -303,8 +368,9 @@
     header.appendChild(document.createElement('div'));
     const hours = document.createElement('div');
     hours.className = 'tfr-vods-hours';
-    hours.style.width = `${TIMELINE_HOURS * HOUR_WIDTH}px`;
-    for (let hour = 0; hour < TIMELINE_HOURS; hour += 1) {
+    hours.style.width = `${timelineWidth}px`;
+    hours.style.gridTemplateColumns = `repeat(${timelineWindow.hourCount}, ${HOUR_WIDTH}px)`;
+    for (let hour = timelineWindow.startHour; hour < timelineWindow.startHour + timelineWindow.hourCount; hour += 1) {
       const label = document.createElement('span');
       label.textContent = formatHour(hour);
       hours.appendChild(label);
@@ -329,11 +395,11 @@
 
       const track = document.createElement('div');
       track.className = 'tfr-vods-track';
-      track.style.width = `${TIMELINE_HOURS * HOUR_WIDTH}px`;
+      track.style.width = `${timelineWidth}px`;
       channel.videos.forEach((video) => {
         const start = new Date(video.createdAt);
         const minuteOfDay = start.getHours() * 60 + start.getMinutes();
-        const left = (minuteOfDay / 60) * HOUR_WIDTH;
+        const left = ((minuteOfDay - timelineWindow.startHour * 60) / 60) * HOUR_WIDTH;
         const width = Math.max(150, Math.min(520, ((video.lengthSeconds || 3600) / 3600) * HOUR_WIDTH));
         const card = document.createElement('a');
         card.className = 'tfr-vods-card';
@@ -345,7 +411,7 @@
         card.innerHTML = `
           ${video.thumbnailUrl ? `<img src="${escapeHtml(video.thumbnailUrl)}" alt="" />` : ''}
           <span class="tfr-vods-card__title">${escapeHtml(video.title)}</span>
-          <span class="tfr-vods-card__meta">${escapeHtml(start.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }))} · ${escapeHtml(formatDuration(video.lengthSeconds))}${video.game ? ` · ${escapeHtml(video.game)}` : ''}</span>
+          <span class="tfr-vods-card__meta">${escapeHtml(start.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }))} - ${escapeHtml(formatDuration(video.lengthSeconds))}${video.game ? ` - ${escapeHtml(video.game)}` : ''}</span>
         `;
         track.appendChild(card);
       });
@@ -356,12 +422,13 @@
     const totalVideos = rows.reduce((sum, row) => sum + row.videos.length, 0);
     elements.summary.textContent = state.isLoading
       ? 'Chargement des VODs Twitch...'
-      : `${rows.length} streamer${rows.length > 1 ? 's' : ''} · ${totalVideos} VOD${totalVideos > 1 ? 's' : ''}`;
+      : `${rows.length} streamer${rows.length > 1 ? 's' : ''} - ${totalVideos} VOD${totalVideos > 1 ? 's' : ''}`;
   }
 
   async function refreshData() {
     state.isLoading = true;
     elements.refreshButton.disabled = true;
+    elements.refreshButton.textContent = 'Chargement...';
     renderTimeline();
     await readStoredState();
     renderFilters();
@@ -375,6 +442,9 @@
     });
     state.isLoading = false;
     elements.refreshButton.disabled = false;
+    elements.refreshButton.textContent = 'Actualiser les VODs';
+    ensureSelectedDayHasContent();
+    renderFilters();
     renderTimeline();
   }
 
@@ -386,6 +456,8 @@
     });
     elements.groupSelect.addEventListener('change', (event) => {
       state.selectedCategoryId = event.target.value || 'all';
+      ensureSelectedDayHasContent();
+      renderFilters();
       renderTimeline();
     });
     elements.daySelect.addEventListener('change', (event) => {
