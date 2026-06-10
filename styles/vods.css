@@ -97,9 +97,10 @@ body {
 
 .tfr-vods-toolbar {
   display: grid;
-  grid-template-columns: minmax(220px, 1fr) minmax(190px, 260px) minmax(160px, 220px);
-  gap: 10px;
-  padding: 12px;
+  grid-template-columns: minmax(280px, 1fr) minmax(190px, 260px) minmax(220px, 300px) minmax(320px, 420px);
+  gap: 12px;
+  align-items: end;
+  padding: 14px;
   border: 1px solid var(--tfr-line);
   border-radius: 8px;
   background: rgba(23, 16, 35, 0.86);
@@ -110,6 +111,10 @@ body {
   flex-direction: column;
   gap: 6px;
   min-width: 0;
+}
+
+.tfr-vods-field--search {
+  min-width: 260px;
 }
 
 .tfr-vods-field span {
@@ -133,6 +138,43 @@ body {
 .tfr-vods-field input[type="date"] {
   color-scheme: dark;
   cursor: pointer;
+}
+
+.tfr-vods-sort-control,
+.tfr-vods-day-control {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.tfr-vods-day-control {
+  grid-template-columns: auto minmax(150px, 1fr) auto;
+}
+
+.tfr-vods-icon-button {
+  min-width: 44px;
+  min-height: 38px;
+  border: 1px solid rgba(191, 148, 255, 0.34);
+  border-radius: 8px;
+  background: rgba(145, 71, 255, 0.26);
+  color: var(--tfr-text);
+  padding: 0 10px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.tfr-vods-icon-button:hover,
+.tfr-vods-icon-button:focus-visible {
+  border-color: rgba(216, 181, 109, 0.78);
+  outline: none;
+}
+
+.tfr-vods-icon-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .tfr-vods-field small {
@@ -216,12 +258,28 @@ body {
   object-fit: cover;
 }
 
-.tfr-vods-streamer span {
+.tfr-vods-streamer__text {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
   min-width: 0;
+}
+
+.tfr-vods-streamer__text strong,
+.tfr-vods-streamer__text small {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.tfr-vods-streamer__text strong {
   font-weight: 800;
+}
+
+.tfr-vods-streamer__text small {
+  color: var(--tfr-muted);
+  font-size: 11px;
+  font-weight: 600;
 }
 
 .tfr-vods-track {
@@ -318,5 +376,15 @@ body {
   .tfr-vods-row {
     grid-template-columns: 160px minmax(0, 1fr);
     min-width: calc(160px + var(--timeline-width, 3456px));
+  }
+}
+
+@media (min-width: 761px) and (max-width: 1220px) {
+  .tfr-vods-toolbar {
+    grid-template-columns: minmax(260px, 1fr) minmax(220px, 300px);
+  }
+
+  .tfr-vods-field--search {
+    grid-column: 1 / -1;
   }
 }

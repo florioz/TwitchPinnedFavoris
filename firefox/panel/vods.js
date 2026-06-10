@@ -26,6 +26,7 @@
               createdAt
               publishedAt
               lengthSeconds
+              viewCount
               previewThumbnailURL(width: 320, height: 180)
               game {
                 name
@@ -44,6 +45,8 @@
     selectedCategoryId: 'all',
     selectedDay: startOfDay(new Date()).getTime(),
     searchTerm: '',
+    sortKey: 'views',
+    sortDirection: 'desc',
     isLoading: false
   };
 
@@ -51,6 +54,10 @@
     refreshButton: document.getElementById('refreshButton'),
     searchInput: document.getElementById('searchInput'),
     groupSelect: document.getElementById('groupSelect'),
+    sortSelect: document.getElementById('sortSelect'),
+    sortDirectionButton: document.getElementById('sortDirectionButton'),
+    previousDayButton: document.getElementById('previousDayButton'),
+    nextDayButton: document.getElementById('nextDayButton'),
     dayInput: document.getElementById('dayInput'),
     dayHint: document.getElementById('dayHint'),
     summary: document.getElementById('summary'),
@@ -203,6 +210,7 @@
         title: video.title || 'VOD Twitch',
         createdAt: video.createdAt || video.publishedAt,
         lengthSeconds: Number(video.lengthSeconds) || 0,
+        viewCount: Number(video.viewCount) || 0,
         thumbnailUrl: video.previewThumbnailURL || '',
         game: video.game?.name || '',
         url: `https://www.twitch.tv/videos/${video.id}`
@@ -259,30 +267,97 @@
     const selectedDay = Number(state.selectedDay);
     const dayEnd = selectedDay + DAY_MS;
     const term = state.searchTerm.trim().toLowerCase();
-    return getFilteredLogins()
-      .map((login) => state.videosByLogin.get(login))
+    const rows = getFilteredLogins()
+      .map((login) => state.videosByLogin.get(String(login).toLowerCase()))
       .filter(Boolean)
       .map((channel) => {
-        const videos = channel.videos.filter((video) => {
-          const start = new Date(video.createdAt).getTime();
-          const matchesDay = start >= selectedDay && start < dayEnd;
-          if (!matchesDay) return false;
-          if (!term) return true;
-          return (
-            channel.displayName.toLowerCase().includes(term) ||
-            channel.login.toLowerCase().includes(term) ||
-            video.title.toLowerCase().includes(term) ||
-            video.game.toLowerCase().includes(term)
-          );
-        });
-        return { ...channel, videos };
+        const videos = channel.videos
+          .filter((video) => {
+            const start = new Date(video.createdAt).getTime();
+            const matchesDay = start >= selectedDay && start < dayEnd;
+            if (!matchesDay) return false;
+            if (!term) return true;
+            return (
+              channel.displayName.toLowerCase().includes(term) ||
+              channel.login.toLowerCase().includes(term) ||
+              video.title.toLowerCase().includes(term) ||
+              video.game.toLowerCase().includes(term)
+            );
+          })
+          .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+        return { ...channel, videos, metrics: getRowMetrics({ ...channel, videos }) };
       })
-      .filter((channel) => channel.videos.length)
-      .sort((a, b) => {
-        const aStart = new Date(a.videos[0].createdAt).getTime();
-        const bStart = new Date(b.videos[0].createdAt).getTime();
-        return aStart - bStart || a.displayName.localeCompare(b.displayName, 'fr');
-      });
+      .filter((channel) => channel.videos.length);
+    return sortRows(rows);
+  }
+
+  function getRowMetrics(channel) {
+    const starts = channel.videos
+      .map((video) => new Date(video.createdAt).getTime())
+      .filter(Number.isFinite);
+    const totalViews = channel.videos.reduce((sum, video) => sum + (Number(video.viewCount) || 0), 0);
+    const totalDuration = channel.videos.reduce((sum, video) => sum + (Number(video.lengthSeconds) || 0), 0);
+    return {
+      firstStart: starts.length ? Math.min(...starts) : Number.MAX_SAFE_INTEGER,
+      lastStart: starts.length ? Math.max(...starts) : 0,
+      totalViews,
+      totalDuration,
+      videoCount: channel.videos.length,
+      name: channel.displayName || channel.login || ''
+    };
+  }
+
+  function compareRows(a, b, key) {
+    const byName = a.metrics.name.localeCompare(b.metrics.name, 'fr', { sensitivity: 'base' });
+    if (key === 'name') {
+      return byName || a.metrics.firstStart - b.metrics.firstStart;
+    }
+    if (key === 'views') {
+      return (
+        a.metrics.totalViews - b.metrics.totalViews ||
+        a.metrics.videoCount - b.metrics.videoCount ||
+        a.metrics.totalDuration - b.metrics.totalDuration ||
+        b.metrics.firstStart - a.metrics.firstStart ||
+        byName
+      );
+    }
+    if (key === 'duration') {
+      return (
+        a.metrics.totalDuration - b.metrics.totalDuration ||
+        a.metrics.videoCount - b.metrics.videoCount ||
+        a.metrics.totalViews - b.metrics.totalViews ||
+        byName
+      );
+    }
+    if (key === 'videos') {
+      return (
+        a.metrics.videoCount - b.metrics.videoCount ||
+        a.metrics.totalViews - b.metrics.totalViews ||
+        a.metrics.totalDuration - b.metrics.totalDuration ||
+        byName
+      );
+    }
+    return a.metrics.firstStart - b.metrics.firstStart || byName;
+  }
+
+  function sortRows(rows) {
+    const direction = state.sortDirection === 'asc' ? 1 : -1;
+    return [...rows].sort((a, b) => {
+      const result = compareRows(a, b, state.sortKey);
+      return result * direction || a.login.localeCompare(b.login, 'fr', { sensitivity: 'base' });
+    });
+  }
+
+  function clampDay(timestamp) {
+    const today = startOfDay(new Date()).getTime();
+    const oldest = today - MAX_DAY_OFFSET * DAY_MS;
+    return Math.min(today, Math.max(oldest, startOfDay(new Date(timestamp)).getTime()));
+  }
+
+  function moveSelectedDay(offset) {
+    state.selectedDay = clampDay(Number(state.selectedDay) + offset * DAY_MS);
+    renderFilters();
+    renderTimeline();
   }
 
   function getDayCounts(logins = getFilteredLogins()) {
@@ -367,6 +442,21 @@
       state.selectedDay = today;
     }
     elements.dayInput.value = formatDateValue(state.selectedDay);
+    if (elements.previousDayButton) {
+      elements.previousDayButton.disabled = Number(state.selectedDay) <= oldest;
+    }
+    if (elements.nextDayButton) {
+      elements.nextDayButton.disabled = Number(state.selectedDay) >= today;
+    }
+    if (elements.sortSelect) {
+      elements.sortSelect.value = state.sortKey;
+    }
+    if (elements.sortDirectionButton) {
+      const isAsc = state.sortDirection === 'asc';
+      elements.sortDirectionButton.textContent = isAsc ? 'Asc' : 'Desc';
+      elements.sortDirectionButton.title = isAsc ? 'Tri croissant' : 'Tri decroissant';
+      elements.sortDirectionButton.setAttribute('aria-label', isAsc ? 'Tri croissant' : 'Tri decroissant');
+    }
     const count = dayCounts.get(Number(state.selectedDay)) || 0;
     elements.dayHint.textContent = count
       ? `${formatDayLabel(state.selectedDay)} - ${count} VOD${count > 1 ? 's' : ''}`
@@ -407,7 +497,10 @@
       streamer.rel = 'noopener noreferrer';
       streamer.innerHTML = `
         <img src="${escapeHtml(channel.avatarUrl || DEFAULT_AVATAR)}" alt="" />
-        <span>${escapeHtml(channel.displayName)}</span>
+        <span class="tfr-vods-streamer__text">
+          <strong>${escapeHtml(channel.displayName)}</strong>
+          <small>${channel.metrics.videoCount} VOD${channel.metrics.videoCount > 1 ? 's' : ''} - ${channel.metrics.totalViews.toLocaleString('fr-FR')} vues - ${escapeHtml(formatDuration(channel.metrics.totalDuration))}</small>
+        </span>
       `;
       row.appendChild(streamer);
 
@@ -478,8 +571,20 @@
       renderFilters();
       renderTimeline();
     });
+    elements.sortSelect?.addEventListener('change', (event) => {
+      state.sortKey = event.target.value || 'views';
+      renderFilters();
+      renderTimeline();
+    });
+    elements.sortDirectionButton?.addEventListener('click', () => {
+      state.sortDirection = state.sortDirection === 'asc' ? 'desc' : 'asc';
+      renderFilters();
+      renderTimeline();
+    });
+    elements.previousDayButton?.addEventListener('click', () => moveSelectedDay(-1));
+    elements.nextDayButton?.addEventListener('click', () => moveSelectedDay(1));
     elements.dayInput.addEventListener('change', (event) => {
-      state.selectedDay = parseDateValue(event.target.value);
+      state.selectedDay = clampDay(parseDateValue(event.target.value));
       renderFilters();
       renderTimeline();
     });

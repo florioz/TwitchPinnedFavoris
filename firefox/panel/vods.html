@@ -19,7 +19,7 @@
       </header>
 
       <section class="tfr-vods-toolbar" aria-label="Filtres du planning">
-        <label class="tfr-vods-field">
+        <label class="tfr-vods-field tfr-vods-field--search">
           <span>Recherche</span>
           <input id="searchInput" type="search" placeholder="Streamer ou titre de VOD" />
         </label>
@@ -28,8 +28,25 @@
           <select id="groupSelect"></select>
         </label>
         <label class="tfr-vods-field">
+          <span>Trier par</span>
+          <div class="tfr-vods-sort-control">
+            <select id="sortSelect">
+              <option value="time">Heure de VOD</option>
+              <option value="name">Nom du streamer</option>
+              <option value="views">Nombre de vues</option>
+              <option value="duration">Duree des VODs</option>
+              <option value="videos">Nombre de VODs</option>
+            </select>
+            <button id="sortDirectionButton" class="tfr-vods-icon-button" type="button" aria-label="Inverser le tri">Desc</button>
+          </div>
+        </label>
+        <label class="tfr-vods-field">
           <span>Jour</span>
-          <input id="dayInput" type="date" />
+          <div class="tfr-vods-day-control">
+            <button id="previousDayButton" class="tfr-vods-icon-button" type="button" aria-label="Jour precedent">Prev</button>
+            <input id="dayInput" type="date" />
+            <button id="nextDayButton" class="tfr-vods-icon-button" type="button" aria-label="Jour suivant">Next</button>
+          </div>
           <small id="dayHint"></small>
         </label>
       </section>
