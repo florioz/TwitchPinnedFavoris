@@ -1355,6 +1355,21 @@
         };
 
         const previousParentId = target.parentId || null;
+        if (placement === 'out') {
+          if (!previousParentId) return;
+          const parent = draft.categories.find((cat) => cat.id === previousParentId);
+          const nextParentId = parent?.parentId || null;
+          if (parent) {
+            insertAmongSiblings(nextParentId, parent.id, true);
+            normalizeSiblings(previousParentId);
+          } else {
+            target.parentId = null;
+            normalizeSiblings(previousParentId);
+            const rootSiblings = draft.categories.filter((cat) => !cat.parentId);
+            target.sortOrder = (rootSiblings.length + 1) * 1000;
+          }
+          return;
+        }
         if (placement === 'before' || placement === 'after') {
           const parentId = reference?.parentId || null;
           if (!insertAmongSiblings(parentId, reference.id, placement === 'after')) return;
@@ -4778,6 +4793,7 @@ class FavoritesOverlay {
     this.backupInput = null;
     this.isImportingBackup = false;
     this.draggedLogin = null;
+    this.draggedCategoryStartX = 0;
     this.selectedFavorites = new Set();
     this.activeFavoriteLogin = null;
     this.categorySuggestionCache = new Map();
@@ -4862,6 +4878,7 @@ class FavoritesOverlay {
     this.root?.remove();
     this.backupInput = null;
     this.draggedLogin = null;
+    this.draggedCategoryStartX = 0;
     this.selectedFavorites.clear();
     this.activeFavoriteLogin = null;
     this.closeListeners.forEach((callback) => {
@@ -5408,10 +5425,12 @@ class FavoritesOverlay {
       }
       card.classList.add('is-dragging');
       this.draggedCategoryId = node.id;
+      this.draggedCategoryStartX = event.clientX || 0;
     });
     card.addEventListener('dragend', () => {
       card.classList.remove('is-dragging');
       this.draggedCategoryId = null;
+      this.draggedCategoryStartX = 0;
     });
     if (node.collapsed) {
       card.classList.add('is-collapsed');
@@ -5651,6 +5670,9 @@ class FavoritesOverlay {
     }
     const depth = Number(element.dataset?.depth || 0);
     const elementRect = element.getBoundingClientRect();
+    if (depth > 0 && this.draggedCategoryStartX && event.clientX <= this.draggedCategoryStartX - 24) {
+      return 'out';
+    }
     if (depth > 0 && event.clientX <= elementRect.left + 32) {
       return 'root';
     }
@@ -5674,20 +5696,22 @@ class FavoritesOverlay {
   }
 
   setCategoryDropIndicator(element, placement) {
-    element.classList.remove('is-drop-before', 'is-drop-after', 'is-drop-inside', 'is-drop-root');
+    element.classList.remove('is-drop-before', 'is-drop-after', 'is-drop-inside', 'is-drop-root', 'is-drop-out');
     if (placement === 'before') {
       element.classList.add('is-drop-before');
     } else if (placement === 'after') {
       element.classList.add('is-drop-after');
     } else if (placement === 'root') {
       element.classList.add('is-drop-root');
+    } else if (placement === 'out') {
+      element.classList.add('is-drop-out');
     } else {
       element.classList.add('is-drop-inside');
     }
   }
 
   clearCategoryDropIndicator(element) {
-    element.classList.remove('is-drop-target', 'is-drop-before', 'is-drop-after', 'is-drop-inside', 'is-drop-root');
+    element.classList.remove('is-drop-target', 'is-drop-before', 'is-drop-after', 'is-drop-inside', 'is-drop-root', 'is-drop-out');
   }
 
   makeFavoriteDraggable(element, login) {
@@ -6008,10 +6032,12 @@ class FavoritesOverlay {
       }
       item.classList.add('is-dragging');
       this.draggedCategoryId = category.id;
+      this.draggedCategoryStartX = event.clientX || 0;
     });
     item.addEventListener('dragend', () => {
       item.classList.remove('is-dragging');
       this.draggedCategoryId = null;
+      this.draggedCategoryStartX = 0;
     });
 
     const title = document.createElement('div');
@@ -6267,7 +6293,7 @@ class FavoritesOverlay {
       const draggedCategoryId = this.parseDraggedCategoryId(event);
       if (draggedCategoryId) {
         const placement = targetCategoryId ? this.getCategoryDropPlacement(event, element) : 'root';
-        if (draggedCategoryId !== targetCategoryId || placement === 'root') {
+        if (draggedCategoryId !== targetCategoryId || placement === 'root' || placement === 'out') {
           await this.store.moveCategory(draggedCategoryId, targetCategoryId || null, placement);
           this.draggedCategoryId = null;
           this.render();

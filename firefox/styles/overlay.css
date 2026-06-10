@@ -756,6 +756,13 @@
   background: rgba(50, 168, 118, 0.18);
 }
 
+.tfr-category-item.is-drop-out,
+.tfr-category-card.is-drop-out {
+  outline: 2px dashed rgba(255, 202, 112, 0.86);
+  outline-offset: 2px;
+  background: rgba(210, 140, 43, 0.16);
+}
+
 .tfr-button {
   background: #9147ff;
   border: none;
