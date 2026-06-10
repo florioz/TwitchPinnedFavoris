@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <title>Planning VODs - Twitch Favorites Sidebar</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" href="../styles/vods.css" />
+  </head>
+  <body>
+    <main class="tfr-vods-shell">
+      <header class="tfr-vods-header">
+        <div>
+          <p class="tfr-vods-kicker">Twitch Favorites Sidebar</p>
+          <h1>Planning VODs</h1>
+        </div>
+        <div class="tfr-vods-header__actions">
+          <button class="tfr-vods-button tfr-vods-button--ghost" id="refreshButton" type="button">Actualiser</button>
+        </div>
+      </header>
+
+      <section class="tfr-vods-toolbar" aria-label="Filtres du planning">
+        <label class="tfr-vods-field">
+          <span>Recherche</span>
+          <input id="searchInput" type="search" placeholder="Streamer ou titre de VOD" />
+        </label>
+        <label class="tfr-vods-field">
+          <span>Groupe</span>
+          <select id="groupSelect"></select>
+        </label>
+        <label class="tfr-vods-field">
+          <span>Jour</span>
+          <select id="daySelect"></select>
+        </label>
+      </section>
+
+      <section class="tfr-vods-summary" id="summary" aria-live="polite"></section>
+
+      <section class="tfr-vods-board" aria-label="Planning des VODs">
+        <div class="tfr-vods-timeline" id="timeline"></div>
+      </section>
+
+      <section class="tfr-vods-empty" id="emptyState" hidden>
+        <h2>Aucune VOD à afficher</h2>
+        <p>Essaie un autre jour, un autre groupe, ou actualise les données Twitch.</p>
+      </section>
+    </main>
+
+    <script src="./vods.js"></script>
+  </body>
+</html>

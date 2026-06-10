@@ -6923,6 +6923,7 @@ class FavoritesOverlay {
   constructor(overlay) {
     this.overlay = overlay;
     this.button = null;
+    this.vodsButton = null;
     this.observer = null;
     this.retryTimer = null;
     this.overlayListeners = [];
@@ -6988,6 +6989,7 @@ class FavoritesOverlay {
     }
     this.slot = null;
     this.button = null;
+    this.vodsButton = null;
   }
 
   scheduleRetry() {
@@ -7215,15 +7217,57 @@ class FavoritesOverlay {
     return button;
   }
 
+  ensureVodsButton() {
+    if (this.vodsButton) {
+      return this.vodsButton;
+    }
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.dataset.tfrVodsButton = 'true';
+    button.dataset.aTarget = 'top-nav-vods-button';
+    button.className = 'tfr-topnav-action tfr-topnav-action--icon';
+    button.style.pointerEvents = 'auto';
+    button.style.display = 'inline-flex';
+    button.style.flex = '0 0 auto';
+    button.style.position = 'relative';
+    button.style.zIndex = '1';
+    button.tabIndex = 0;
+    button.setAttribute('aria-label', 'Ouvrir le planning VODs');
+    button.title = 'Planning VODs';
+    button.innerHTML = '<svg class="tfr-topnav-action__icon" width="20" height="20" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M7 2h2v3h6V2h2v3h3a1 1 0 0 1 1 1v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a1 1 0 0 1 1-1h3V2zm12 8H5v10h14V10z" fill="currentColor"></path><path d="M10 13.2v4.1l3.7-2.05L10 13.2z" fill="#fff"></path></svg>';
+    button.addEventListener('click', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const url = extensionApi?.runtime?.getURL?.('panel/vods.html');
+      if (url) {
+        window.open(url, '_blank', 'noopener');
+      }
+    });
+    this.vodsButton = button;
+    this.log('vods-button-created');
+    return button;
+  }
+
+  populateSlot(slot) {
+    const favoritesButton = this.ensureButton();
+    const vodsButton = this.ensureVodsButton();
+    [favoritesButton, vodsButton].forEach((button) => {
+      if (button && !slot.contains(button)) {
+        slot.appendChild(button);
+      }
+    });
+  }
+
   syncWithAnchor(anchor, parent) {
     const button = this.ensureButton();
+    const vodsButton = this.ensureVodsButton();
     if (!button) {
       return null;
     }
     const slot = this.ensureSlot(anchor);
-    if (!slot.contains(button)) {
+    if (!slot.contains(button) || !slot.contains(vodsButton)) {
       slot.innerHTML = '';
-      slot.appendChild(button);
+      this.populateSlot(slot);
     }
     let source = anchor;
     if (!source && parent) {
@@ -7244,6 +7288,11 @@ class FavoritesOverlay {
       button.style.width = '32px';
       button.style.height = '32px';
       button.style.margin = '0';
+      if (vodsButton) {
+        vodsButton.style.width = '32px';
+        vodsButton.style.height = '32px';
+        vodsButton.style.margin = '0';
+      }
       this.log('sync-anchor-missing');
       return slot;
     }
@@ -7265,12 +7314,10 @@ class FavoritesOverlay {
     } else if (source?.offsetWidth) {
       width = `${source.offsetWidth}px`;
     }
-    if (width) {
-      slot.style.width = width;
-      button.style.width = width;
-    } else {
-      slot.style.width = '';
-      button.style.width = '32px';
+    slot.style.width = '';
+    button.style.width = width || '32px';
+    if (vodsButton) {
+      vodsButton.style.width = width || '32px';
     }
     let height = '';
     if (style?.height && style.height !== 'auto') {
@@ -7281,11 +7328,20 @@ class FavoritesOverlay {
     if (height) {
       slot.style.height = height;
       button.style.height = height;
+      if (vodsButton) {
+        vodsButton.style.height = height;
+      }
     } else {
       slot.style.height = '';
       button.style.height = '32px';
+      if (vodsButton) {
+        vodsButton.style.height = '32px';
+      }
     }
     button.style.margin = '0';
+    if (vodsButton) {
+      vodsButton.style.margin = '0';
+    }
     this.log('sync-anchor', { sourceTag: source?.tagName });
     return slot;
   }
@@ -7309,6 +7365,7 @@ class FavoritesOverlay {
       return;
     }
     const button = this.ensureButton();
+    const vodsButton = this.ensureVodsButton();
     if (!button) {
       this.log('button-missing');
       return;
@@ -7331,9 +7388,9 @@ class FavoritesOverlay {
         this.scheduleRetry();
         return;
       }
-      if (!slot.contains(button)) {
+      if (!slot.contains(button) || !slot.contains(vodsButton)) {
         slot.innerHTML = '';
-        slot.appendChild(button);
+        this.populateSlot(slot);
       }
       let insertionParent = parent;
       let insertionReference = reference;
