@@ -811,6 +811,13 @@
   outline-offset: 2px;
 }
 
+.tfr-category-item.is-drop-root,
+.tfr-category-card.is-drop-root {
+  outline: 2px dashed rgba(116, 224, 169, 0.8);
+  outline-offset: 2px;
+  background: rgba(50, 168, 118, 0.18);
+}
+
 .tfr-button {
   background: #9147ff;
   border: none;

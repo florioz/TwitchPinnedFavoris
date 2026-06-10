@@ -1311,7 +1311,7 @@
           ? draft.categories.find((cat) => cat.id === targetCategoryId)
           : null;
         if (targetCategoryId && !reference) return;
-        if (reference?.id === target.id) return;
+        if (reference?.id === target.id && placement !== 'root') return;
 
         const isDescendant = (candidateId, childId) => {
           let current = candidateId;
@@ -5397,6 +5397,7 @@ class FavoritesOverlay {
     const card = document.createElement('div');
     card.className = 'tfr-category-card';
     card.dataset.categoryId = node.id;
+    card.dataset.depth = String(depth);
     card.style.setProperty('--card-depth', String(depth));
     card.draggable = true;
     card.addEventListener('dragstart', (event) => {
@@ -5648,6 +5649,11 @@ class FavoritesOverlay {
     if (!isCategoryTarget) {
       return 'inside';
     }
+    const depth = Number(element.dataset?.depth || 0);
+    const elementRect = element.getBoundingClientRect();
+    if (depth > 0 && event.clientX <= elementRect.left + 32) {
+      return 'root';
+    }
     const header =
       element.querySelector?.('.tfr-category-item-header') || element.querySelector?.('.tfr-category-card__header');
     const rect = (header || element).getBoundingClientRect();
@@ -5668,18 +5674,20 @@ class FavoritesOverlay {
   }
 
   setCategoryDropIndicator(element, placement) {
-    element.classList.remove('is-drop-before', 'is-drop-after', 'is-drop-inside');
+    element.classList.remove('is-drop-before', 'is-drop-after', 'is-drop-inside', 'is-drop-root');
     if (placement === 'before') {
       element.classList.add('is-drop-before');
     } else if (placement === 'after') {
       element.classList.add('is-drop-after');
+    } else if (placement === 'root') {
+      element.classList.add('is-drop-root');
     } else {
       element.classList.add('is-drop-inside');
     }
   }
 
   clearCategoryDropIndicator(element) {
-    element.classList.remove('is-drop-target', 'is-drop-before', 'is-drop-after', 'is-drop-inside');
+    element.classList.remove('is-drop-target', 'is-drop-before', 'is-drop-after', 'is-drop-inside', 'is-drop-root');
   }
 
   makeFavoriteDraggable(element, login) {
@@ -6258,8 +6266,8 @@ class FavoritesOverlay {
 
       const draggedCategoryId = this.parseDraggedCategoryId(event);
       if (draggedCategoryId) {
-        if (draggedCategoryId !== targetCategoryId) {
-          const placement = targetCategoryId ? this.getCategoryDropPlacement(event, element) : 'root';
+        const placement = targetCategoryId ? this.getCategoryDropPlacement(event, element) : 'root';
+        if (draggedCategoryId !== targetCategoryId || placement === 'root') {
           await this.store.moveCategory(draggedCategoryId, targetCategoryId || null, placement);
           this.draggedCategoryId = null;
           this.render();
