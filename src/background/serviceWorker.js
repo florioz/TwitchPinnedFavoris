@@ -576,6 +576,13 @@ extensionApi.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }
     sendResponse({ ok: true });
     return true;
+  } else if (message?.type === 'TFR_OPEN_VODS_PAGE') {
+    const url = extensionApi.runtime?.getURL?.('panel/vods.html');
+    if (url && extensionApi.tabs?.create) {
+      extensionApi.tabs.create({ url });
+    }
+    sendResponse({ ok: Boolean(url) });
+    return true;
   }
   return false;
 });

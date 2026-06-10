@@ -7107,10 +7107,15 @@ class FavoritesOverlay {
     button.addEventListener('click', (event) => {
       event.preventDefault();
       event.stopPropagation();
-      const url = extensionApi?.runtime?.getURL?.('panel/vods.html');
-      if (url) {
-        window.open(url, '_blank', 'noopener');
-      }
+      sendExtensionMessage({ type: 'TFR_OPEN_VODS_PAGE' }).then((response) => {
+        if (response?.ok) {
+          return;
+        }
+        const url = extensionApi?.runtime?.getURL?.('panel/vods.html');
+        if (url) {
+          window.open(url, '_blank', 'noopener');
+        }
+      });
     });
     this.vodsButton = button;
     this.log('vods-button-created');
