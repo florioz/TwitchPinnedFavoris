@@ -1,0 +1,1 @@
+ajout d'une fonctionnalité qui permet d'afficher le streamer que si il est sur une certaine catégorie

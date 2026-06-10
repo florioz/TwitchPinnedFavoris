@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <title>TFR Panel</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" href="../styles/panelOverlay.css" />
+    <style>
+      html,
+      body {
+        width: 420px;
+        height: 600px;
+        margin: 0;
+        padding: 0;
+        background: transparent !important;
+      }
+      body {
+        display: flex !important;
+        flex-direction: column;
+        align-items: stretch;
+        justify-content: flex-start;
+        background: linear-gradient(155deg, rgba(16, 10, 26, 0.94) 0%, rgba(26, 18, 44, 0.9) 60%) !important;
+        border-radius: 22px;
+        padding: 0;
+        overflow: hidden;
+      }
+      .tfr-panel {
+        position: static !important;
+        width: 100% !important;
+        max-width: none !important;
+        max-height: none !important;
+        transform: none !important;
+        opacity: 1 !important;
+        pointer-events: auto !important;
+        box-shadow: none !important;
+        margin: 0 !important;
+        margin-top: 0 !important;
+        align-self: stretch;
+        flex: 1 1 auto !important;
+        display: flex !important;
+        flex-direction: column !important;
+      }
+      .tfr-panel__sections {
+        max-height: none !important;
+        flex: 1 1 auto !important;
+      }
+    </style>
+  </head>
+  <body>
+    <script src="./bootstrap.js"></script>
+    <script src="../src/contentScripts/overlayPanel.js"></script>
+  </body>
+</html>
+
+
+
+
+
+
+
+
+
