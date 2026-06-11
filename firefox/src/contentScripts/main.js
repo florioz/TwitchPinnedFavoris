@@ -898,7 +898,6 @@
       } catch (error) {
         const message = String(error?.message || '').toLowerCase();
         if (message.includes('extension context invalidated') || message.includes('context invalidated')) {
-          console.warn('[TFR] persist state skipped: extension context invalidated');
           return;
         }
         console.error('[TFR] Failed to persist state', error);
@@ -7435,7 +7434,6 @@ const bootstrap = async () => {
     bootstrap();
   }
 })();
-
 
 
 
