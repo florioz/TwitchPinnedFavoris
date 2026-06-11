@@ -568,6 +568,12 @@
     return requiredSet.has(currentCategory);
   };
 
+  const getLiveDataEntry = (liveData, favOrLogin) => {
+    const login = typeof favOrLogin === 'string' ? favOrLogin : favOrLogin?.login;
+    const normalized = String(login || '').toLowerCase();
+    return normalized ? liveData?.[normalized] || liveData?.[login] || null : null;
+  };
+
   const getChannelFromLocation = (locationLike = window.location) => {
     const raw = (locationLike.pathname || '').split('/').filter(Boolean);
     if (!raw.length) return null;
@@ -924,10 +930,16 @@
           parentId: null
         });
       }
+      const normalizedFavorites = {};
       Object.entries(this.state.favorites).forEach(([login, fav]) => {
         if (!fav) {
           return;
         }
+        const normalizedLogin = String(fav.login || login || '').toLowerCase();
+        if (!normalizedLogin) {
+          return;
+        }
+        fav.login = normalizedLogin;
         if (Array.isArray(fav.categories)) {
           fav.categories = fav.categories.map((id) => (typeof id === 'string' ? id : null)).filter(Boolean);
           if (fav.categories.length > 1) {
@@ -962,7 +974,9 @@
         if (typeof fav.recentHighlightEnabled !== 'boolean') {
           fav.recentHighlightEnabled = true;
         }
+        normalizedFavorites[normalizedLogin] = fav;
       });
+      this.state.favorites = normalizedFavorites;
     }
 
     startPolling() {
@@ -1652,7 +1666,7 @@
         }
         const now = Date.now();
         const updates = await Promise.all(favorites.map((login) => {
-          const previousLive = this.liveData[login];
+          const previousLive = getLiveDataEntry(this.liveData, login);
           return fetchStreamerLiveData(login, {
             ...this.state.favorites[login],
             ...(previousLive || {})
@@ -4524,8 +4538,8 @@
       const comparator = (a, b) => {
         if (sortMode === 'alphabetical') return a.displayName.localeCompare(b.displayName, 'fr');
         if (sortMode === 'recent') return (b.addedAt || 0) - (a.addedAt || 0);
-        const viewersA = liveData[a.login]?.viewers || 0;
-        const viewersB = liveData[b.login]?.viewers || 0;
+        const viewersA = getLiveDataEntry(liveData, a)?.viewers || 0;
+        const viewersB = getLiveDataEntry(liveData, b)?.viewers || 0;
         if (viewersB !== viewersA) return viewersB - viewersA;
         return a.displayName.localeCompare(b.displayName, 'fr');
       };
@@ -4533,7 +4547,7 @@
         const children = node.children.map((child) => buildNode(child)).filter(Boolean);
         const rawEntries = assignments.get(node.id) || [];
         const entries = rawEntries
-          .filter((fav) => shouldDisplayFavorite(fav, liveData[fav.login]))
+          .filter((fav) => shouldDisplayFavorite(fav, getLiveDataEntry(liveData, fav)))
           .sort(comparator);
         const totalEntries = entries.length + children.reduce((sum, child) => sum + child.totalEntries, 0);
         if (!totalEntries) {
@@ -4564,9 +4578,9 @@
         const now = Date.now();
         const recentEntries = favorites
           .filter((fav) => fav.recentHighlightEnabled !== false)
-          .filter((fav) => shouldDisplayFavorite(fav, liveData[fav.login]))
+          .filter((fav) => shouldDisplayFavorite(fav, getLiveDataEntry(liveData, fav)))
           .filter((fav) => {
-            const live = liveData[fav.login];
+            const live = getLiveDataEntry(liveData, fav);
             if (!live?.isLive) {
               return false;
             }
@@ -4592,7 +4606,7 @@
         }
       }
       const uncategorizedEntries = uncategorized
-        .filter((fav) => shouldDisplayFavorite(fav, liveData[fav.login]))
+        .filter((fav) => shouldDisplayFavorite(fav, getLiveDataEntry(liveData, fav)))
         .sort(comparator);
       if (uncategorizedEntries.length) {
         groups.push({
@@ -4609,7 +4623,7 @@
     }
 
     createFavoriteEntry(fav, liveData) {
-      const live = liveData[fav.login];
+      const live = getLiveDataEntry(liveData, fav);
       const anchor = document.createElement('a');
       anchor.className = 'tfr-favorite-entry';
       anchor.classList.add('side-nav-card__link', 'tw-link');
@@ -5432,7 +5446,7 @@ class FavoritesOverlay {
     }
 
     const img = document.createElement('img');
-    img.src = (liveData[fav.login]?.avatarUrl) || fav.avatarUrl || DEFAULT_AVATAR;
+    img.src = getLiveDataEntry(liveData, fav)?.avatarUrl || fav.avatarUrl || DEFAULT_AVATAR;
     img.alt = '';
     button.appendChild(img);
 
@@ -5754,7 +5768,7 @@ class FavoritesOverlay {
 
     const avatar = document.createElement('img');
     avatar.className = 'tfr-category-square__avatar';
-    avatar.src = (liveData[fav.login]?.avatarUrl) || fav.avatarUrl || DEFAULT_AVATAR;
+    avatar.src = getLiveDataEntry(liveData, fav)?.avatarUrl || fav.avatarUrl || DEFAULT_AVATAR;
     avatar.alt = '';
     button.appendChild(avatar);
     if (fav.recentHighlightEnabled !== false) {
@@ -6659,7 +6673,7 @@ class FavoritesOverlay {
       this.activeFavoriteLogin = null;
       return null;
     }
-    const live = liveData[login];
+    const live = getLiveDataEntry(liveData, login);
     const prefs = state.preferences || {};
     const filterCategories = Array.isArray(favorite.categoryFilter?.categories)
       ? favorite.categoryFilter.categories
