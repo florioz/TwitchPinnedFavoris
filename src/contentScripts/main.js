@@ -574,6 +574,42 @@
     return normalized ? liveData?.[normalized] || liveData?.[login] || null : null;
   };
 
+  const getSidebarVisibilityInfo = (favoriteEntry, liveEntry) => {
+    if (!favoriteEntry) {
+      return { visible: false, reason: 'Favori introuvable.' };
+    }
+    if (!liveEntry) {
+      return { visible: false, reason: 'Pas de donnée live reçue pour ce streamer.' };
+    }
+    if (!liveEntry.isLive) {
+      return { visible: false, reason: 'Le streamer est considéré hors-ligne par les données actuelles.' };
+    }
+    const filter = favoriteEntry.categoryFilter;
+    if (!filter || !filter.enabled) {
+      return { visible: true, reason: 'Visible dans la sidebar : aucun filtre Twitch actif.' };
+    }
+    const categories = Array.isArray(filter.categories)
+      ? filter.categories
+      : typeof filter.category === 'string'
+      ? [filter.category]
+      : [];
+    if (!categories.length) {
+      return { visible: true, reason: 'Visible dans la sidebar : filtre actif mais vide.' };
+    }
+    const currentCategory = normalizeCategoryName(liveEntry.game);
+    if (!currentCategory) {
+      if (liveEntry.fetchFailed || liveEntry.inferredFromPage) {
+        return { visible: true, reason: 'Visible dans la sidebar : catégorie Twitch inconnue, mais live détecté.' };
+      }
+      return { visible: false, reason: 'Caché : catégorie Twitch actuelle inconnue.' };
+    }
+    const requiredSet = new Set(categories.map((category) => normalizeCategoryName(category)).filter(Boolean));
+    if (requiredSet.has(currentCategory)) {
+      return { visible: true, reason: `Visible dans la sidebar : catégorie Twitch "${liveEntry.game}" acceptée.` };
+    }
+    return { visible: false, reason: `Caché : catégorie Twitch "${liveEntry.game}" hors filtre.` };
+  };
+
   const getChannelFromLocation = (locationLike = window.location) => {
     const raw = (locationLike.pathname || '').split('/').filter(Boolean);
     if (!raw.length) return null;
@@ -1224,6 +1260,23 @@
       });
       delete this.liveData[normalized];
       this.emitter.emit({ kind: CHANGE_KIND.LIVE, liveData: this.getLiveData() });
+    }
+
+    applyCurrentPageLiveData(login) {
+      const normalized = String(login || '').toLowerCase();
+      if (!normalized || !this.state.favorites[normalized]) {
+        return false;
+      }
+      const pageLive = inferCurrentPageLiveData(normalized, {
+        ...this.state.favorites[normalized],
+        ...(getLiveDataEntry(this.liveData, normalized) || {})
+      });
+      if (!pageLive) {
+        return false;
+      }
+      this.liveData[normalized] = pageLive;
+      this.emitter.emit({ kind: CHANGE_KIND.LIVE, liveData: this.getLiveData() });
+      return true;
     }
 
     async setFavoriteCategory(login, categoryId) {
@@ -4827,6 +4880,7 @@
       this.refreshTimer = setTimeout(() => {
         this.refreshTimer = null;
         if (login && this.store.getState().favorites[login]) {
+          this.store.applyCurrentPageLiveData(login);
           this.store.refreshLiveData();
         }
       }, 1500);
@@ -7048,6 +7102,13 @@ class FavoritesOverlay {
       statusLine.textContent = t('details.status.offline');
     }
     infoSection.appendChild(statusLine);
+    const visibilityInfo = getSidebarVisibilityInfo(favorite, live);
+    const visibilityLine = document.createElement('p');
+    visibilityLine.className = visibilityInfo.visible
+      ? 'tfr-details-info tfr-details-info--highlight'
+      : 'tfr-details-info tfr-details-info--warning';
+    visibilityLine.textContent = visibilityInfo.reason;
+    infoSection.appendChild(visibilityLine);
     if (highlightLine) {
       infoSection.appendChild(highlightLine);
     }

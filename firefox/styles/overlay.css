@@ -1063,6 +1063,11 @@
   font-weight: 600;
 }
 
+.tfr-details-info--warning {
+  color: #f0b86a;
+  font-weight: 600;
+}
+
 .tfr-details-close {
   align-self: flex-end;
   background: transparent;
@@ -1428,7 +1433,6 @@
 .tfr-update-banner__button--ghost:hover {
   background: rgba(255, 255, 255, 0.16);
 }
-
 
 
 
