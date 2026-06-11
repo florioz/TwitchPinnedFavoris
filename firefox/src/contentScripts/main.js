@@ -586,15 +586,31 @@
     startedAt: null
   });
 
+  const createLiveDataFallback = (login, fallback = {}) => {
+    const offline = createOfflineLiveData(login, fallback);
+    if (fallback && fallback.isLive) {
+      return {
+        ...offline,
+        ...fallback,
+        login: String(fallback.login || login || '').toLowerCase(),
+        displayName: fallback.displayName || offline.displayName,
+        avatarUrl: fallback.avatarUrl || offline.avatarUrl,
+        fetchFailed: true
+      };
+    }
+    return { ...offline, fetchFailed: true };
+  };
+
   const fetchStreamerLiveData = async (login, fallback = {}) => {
     if (!login) return null;
-    const fallbackLiveData = createOfflineLiveData(login, fallback);
+    const fallbackLiveData = createLiveDataFallback(login, fallback);
     const backgroundResponse = await sendExtensionMessage({ type: 'TFR_FETCH_LIVE_DATA', login, fallback: fallbackLiveData });
     if (backgroundResponse?.ok && backgroundResponse.liveData) {
       return {
         ...fallbackLiveData,
         ...backgroundResponse.liveData,
-        login: String(backgroundResponse.liveData.login || fallbackLiveData.login || login).toLowerCase()
+        login: String(backgroundResponse.liveData.login || fallbackLiveData.login || login).toLowerCase(),
+        fetchFailed: Boolean(backgroundResponse.liveData.fetchFailed)
       };
     }
     try {
@@ -624,7 +640,8 @@
         viewers: stream?.viewersCount || 0,
         title: stream?.title || '',
         game: stream?.game?.name || '',
-        startedAt: stream?.createdAt || null
+        startedAt: stream?.createdAt || null,
+        fetchFailed: false
       };
     } catch (error) {
       console.debug('[TFR] Live data temporarily unavailable', login, error);
@@ -1519,7 +1536,13 @@
           return;
         }
         const now = Date.now();
-        const updates = await Promise.all(favorites.map((login) => fetchStreamerLiveData(login, this.state.favorites[login])));
+        const updates = await Promise.all(favorites.map((login) => {
+          const previousLive = this.liveData[login];
+          return fetchStreamerLiveData(login, {
+            ...this.state.favorites[login],
+            ...(previousLive || {})
+          });
+        }));
         const nextLive = {};
         const favoriteUpdates = {};
         updates.forEach((entry) => {
@@ -7434,7 +7457,6 @@ const bootstrap = async () => {
     bootstrap();
   }
 })();
-
 
 
 

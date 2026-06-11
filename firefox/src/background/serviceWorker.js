@@ -276,11 +276,26 @@ const createOfflineLiveData = (login, fallback = {}) => ({
   startedAt: null
 });
 
+const createLiveDataFallback = (login, fallback = {}) => {
+  const offline = createOfflineLiveData(login, fallback);
+  if (fallback && fallback.isLive) {
+    return {
+      ...offline,
+      ...fallback,
+      login: String(fallback.login || login || '').toLowerCase(),
+      displayName: fallback.displayName || offline.displayName,
+      avatarUrl: fallback.avatarUrl || offline.avatarUrl,
+      fetchFailed: true
+    };
+  }
+  return { ...offline, fetchFailed: true };
+};
+
 const fetchStreamerLiveData = async (login, fallback = {}) => {
   if (!login) {
     return null;
   }
-  const fallbackLiveData = createOfflineLiveData(login, fallback);
+  const fallbackLiveData = createLiveDataFallback(login, fallback);
   try {
     const response = await fetch(TWITCH_GRAPHQL_ENDPOINT, {
       method: 'POST',
@@ -308,7 +323,8 @@ const fetchStreamerLiveData = async (login, fallback = {}) => {
       viewers: stream?.viewersCount || 0,
       title: stream?.title || '',
       game: stream?.game?.name || '',
-      startedAt: stream?.createdAt || null
+      startedAt: stream?.createdAt || null,
+      fetchFailed: false
     };
   } catch (error) {
     console.debug('[TFR] Background live data temporarily unavailable', login, error);
@@ -386,7 +402,10 @@ const evaluateLiveStatus = async (reason = 'manual') => {
 
   const liveData = {};
   if (logins.length) {
-    const results = await Promise.allSettled(logins.map((login) => fetchStreamerLiveData(login, favorites[login])));
+    const results = await Promise.allSettled(logins.map((login) => fetchStreamerLiveData(login, {
+      ...favorites[login],
+      ...(previousLiveData[login] || {})
+    })));
     results.forEach((result, index) => {
       const login = logins[index];
       if (result.status === 'fulfilled' && result.value) {
