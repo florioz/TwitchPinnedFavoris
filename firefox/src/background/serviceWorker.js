@@ -265,10 +265,22 @@ const shouldDisplayFavorite = (favoriteEntry, liveEntry) => {
   return requiredSet.has(currentCategory);
 };
 
-const fetchStreamerLiveData = async (login) => {
+const createOfflineLiveData = (login, fallback = {}) => ({
+  login: String(fallback.login || login || '').toLowerCase(),
+  displayName: fallback.displayName || fallback.display_name || login,
+  avatarUrl: fallback.avatarUrl || fallback.profileImageURL || DEFAULT_AVATAR,
+  isLive: false,
+  viewers: 0,
+  title: '',
+  game: '',
+  startedAt: null
+});
+
+const fetchStreamerLiveData = async (login, fallback = {}) => {
   if (!login) {
     return null;
   }
+  const fallbackLiveData = createOfflineLiveData(login, fallback);
   try {
     const response = await fetch(TWITCH_GRAPHQL_ENDPOINT, {
       method: 'POST',
@@ -285,22 +297,13 @@ const fetchStreamerLiveData = async (login) => {
     const data = Array.isArray(payload) ? payload[0]?.data : payload?.data;
     const user = data?.user;
     if (!user) {
-      return {
-        login,
-        displayName: login,
-        avatarUrl: DEFAULT_AVATAR,
-        isLive: false,
-        viewers: 0,
-        title: '',
-        game: '',
-        startedAt: null
-      };
+      return fallbackLiveData;
     }
     const stream = user.stream;
     return {
-      login: user.login || login,
+      login: String(user.login || login).toLowerCase(),
       displayName: user.displayName || user.login || login,
-      avatarUrl: user.profileImageURL || DEFAULT_AVATAR,
+      avatarUrl: user.profileImageURL || fallbackLiveData.avatarUrl || DEFAULT_AVATAR,
       isLive: Boolean(stream),
       viewers: stream?.viewersCount || 0,
       title: stream?.title || '',
@@ -308,17 +311,8 @@ const fetchStreamerLiveData = async (login) => {
       startedAt: stream?.createdAt || null
     };
   } catch (error) {
-    console.error('[TFR] Background live fetch failed', login, error);
-    return {
-      login,
-      displayName: login,
-      avatarUrl: DEFAULT_AVATAR,
-      isLive: false,
-      viewers: 0,
-      title: '',
-      game: '',
-      startedAt: null
-    };
+    console.debug('[TFR] Background live data temporarily unavailable', login, error);
+    return fallbackLiveData;
   }
 };
 
@@ -392,23 +386,13 @@ const evaluateLiveStatus = async (reason = 'manual') => {
 
   const liveData = {};
   if (logins.length) {
-    const results = await Promise.allSettled(logins.map((login) => fetchStreamerLiveData(login)));
+    const results = await Promise.allSettled(logins.map((login) => fetchStreamerLiveData(login, favorites[login])));
     results.forEach((result, index) => {
       const login = logins[index];
       if (result.status === 'fulfilled' && result.value) {
         liveData[login] = result.value;
       } else {
-        const fallbackFavorite = favorites[login];
-        liveData[login] = {
-          login,
-          displayName: fallbackFavorite?.displayName || login,
-          avatarUrl: fallbackFavorite?.avatarUrl || DEFAULT_AVATAR,
-          isLive: false,
-          viewers: 0,
-          title: '',
-          game: '',
-          startedAt: null
-        };
+        liveData[login] = createOfflineLiveData(login, favorites[login]);
       }
     });
   }
@@ -560,7 +544,7 @@ extensionApi.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   } else if (message?.type === 'TFR_FETCH_LIVE_DATA') {
     if (message.login) {
-      fetchStreamerLiveData(message.login)
+      fetchStreamerLiveData(message.login, message.fallback)
         .then((liveData) => sendResponse({ ok: true, liveData }))
         .catch((error) => {
           console.error('[TFR] Fetch live data message failed', message.login, error);

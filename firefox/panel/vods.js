@@ -365,7 +365,7 @@
     const oldest = today - MAX_DAY_OFFSET * DAY_MS;
     const counts = new Map();
     logins
-      .map((login) => state.videosByLogin.get(login))
+      .map((login) => state.videosByLogin.get(String(login).toLowerCase()))
       .filter(Boolean)
       .forEach((channel) => {
         channel.videos.forEach((video) => {
