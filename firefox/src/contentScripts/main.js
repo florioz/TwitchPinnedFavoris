@@ -563,7 +563,7 @@
     }
     const currentCategory = normalizeCategoryName(liveEntry.game);
     if (!currentCategory) {
-      return false;
+      return Boolean(liveEntry.fetchFailed || liveEntry.inferredFromPage);
     }
     return requiredSet.has(currentCategory);
   };
@@ -573,6 +573,92 @@
     if (!raw.length) return null;
     const candidate = raw[0].toLowerCase();
     return RESERVED_PATHS.has(candidate) ? null : candidate;
+  };
+
+  const getFirstText = (selectors) => {
+    for (const selector of selectors) {
+      const node = document.querySelector(selector);
+      const text = node?.textContent?.trim();
+      if (text) {
+        return text;
+      }
+    }
+    return '';
+  };
+
+  const parseViewerText = (value) => {
+    const normalized = String(value || '').trim().toLowerCase();
+    if (!normalized) {
+      return 0;
+    }
+    const match = normalized.match(/(\d+(?:[\s.,]\d+)?)(\s*[km])?/i);
+    if (!match) {
+      return 0;
+    }
+    const numeric = Number(match[1].replace(/\s/g, '').replace(',', '.'));
+    if (!Number.isFinite(numeric)) {
+      return 0;
+    }
+    const suffix = (match[2] || '').trim().toLowerCase();
+    if (suffix === 'k') {
+      return Math.round(numeric * 1000);
+    }
+    if (suffix === 'm') {
+      return Math.round(numeric * 1000000);
+    }
+    return Math.round(numeric);
+  };
+
+  const inferCurrentPageLiveData = (login, fallback = {}) => {
+    const normalized = String(login || '').toLowerCase();
+    if (!normalized || getChannelFromLocation(window.location) !== normalized) {
+      return null;
+    }
+    const hasOfflineMarker = Boolean(
+      document.querySelector(
+        '[data-a-target="offline-channel-main-content"], [data-test-selector="offline-channel-main-content"], [data-a-target="channel-offline-status"]'
+      )
+    );
+    if (hasOfflineMarker) {
+      return null;
+    }
+    const hasLiveMarker = Boolean(
+      document.querySelector(
+        '[data-a-target="animated-channel-viewers-count"], [data-a-target="channel-viewers-count"], [data-a-target="stream-title"], [data-a-target="video-player"], .video-player__container'
+      )
+    );
+    const pageText = document.body?.innerText || '';
+    const hasLiveText = /\bLIVE\b|Bienvenue sur le chat de|spectateurs?/i.test(pageText);
+    if (!hasLiveMarker && !hasLiveText) {
+      return null;
+    }
+    const title = getFirstText([
+      '[data-a-target="stream-title"]',
+      '[data-test-selector="stream-title"]',
+      'h1[data-a-target]'
+    ]);
+    const game = getFirstText([
+      '[data-a-target="stream-game-link"]',
+      '[data-test-selector="stream-game-link"]',
+      'a[href^="/directory/category/"]'
+    ]);
+    const viewerText = getFirstText([
+      '[data-a-target="animated-channel-viewers-count"]',
+      '[data-a-target="channel-viewers-count"]',
+      '[data-test-selector="animated-channel-viewers-count"]'
+    ]);
+    return {
+      login: normalized,
+      displayName: fallback.displayName || fallback.display_name || normalized,
+      avatarUrl: fallback.avatarUrl || fallback.profileImageURL || DEFAULT_AVATAR,
+      isLive: true,
+      viewers: parseViewerText(viewerText) || Number(fallback.viewers) || 0,
+      title: title || fallback.title || '',
+      game: game || fallback.game || '',
+      startedAt: fallback.startedAt || new Date().toISOString(),
+      fetchFailed: Boolean(fallback.fetchFailed),
+      inferredFromPage: true
+    };
   };
 
   const createOfflineLiveData = (login, fallback = {}) => ({
@@ -1545,7 +1631,23 @@
         }));
         const nextLive = {};
         const favoriteUpdates = {};
-        updates.forEach((entry) => {
+        updates.forEach((entry, index) => {
+          const requestedLogin = favorites[index];
+          const pageLive = inferCurrentPageLiveData(requestedLogin, {
+            ...this.state.favorites[requestedLogin],
+            ...(this.liveData[requestedLogin] || {}),
+            ...(entry || {})
+          });
+          if (pageLive && (!entry?.isLive || entry.fetchFailed || !entry.game)) {
+            entry = {
+              ...pageLive,
+              ...(entry || {}),
+              viewers: Number(entry?.viewers) || pageLive.viewers,
+              title: entry?.title || pageLive.title,
+              game: entry?.game || pageLive.game,
+              inferredFromPage: true
+            };
+          }
           if (!entry || !entry.login) return;
           const normalized = entry.login.toLowerCase();
           nextLive[normalized] = entry;
@@ -4641,6 +4743,7 @@
       this.currentLogin = null;
       this.unsubscribe = null;
       this.domObserver = null;
+      this.refreshTimer = null;
       this.locationWatcher = new LocationWatcher(() => this.handleLocationChange());
     }
 
@@ -4654,6 +4757,10 @@
     dispose() {
       this.unsubscribe?.();
       this.domObserver?.disconnect();
+      if (this.refreshTimer) {
+        clearTimeout(this.refreshTimer);
+        this.refreshTimer = null;
+      }
       this.locationWatcher.stop();
     }
 
@@ -4670,6 +4777,16 @@
       this.currentLogin = getChannelFromLocation(window.location);
       this.updateButtonAppearance();
       this.tryMountButton();
+      if (this.refreshTimer) {
+        clearTimeout(this.refreshTimer);
+      }
+      const login = this.currentLogin?.toLowerCase();
+      this.refreshTimer = setTimeout(() => {
+        this.refreshTimer = null;
+        if (login && this.store.getState().favorites[login]) {
+          this.store.refreshLiveData();
+        }
+      }, 1500);
     }
 
     findAnchor() {
@@ -7457,8 +7574,4 @@ const bootstrap = async () => {
     bootstrap();
   }
 })();
-
-
-
-
 
