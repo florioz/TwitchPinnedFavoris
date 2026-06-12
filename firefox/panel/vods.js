@@ -762,6 +762,37 @@
       : `${rows.length} streamer${rows.length > 1 ? 's' : ''} - ${totalVideos} VOD${totalVideos > 1 ? 's' : ''}`;
   }
 
+  function buildClipSegments(clips, duration) {
+    const segmentCount = Math.min(24, Math.max(8, Math.ceil(duration / 1800)));
+    const segmentDuration = Math.max(1, duration / segmentCount);
+    const segments = Array.from({ length: segmentCount }, (_, index) => ({
+      index,
+      start: Math.round(index * segmentDuration),
+      end: Math.min(duration, Math.round((index + 1) * segmentDuration)),
+      clips: [],
+      views: 0,
+      topClip: null
+    }));
+    clips.forEach((clip) => {
+      const safeOffset = Math.min(duration - 1, Math.max(0, Number(clip.offsetSeconds) || 0));
+      const index = Math.min(segmentCount - 1, Math.floor(safeOffset / segmentDuration));
+      const segment = segments[index];
+      segment.clips.push(clip);
+      segment.views += Number(clip.viewCount) || 0;
+      if (!segment.topClip || Number(clip.viewCount || 0) > Number(segment.topClip.viewCount || 0)) {
+        segment.topClip = clip;
+      }
+    });
+    return segments;
+  }
+
+  function getSegmentHeatClass(count, maxCount) {
+    if (!count) return 'is-empty';
+    const ratio = maxCount ? count / maxCount : 0;
+    if (ratio >= 0.75) return 'is-hot';
+    if (ratio >= 0.4) return 'is-warm';
+    return 'is-low';
+  }
   function renderInspector() {
     if (!elements.vodInspector) {
       return;
@@ -778,7 +809,11 @@
     const duration = Math.max(1, Number(video.lengthSeconds) || 1);
     const start = new Date(video.createdAt);
     const end = new Date(start.getTime() + duration * 1000);
-    const topClips = [...clips].sort((a, b) => b.viewCount - a.viewCount).slice(0, 5);
+    const clipsByViews = [...clips].sort((a, b) => b.viewCount - a.viewCount || a.offsetSeconds - b.offsetSeconds);
+    const topClips = clipsByViews.slice(0, 8);
+    const markerClips = clipsByViews.slice(0, 32).sort((a, b) => a.offsetSeconds - b.offsetSeconds);
+    const segments = buildClipSegments(clips, duration);
+    const maxSegmentClips = Math.max(1, ...segments.map((segment) => segment.clips.length));
 
     elements.vodInspector.hidden = false;
     elements.vodInspector.innerHTML = `
@@ -814,14 +849,24 @@
             <span>${escapeHtml(start.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }))} - ${escapeHtml(end.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }))}</span>
           </div>
           <div class="tfr-vods-detail-timeline" aria-label="Timeline interne de la VOD">
-            <div class="tfr-vods-detail-timeline__bar"></div>
-            ${clips.map((clip) => {
+            <div class="tfr-vods-detail-timeline__segments">
+              ${segments.map((segment) => {
+                const heatClass = getSegmentHeatClass(segment.clips.length, maxSegmentClips);
+                const label = `${formatDuration(segment.start)} - ${formatDuration(segment.end)} : ${segment.clips.length} clip${segment.clips.length > 1 ? 's' : ''}`;
+                const content = `<span style="height:${Math.max(14, Math.round((segment.clips.length / maxSegmentClips) * 48))}px"></span>`;
+                return segment.topClip
+                  ? `<a class="tfr-vods-detail-timeline__segment ${heatClass}" href="${escapeHtml(segment.topClip.url)}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(label)}">${content}</a>`
+                  : `<div class="tfr-vods-detail-timeline__segment ${heatClass}" title="${escapeHtml(label)}">${content}</div>`;
+              }).join('')}
+            </div>
+            ${markerClips.map((clip) => {
               const left = Math.min(100, Math.max(0, (clip.offsetSeconds / duration) * 100));
-              return `<a class="tfr-vods-detail-timeline__marker" href="${escapeHtml(clip.url)}" target="_blank" rel="noopener noreferrer" style="left:${left}%" title="${escapeHtml(clip.title)}"></a>`;
+              return `<a class="tfr-vods-detail-timeline__marker" href="${escapeHtml(clip.url)}" target="_blank" rel="noopener noreferrer" style="left:${left}%" title="${escapeHtml(`${formatDuration(clip.offsetSeconds)} - ${clip.title} - ${Number(clip.viewCount || 0).toLocaleString('fr-FR')} vues`)}"></a>`;
             }).join('')}
           </div>
           <div class="tfr-vods-detail-timeline__labels">
             <span>0:00</span>
+            <span>${markerClips.length < clips.length ? `${markerClips.length} marqueurs principaux sur ${clips.length} clips` : `${clips.length} marqueur${clips.length > 1 ? 's' : ''}`}</span>
             <span>${escapeHtml(formatDuration(duration))}</span>
           </div>
           <div class="tfr-vods-highlight-strip">
@@ -830,6 +875,7 @@
                 <a class="tfr-vods-highlight-chip" href="${escapeHtml(clip.url)}" target="_blank" rel="noopener noreferrer">
                   <span>${escapeHtml(formatDuration(clip.offsetSeconds))}</span>
                   <strong>${escapeHtml(clip.title)}</strong>
+                  <small>${Number(clip.viewCount || 0).toLocaleString('fr-FR')} vues</small>
                 </a>
               `).join('')
               : '<span class="tfr-vods-muted">Aucun temps fort clippe charge pour cette VOD.</span>'}
@@ -843,18 +889,29 @@
           <span>${isLoading ? 'Chargement des clips...' : `${clips.length} clip${clips.length > 1 ? 's' : ''}`}</span>
         </div>
         ${state.clipsError ? `<p class="tfr-vods-clips__notice">${escapeHtml(state.clipsError)}</p>` : ''}
-        <div class="tfr-vods-clips__grid">
-          ${clips.length
-            ? clips.map((clip) => `
-              <a class="tfr-vods-clip-card" href="${escapeHtml(clip.url)}" target="_blank" rel="noopener noreferrer">
-                ${clip.thumbnailUrl ? `<img src="${escapeHtml(clip.thumbnailUrl)}" alt="" />` : ''}
-                <span class="tfr-vods-clip-card__time">${escapeHtml(formatDuration(clip.offsetSeconds))}</span>
-                <strong>${escapeHtml(clip.title)}</strong>
-                <small>${Number(clip.viewCount || 0).toLocaleString('fr-FR')} vues${clip.curator ? ` - ${escapeHtml(clip.curator)}` : ''}</small>
-              </a>
-            `).join('')
-            : `<p class="tfr-vods-clips__notice">${isLoading ? 'Recherche des clips en cours...' : 'Aucun clip associe trouve sur la fenetre de cette VOD.'}</p>`}
-        </div>
+        ${clips.length
+          ? `
+            <div class="tfr-vods-clips__grid" aria-label="Clips les plus vus">
+              ${topClips.map((clip) => `
+                <a class="tfr-vods-clip-card" href="${escapeHtml(clip.url)}" target="_blank" rel="noopener noreferrer">
+                  ${clip.thumbnailUrl ? `<img src="${escapeHtml(clip.thumbnailUrl)}" alt="" />` : ''}
+                  <span class="tfr-vods-clip-card__time">${escapeHtml(formatDuration(clip.offsetSeconds))}</span>
+                  <strong>${escapeHtml(clip.title)}</strong>
+                  <small>${Number(clip.viewCount || 0).toLocaleString('fr-FR')} vues${clip.curator ? ` - ${escapeHtml(clip.curator)}` : ''}</small>
+                </a>
+              `).join('')}
+            </div>
+            <div class="tfr-vods-clips__list" aria-label="Tous les clips de la VOD">
+              ${clips.map((clip) => `
+                <a class="tfr-vods-clip-row" href="${escapeHtml(clip.url)}" target="_blank" rel="noopener noreferrer">
+                  <span>${escapeHtml(formatDuration(clip.offsetSeconds))}</span>
+                  <strong>${escapeHtml(clip.title)}</strong>
+                  <small>${Number(clip.viewCount || 0).toLocaleString('fr-FR')} vues${clip.curator ? ` - ${escapeHtml(clip.curator)}` : ''}</small>
+                </a>
+              `).join('')}
+            </div>
+          `
+          : `<p class="tfr-vods-clips__notice">${isLoading ? 'Recherche des clips en cours...' : 'Aucun clip associe trouve sur la fenetre de cette VOD.'}</p>`}
       </section>
     `;
     elements.vodInspector.querySelector('#closeInspectorButton')?.addEventListener('click', closeInspector);
