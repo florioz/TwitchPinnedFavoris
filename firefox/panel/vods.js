@@ -10,7 +10,8 @@
   const MAX_TIMELINE_HOURS = 24;
   const MIN_TIMELINE_HOURS = 4;
   const VIDEO_LIMIT = 60;
-  const CLIP_LIMIT = 80;
+  const CLIP_PAGE_LIMIT = 100;
+  const CLIP_MAX_PAGES = 4;
 
   const VODS_QUERY = `
     query TfrChannelVideos($login: String!, $limit: Int!) {
@@ -40,10 +41,14 @@
   `;
 
   const CLIPS_QUERY = `
-    query TfrChannelClips($login: String!, $limit: Int!, $createdAfter: Time!, $createdBefore: Time!) {
+    query TfrChannelClips($login: String!, $limit: Int!, $period: ClipsPeriod!, $cursor: Cursor) {
       user(login: $login) {
-        clips(first: $limit, criteria: { createdAfter: $createdAfter, createdBefore: $createdBefore }) {
+        clips(first: $limit, after: $cursor, criteria: { period: $period }) {
+          pageInfo {
+            hasNextPage
+          }
           edges {
+            cursor
             node {
               id
               slug
@@ -161,6 +166,24 @@
     return startOfDay(new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]))).getTime();
   }
 
+  function getClipPeriodForVideo(video) {
+    const startedAt = new Date(video?.createdAt || 0).getTime();
+    const ageMs = Date.now() - startedAt;
+    if (!Number.isFinite(ageMs) || ageMs < 0) {
+      return 'LAST_DAY';
+    }
+    if (ageMs <= DAY_MS) {
+      return 'LAST_DAY';
+    }
+    if (ageMs <= 7 * DAY_MS) {
+      return 'LAST_WEEK';
+    }
+    if (ageMs <= 30 * DAY_MS) {
+      return 'LAST_MONTH';
+    }
+    return 'ALL_TIME';
+  }
+
   function escapeHtml(value) {
     return String(value ?? '').replace(/[&<>"']/g, (char) => ({
       '&': '&amp;',
@@ -275,12 +298,7 @@
     };
   }
 
-  async function fetchVideoClips(channel, video) {
-    if (!channel?.login || !video?.id || !video.createdAt) {
-      return [];
-    }
-    const startedAt = new Date(video.createdAt);
-    const endedAt = new Date(startedAt.getTime() + Math.max(1, video.lengthSeconds || 1) * 1000);
+  async function fetchVideoClipsPage(channel, period, cursor = null) {
     const response = await fetch(TWITCH_GRAPHQL_ENDPOINT, {
       method: 'POST',
       headers: {
@@ -291,9 +309,9 @@
         query: CLIPS_QUERY,
         variables: {
           login: channel.login,
-          limit: CLIP_LIMIT,
-          createdAfter: startedAt.toISOString(),
-          createdBefore: endedAt.toISOString()
+          limit: CLIP_PAGE_LIMIT,
+          period,
+          cursor
         }
       })
     });
@@ -301,10 +319,46 @@
       throw new Error(`Twitch clips ${response.status}`);
     }
     const payload = await response.json();
-    const clips = payload?.data?.user?.clips?.edges || [];
-    return clips
+    if (Array.isArray(payload?.errors) && payload.errors.length) {
+      throw new Error(payload.errors[0]?.message || 'Twitch clips query failed');
+    }
+    return payload?.data?.user?.clips || { edges: [], pageInfo: { hasNextPage: false } };
+  }
+
+  async function fetchVideoClips(channel, video) {
+    if (!channel?.login || !video?.id || !video.createdAt) {
+      return [];
+    }
+    const startedAt = new Date(video.createdAt);
+    const endedAt = new Date(startedAt.getTime() + Math.max(1, video.lengthSeconds || 1) * 1000);
+    const period = getClipPeriodForVideo(video);
+    const edges = [];
+    let cursor = null;
+    for (let page = 0; page < CLIP_MAX_PAGES; page += 1) {
+      const pageData = await fetchVideoClipsPage(channel, period, cursor);
+      const pageEdges = Array.isArray(pageData?.edges) ? pageData.edges : [];
+      edges.push(...pageEdges);
+      const nextCursor = pageEdges[pageEdges.length - 1]?.cursor || null;
+      if (!pageData?.pageInfo?.hasNextPage || !nextCursor || nextCursor === cursor) {
+        break;
+      }
+      cursor = nextCursor;
+    }
+    return edges
       .map((edge) => edge?.node)
       .filter(Boolean)
+      .filter((clip) => {
+        const clipVideoId = clip.video?.id ? String(clip.video.id) : '';
+        if (clipVideoId) {
+          return clipVideoId === String(video.id);
+        }
+        const createdAt = new Date(clip.createdAt || 0).getTime();
+        return Number.isFinite(createdAt) && createdAt >= startedAt.getTime() && createdAt <= endedAt.getTime();
+      })
+      .filter((clip, index, clips) => {
+        const key = clip.id || clip.slug;
+        return key && clips.findIndex((candidate) => (candidate.id || candidate.slug) === key) === index;
+      })
       .map((clip) => {
         const createdAt = clip.createdAt || '';
         const estimatedOffset = createdAt ? Math.max(0, Math.round((new Date(createdAt).getTime() - startedAt.getTime()) / 1000)) : 0;
@@ -323,7 +377,7 @@
           videoId: clip.video?.id || ''
         };
       })
-      .filter((clip) => clip.id && (!clip.videoId || clip.videoId === video.id))
+      .filter((clip) => clip.id)
       .sort((a, b) => a.offsetSeconds - b.offsetSeconds || b.viewCount - a.viewCount);
   }
 
