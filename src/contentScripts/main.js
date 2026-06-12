@@ -194,8 +194,10 @@
       'moderation.history.meta.by': 'par {moderator}',
       'moderation.history.meta.at': '\u00e0 {time}',
       'moderation.history.lastMessage.none': 'Aucun message enregistr\u00e9.',
-      'settings.chatHistory.toggle': 'Activer l\'historique du chat',
-      'settings.moderation.toggle': 'Activer l\'historique de mod\u00e9ration',
+      'settings.chatHistory.toggle': 'Messages sur les fiches viewers',
+      'settings.chatHistory.description': 'Affiche les derniers messages captur\u00e9s dans la carte d\u2019un viewer.',
+      'settings.moderation.toggle': 'Bouton historique mod\u00e9ration',
+      'settings.moderation.description': 'Ajoute un bouton dans le chat pour consulter les bans, timeouts et messages supprim\u00e9s.',
       'recent.badgeLabel': 'D\u00e9but de live',
       'recent.badgeShort': 'Live'
     },
@@ -306,8 +308,10 @@
       'moderation.history.meta.by': 'by {moderator}',
       'moderation.history.meta.at': 'at {time}',
       'moderation.history.lastMessage.none': 'No message captured.',
-      'settings.chatHistory.toggle': 'Enable chat history',
-      'settings.moderation.toggle': 'Enable moderation history',
+      'settings.chatHistory.toggle': 'Viewer-card chat messages',
+      'settings.chatHistory.description': 'Shows captured recent messages inside viewer cards.',
+      'settings.moderation.toggle': 'Moderation history button',
+      'settings.moderation.description': 'Adds a chat button for bans, timeouts, and deleted messages.',
       'recent.badgeLabel': 'Recently live',
       'recent.badgeShort': 'Live'
     }
@@ -5354,6 +5358,7 @@ class FavoritesOverlay {
       {
         key: 'chatHistoryEnabled',
         label: t('settings.chatHistory.toggle'),
+        description: t('settings.chatHistory.description'),
         handler: async (checked) => {
           await this.store.setChatHistoryEnabled(checked);
           this.render();
@@ -5362,6 +5367,7 @@ class FavoritesOverlay {
       {
         key: 'moderationHistoryEnabled',
         label: t('settings.moderation.toggle'),
+        description: t('settings.moderation.description'),
         handler: async (checked) => {
           await this.store.setModerationHistoryEnabled(checked);
           this.render();
@@ -5377,9 +5383,15 @@ class FavoritesOverlay {
       input.checked = prefs[toggleConfig.key] !== false;
       input.className = 'tfr-feature-toggle__input';
       item.appendChild(input);
-      const text = document.createElement('span');
-      text.textContent = toggleConfig.label;
-      item.appendChild(text);
+      const body = document.createElement('span');
+      body.className = 'tfr-feature-toggle__body';
+      const label = document.createElement('strong');
+      label.textContent = toggleConfig.label;
+      const description = document.createElement('small');
+      description.textContent = toggleConfig.description;
+      body.appendChild(label);
+      body.appendChild(description);
+      item.appendChild(body);
       input.addEventListener('change', (event) => {
         toggleConfig.handler(Boolean(event.target.checked));
       });
@@ -5388,7 +5400,6 @@ class FavoritesOverlay {
 
     return wrapper;
   }
-
   async getCategorySuggestions(term) {
     const normalized = normalizeCategoryName(term);
     if (!normalized || normalized.length < 2) {
@@ -6428,8 +6439,8 @@ class FavoritesOverlay {
     headerRow.appendChild(actions);
     item.appendChild(headerRow);
 
-    
-    
+
+
     container.appendChild(item);
 
     const directAssignments = assignmentsMap.get(category.id) || [];
@@ -7688,14 +7699,24 @@ class FeatureController {
   }
 
   applyPreferences(prefs) {
-    const wantsChatHistory = prefs.chatHistoryEnabled !== false;
-    if (wantsChatHistory) {
+    const wantsViewerChatHistory = prefs.chatHistoryEnabled !== false;
+    const wantsModeration = prefs.moderationHistoryEnabled !== false;
+    const needsMessageTracker = wantsViewerChatHistory || wantsModeration;
+
+    if (needsMessageTracker) {
       this.ensureChatHistory();
     } else {
       this.teardownModeration();
       this.teardownChatHistory();
+      return;
     }
-    const wantsModeration = wantsChatHistory && prefs.moderationHistoryEnabled !== false;
+
+    if (wantsViewerChatHistory) {
+      this.ensureViewerCardHistory();
+    } else {
+      this.teardownViewerCardHistory();
+    }
+
     if (wantsModeration) {
       this.ensureModerationFeatures();
     } else {
@@ -7709,20 +7730,33 @@ class FeatureController {
     }
     this.chatHistory = new ChatHistoryTracker();
     this.chatHistory.init();
+  }
+
+  ensureViewerCardHistory() {
+    if (this.viewerCardHistory || !this.chatHistory) {
+      return;
+    }
     this.viewerCardHistory = new ViewerCardHistoryRenderer(this.chatHistory);
     this.viewerCardHistory.init();
   }
 
-  teardownChatHistory() {
+  teardownViewerCardHistory() {
     this.viewerCardHistory?.dispose();
     this.viewerCardHistory = null;
+  }
+
+  teardownChatHistory() {
+    this.teardownViewerCardHistory();
     this.chatHistory?.dispose();
     this.chatHistory = null;
   }
 
   ensureModerationFeatures() {
-    if (this.moderationTracker || !this.chatHistory) {
-      if (this.moderationTracker && !this.moderationHistoryUI) {
+    if (!this.chatHistory) {
+      this.ensureChatHistory();
+    }
+    if (this.moderationTracker) {
+      if (!this.moderationHistoryUI) {
         this.moderationHistoryUI = new ModerationHistoryUI(this.moderationTracker);
         this.moderationHistoryUI.init();
       }
@@ -7733,7 +7767,6 @@ class FeatureController {
     this.moderationHistoryUI = new ModerationHistoryUI(this.moderationTracker);
     this.moderationHistoryUI.init();
   }
-
   teardownModeration() {
     this.moderationHistoryUI?.dispose();
     this.moderationHistoryUI = null;
@@ -7780,12 +7813,3 @@ const bootstrap = async () => {
     bootstrap();
   }
 })();
-
-
-
-
-
-
-
-
-

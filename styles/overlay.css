@@ -368,24 +368,53 @@
 
 .tfr-feature-toggles {
   margin-top: 10px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 10px;
 }
 
 .tfr-feature-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  align-items: flex-start;
+  padding: 12px 14px;
+  border: 1px solid rgba(145, 71, 255, 0.22);
+  border-radius: 10px;
+  background: rgba(18, 13, 28, 0.62);
   color: #f7f7f8;
+  cursor: pointer;
+}
+
+.tfr-feature-toggle:hover,
+.tfr-feature-toggle:focus-within {
+  border-color: rgba(191, 148, 255, 0.48);
+  background: rgba(32, 21, 54, 0.68);
 }
 
 .tfr-feature-toggle__input {
-  width: 16px;
-  height: 16px;
+  width: 18px;
+  height: 18px;
+  margin-top: 2px;
   accent-color: #9147ff;
   cursor: pointer;
+}
+
+.tfr-feature-toggle__body {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.tfr-feature-toggle__body strong {
+  font-size: 13px;
+  line-height: 1.25;
+}
+
+.tfr-feature-toggle__body small {
+  color: #adadb8;
+  font-size: 12px;
+  line-height: 1.35;
 }
 
 .tfr-categories-section {
@@ -1495,7 +1524,3 @@
 .tfr-update-banner__button--ghost:hover {
   background: rgba(255, 255, 255, 0.16);
 }
-
-
-
-
