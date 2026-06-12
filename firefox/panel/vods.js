@@ -10,6 +10,7 @@
   const MAX_TIMELINE_HOURS = 24;
   const MIN_TIMELINE_HOURS = 4;
   const VIDEO_LIMIT = 60;
+  const CLIP_LIMIT = 80;
 
   const VODS_QUERY = `
     query TfrChannelVideos($login: String!, $limit: Int!) {
@@ -38,15 +39,50 @@
     }
   `;
 
+  const CLIPS_QUERY = `
+    query TfrChannelClips($login: String!, $limit: Int!, $createdAfter: Time!, $createdBefore: Time!) {
+      user(login: $login) {
+        clips(first: $limit, criteria: { createdAfter: $createdAfter, createdBefore: $createdBefore }) {
+          edges {
+            node {
+              id
+              slug
+              title
+              url
+              createdAt
+              durationSeconds
+              viewCount
+              thumbnailURL(width: 320, height: 180)
+              curator {
+                login
+                displayName
+              }
+              game {
+                name
+              }
+              video {
+                id
+              }
+            }
+          }
+        }
+      }
+    }
+  `;
+
   const state = {
     favorites: {},
     categories: [],
     videosByLogin: new Map(),
+    clipsByVideoId: new Map(),
     selectedCategoryId: 'all',
     selectedDay: startOfDay(new Date()).getTime(),
     searchTerm: '',
     sortKey: 'views',
     sortDirection: 'desc',
+    selectedVideo: null,
+    clipsLoadingVideoId: null,
+    clipsError: '',
     isLoading: false
   };
 
@@ -62,6 +98,7 @@
     dayHint: document.getElementById('dayHint'),
     summary: document.getElementById('summary'),
     timeline: document.getElementById('timeline'),
+    vodInspector: document.getElementById('vodInspector'),
     emptyState: document.getElementById('emptyState')
   };
 
@@ -83,6 +120,20 @@
       return `${hours}h${String(minutes).padStart(2, '0')}`;
     }
     return `${minutes || 1} min`;
+  }
+
+  function formatLongDateTime(value) {
+    const date = new Date(value);
+    if (!Number.isFinite(date.getTime())) {
+      return '';
+    }
+    return new Intl.DateTimeFormat('fr-FR', {
+      weekday: 'short',
+      day: '2-digit',
+      month: 'short',
+      hour: '2-digit',
+      minute: '2-digit'
+    }).format(date);
   }
 
   function formatDayLabel(timestamp) {
@@ -222,6 +273,58 @@
       avatarUrl: user.profileImageURL || state.favorites[login]?.avatarUrl || DEFAULT_AVATAR,
       videos
     };
+  }
+
+  async function fetchVideoClips(channel, video) {
+    if (!channel?.login || !video?.id || !video.createdAt) {
+      return [];
+    }
+    const startedAt = new Date(video.createdAt);
+    const endedAt = new Date(startedAt.getTime() + Math.max(1, video.lengthSeconds || 1) * 1000);
+    const response = await fetch(TWITCH_GRAPHQL_ENDPOINT, {
+      method: 'POST',
+      headers: {
+        'Client-ID': TWITCH_CLIENT_ID,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        query: CLIPS_QUERY,
+        variables: {
+          login: channel.login,
+          limit: CLIP_LIMIT,
+          createdAfter: startedAt.toISOString(),
+          createdBefore: endedAt.toISOString()
+        }
+      })
+    });
+    if (!response.ok) {
+      throw new Error(`Twitch clips ${response.status}`);
+    }
+    const payload = await response.json();
+    const clips = payload?.data?.user?.clips?.edges || [];
+    return clips
+      .map((edge) => edge?.node)
+      .filter(Boolean)
+      .map((clip) => {
+        const createdAt = clip.createdAt || '';
+        const estimatedOffset = createdAt ? Math.max(0, Math.round((new Date(createdAt).getTime() - startedAt.getTime()) / 1000)) : 0;
+        return {
+          id: clip.id || clip.slug,
+          slug: clip.slug || clip.id,
+          title: clip.title || 'Clip Twitch',
+          url: clip.url || (clip.slug ? `https://clips.twitch.tv/${clip.slug}` : ''),
+          createdAt,
+          offsetSeconds: estimatedOffset,
+          durationSeconds: Number(clip.durationSeconds) || 0,
+          viewCount: Number(clip.viewCount) || 0,
+          thumbnailUrl: clip.thumbnailURL || '',
+          curator: clip.curator?.displayName || clip.curator?.login || '',
+          game: clip.game?.name || '',
+          videoId: clip.video?.id || ''
+        };
+      })
+      .filter((clip) => clip.id && (!clip.videoId || clip.videoId === video.id))
+      .sort((a, b) => a.offsetSeconds - b.offsetSeconds || b.viewCount - a.viewCount);
   }
 
   async function mapWithConcurrency(items, limit, mapper) {
@@ -418,6 +521,55 @@
     };
   }
 
+  function findVideoContext(videoId) {
+    if (!videoId) {
+      return null;
+    }
+    for (const channel of state.videosByLogin.values()) {
+      const video = channel.videos.find((item) => item.id === videoId);
+      if (video) {
+        return { channel, video };
+      }
+    }
+    return null;
+  }
+
+  async function selectVideo(channel, video) {
+    if (!channel || !video) {
+      return;
+    }
+    state.selectedVideo = { login: channel.login, videoId: video.id };
+    state.clipsError = '';
+    renderTimeline();
+    renderInspector();
+    elements.vodInspector?.scrollIntoView({ block: 'nearest' });
+    if (state.clipsByVideoId.has(video.id)) {
+      return;
+    }
+    state.clipsLoadingVideoId = video.id;
+    renderInspector();
+    try {
+      const clips = await fetchVideoClips(channel, video);
+      state.clipsByVideoId.set(video.id, clips);
+    } catch (error) {
+      console.warn('[TFR VODs] clips fetch failed', channel.login, video.id, error);
+      state.clipsByVideoId.set(video.id, []);
+      state.clipsError = 'Impossible de charger les clips associes pour le moment.';
+    } finally {
+      if (state.clipsLoadingVideoId === video.id) {
+        state.clipsLoadingVideoId = null;
+      }
+      renderInspector();
+    }
+  }
+
+  function closeInspector() {
+    state.selectedVideo = null;
+    state.clipsError = '';
+    renderTimeline();
+    renderInspector();
+  }
+
   function renderFilters() {
     const currentGroup = state.selectedCategoryId;
     elements.groupSelect.innerHTML = '';
@@ -489,6 +641,21 @@
     rows.forEach((channel) => {
       const row = document.createElement('article');
       row.className = 'tfr-vods-row';
+      row.tabIndex = 0;
+      row.setAttribute('role', 'button');
+      row.setAttribute('aria-label', `Analyser les VODs de ${channel.displayName}`);
+      row.addEventListener('click', (event) => {
+        if (event.target.closest('a, button')) {
+          return;
+        }
+        selectVideo(channel, channel.videos[0]);
+      });
+      row.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          selectVideo(channel, channel.videos[0]);
+        }
+      });
 
       const streamer = document.createElement('a');
       streamer.className = 'tfr-vods-streamer';
@@ -512,11 +679,12 @@
         const minuteOfDay = start.getHours() * 60 + start.getMinutes();
         const left = ((minuteOfDay - timelineWindow.startHour * 60) / 60) * HOUR_WIDTH;
         const width = Math.max(150, Math.min(520, ((video.lengthSeconds || 3600) / 3600) * HOUR_WIDTH));
-        const card = document.createElement('a');
+        const card = document.createElement('button');
         card.className = 'tfr-vods-card';
-        card.href = video.url;
-        card.target = '_blank';
-        card.rel = 'noopener noreferrer';
+        card.type = 'button';
+        if (state.selectedVideo?.videoId === video.id) {
+          card.classList.add('is-selected');
+        }
         card.style.left = `${left}px`;
         card.style.width = `${width}px`;
         card.innerHTML = `
@@ -524,6 +692,10 @@
           <span class="tfr-vods-card__title">${escapeHtml(video.title)}</span>
           <span class="tfr-vods-card__meta">${escapeHtml(start.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }))} - ${escapeHtml(formatDuration(video.lengthSeconds))}${video.game ? ` - ${escapeHtml(video.game)}` : ''}</span>
         `;
+        card.addEventListener('click', (event) => {
+          event.stopPropagation();
+          selectVideo(channel, video);
+        });
         track.appendChild(card);
       });
       row.appendChild(track);
@@ -534,6 +706,104 @@
     elements.summary.textContent = state.isLoading
       ? 'Chargement des VODs Twitch...'
       : `${rows.length} streamer${rows.length > 1 ? 's' : ''} - ${totalVideos} VOD${totalVideos > 1 ? 's' : ''}`;
+  }
+
+  function renderInspector() {
+    if (!elements.vodInspector) {
+      return;
+    }
+    const context = findVideoContext(state.selectedVideo?.videoId);
+    if (!context) {
+      elements.vodInspector.hidden = true;
+      elements.vodInspector.innerHTML = '';
+      return;
+    }
+    const { channel, video } = context;
+    const clips = state.clipsByVideoId.get(video.id) || [];
+    const isLoading = state.clipsLoadingVideoId === video.id;
+    const duration = Math.max(1, Number(video.lengthSeconds) || 1);
+    const start = new Date(video.createdAt);
+    const end = new Date(start.getTime() + duration * 1000);
+    const topClips = [...clips].sort((a, b) => b.viewCount - a.viewCount).slice(0, 5);
+
+    elements.vodInspector.hidden = false;
+    elements.vodInspector.innerHTML = `
+      <div class="tfr-vods-inspector__header">
+        <div class="tfr-vods-inspector__identity">
+          <img src="${escapeHtml(channel.avatarUrl || DEFAULT_AVATAR)}" alt="" />
+          <div>
+            <p class="tfr-vods-kicker">Analyse VOD</p>
+            <h2>${escapeHtml(video.title)}</h2>
+            <span>${escapeHtml(channel.displayName)} - ${escapeHtml(formatLongDateTime(video.createdAt))}</span>
+          </div>
+        </div>
+        <div class="tfr-vods-inspector__actions">
+          <a class="tfr-vods-button tfr-vods-button--ghost" href="${escapeHtml(video.url)}" target="_blank" rel="noopener noreferrer">Ouvrir Twitch</a>
+          <button class="tfr-vods-icon-button" id="closeInspectorButton" type="button">Fermer</button>
+        </div>
+      </div>
+
+      <div class="tfr-vods-inspector__grid">
+        <article class="tfr-vods-inspector__preview">
+          ${video.thumbnailUrl ? `<img src="${escapeHtml(video.thumbnailUrl)}" alt="" />` : '<div class="tfr-vods-inspector__placeholder"></div>'}
+          <div class="tfr-vods-inspector__stats">
+            <span><strong>${escapeHtml(formatDuration(video.lengthSeconds))}</strong>Duree</span>
+            <span><strong>${Number(video.viewCount || 0).toLocaleString('fr-FR')}</strong>Vues</span>
+            <span><strong>${clips.length}</strong>Clips detectes</span>
+            <span><strong>${escapeHtml(video.game || 'Inconnue')}</strong>Categorie</span>
+          </div>
+        </article>
+
+        <article class="tfr-vods-inspector__timeline-card">
+          <div class="tfr-vods-inspector__timeline-head">
+            <strong>Timeline de la VOD</strong>
+            <span>${escapeHtml(start.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }))} - ${escapeHtml(end.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }))}</span>
+          </div>
+          <div class="tfr-vods-detail-timeline" aria-label="Timeline interne de la VOD">
+            <div class="tfr-vods-detail-timeline__bar"></div>
+            ${clips.map((clip) => {
+              const left = Math.min(100, Math.max(0, (clip.offsetSeconds / duration) * 100));
+              return `<a class="tfr-vods-detail-timeline__marker" href="${escapeHtml(clip.url)}" target="_blank" rel="noopener noreferrer" style="left:${left}%" title="${escapeHtml(clip.title)}"></a>`;
+            }).join('')}
+          </div>
+          <div class="tfr-vods-detail-timeline__labels">
+            <span>0:00</span>
+            <span>${escapeHtml(formatDuration(duration))}</span>
+          </div>
+          <div class="tfr-vods-highlight-strip">
+            ${topClips.length
+              ? topClips.map((clip) => `
+                <a class="tfr-vods-highlight-chip" href="${escapeHtml(clip.url)}" target="_blank" rel="noopener noreferrer">
+                  <span>${escapeHtml(formatDuration(clip.offsetSeconds))}</span>
+                  <strong>${escapeHtml(clip.title)}</strong>
+                </a>
+              `).join('')
+              : '<span class="tfr-vods-muted">Aucun temps fort clippe charge pour cette VOD.</span>'}
+          </div>
+        </article>
+      </div>
+
+      <section class="tfr-vods-clips">
+        <div class="tfr-vods-clips__header">
+          <h3>Temps forts et clips associes</h3>
+          <span>${isLoading ? 'Chargement des clips...' : `${clips.length} clip${clips.length > 1 ? 's' : ''}`}</span>
+        </div>
+        ${state.clipsError ? `<p class="tfr-vods-clips__notice">${escapeHtml(state.clipsError)}</p>` : ''}
+        <div class="tfr-vods-clips__grid">
+          ${clips.length
+            ? clips.map((clip) => `
+              <a class="tfr-vods-clip-card" href="${escapeHtml(clip.url)}" target="_blank" rel="noopener noreferrer">
+                ${clip.thumbnailUrl ? `<img src="${escapeHtml(clip.thumbnailUrl)}" alt="" />` : ''}
+                <span class="tfr-vods-clip-card__time">${escapeHtml(formatDuration(clip.offsetSeconds))}</span>
+                <strong>${escapeHtml(clip.title)}</strong>
+                <small>${Number(clip.viewCount || 0).toLocaleString('fr-FR')} vues${clip.curator ? ` - ${escapeHtml(clip.curator)}` : ''}</small>
+              </a>
+            `).join('')
+            : `<p class="tfr-vods-clips__notice">${isLoading ? 'Recherche des clips en cours...' : 'Aucun clip associe trouve sur la fenetre de cette VOD.'}</p>`}
+        </div>
+      </section>
+    `;
+    elements.vodInspector.querySelector('#closeInspectorButton')?.addEventListener('click', closeInspector);
   }
 
   async function refreshData() {
