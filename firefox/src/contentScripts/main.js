@@ -1,4 +1,4 @@
-﻿(() => {
+(() => {
   const STORAGE_KEY = 'tfr_state';
   const DEFAULT_STATE = {
     favorites: {},
@@ -480,6 +480,26 @@
     return `${minutes}:${String(remainingSeconds).padStart(2, '0')}`;
   };
 
+  const formatModerationDurationLabel = (seconds) => {
+    const value = Number(seconds);
+    if (!Number.isFinite(value) || value <= 0) {
+      return '';
+    }
+    const totalSeconds = Math.round(value);
+    if (totalSeconds < 60) {
+      return `${totalSeconds}s`;
+    }
+    const minutes = Math.round(totalSeconds / 60);
+    if (minutes < 60) {
+      return `${minutes} min`;
+    }
+    const hours = Math.round(minutes / 60);
+    if (hours < 24) {
+      return `${hours} h`;
+    }
+    const days = Math.round(hours / 24);
+    return `${days} j`;
+  };
   const formatModerationTimestamp = (timestamp) => {
     if (!Number.isFinite(timestamp)) {
       return '';
@@ -1929,7 +1949,7 @@
     }
 
     captureExistingMessages(container) {
-      const nodes = container.querySelectorAll('[data-a-target="chat-line-message"], .chat-line__message');
+      const nodes = container.querySelectorAll(CHAT_MESSAGE_SELECTOR);
       nodes.forEach((node) => this.captureMessage(node));
     }
 
@@ -1945,10 +1965,10 @@
     }
 
     scanNode(node) {
-      if (node.matches('[data-a-target="chat-line-message"], .chat-line__message')) {
+      if (node.matches(CHAT_MESSAGE_SELECTOR)) {
         this.captureMessage(node);
       }
-      const descendants = node.querySelectorAll?.('[data-a-target="chat-line-message"], .chat-line__message');
+      const descendants = node.querySelectorAll?.(CHAT_MESSAGE_SELECTOR);
       if (descendants && descendants.length) {
         descendants.forEach((child) => this.captureMessage(child));
       }
@@ -1959,18 +1979,9 @@
         return;
       }
       const login = this.extractLogin(messageElement);
-      if (!login) {
-        messageElement.dataset.tfrChatTracked = 'true';
-        return;
-      }
       const text = this.extractMessageText(messageElement);
-      if (!text) {
-        messageElement.dataset.tfrChatTracked = 'true';
-        return;
-      }
       const normalized = this.normalizeLogin(login);
-      if (!normalized) {
-        messageElement.dataset.tfrChatTracked = 'true';
+      if (!normalized || !text) {
         return;
       }
       const displayName = this.extractDisplayName(messageElement) || login;
@@ -1982,6 +1993,13 @@
         timestamp
       };
       const existing = this.history.get(normalized) || [];
+      const duplicate = existing.some((candidate) => (
+        Math.abs(Number(candidate.timestamp || 0) - timestamp) < 1000 && candidate.text === text
+      ));
+      if (duplicate) {
+        messageElement.dataset.tfrChatTracked = 'true';
+        return;
+      }
       existing.push(entry);
       if (existing.length > 1) {
         existing.sort((a, b) => a.timestamp - b.timestamp);
@@ -2007,21 +2025,48 @@
         dataset.aUser,
         messageElement.getAttribute('data-user'),
         messageElement.getAttribute('data-username'),
-        messageElement.getAttribute('data-sender')
+        messageElement.getAttribute('data-sender'),
+        messageElement.getAttribute('data-login')
       ];
       for (const value of candidates) {
-        if (value && value.trim()) {
-          return value.trim();
+        const login = this.cleanLoginCandidate(value);
+        if (login) {
+          return login;
         }
       }
       const usernameNode =
         messageElement.querySelector('[data-a-target="chat-message-username"]') ||
         messageElement.querySelector('[data-test-selector="chat-message-username"]') ||
-        messageElement.querySelector('[data-a-target="chat-author-link"]');
-      if (usernameNode && usernameNode.textContent) {
-        return usernameNode.textContent.trim().replace(/^@/, '');
+        messageElement.querySelector('[data-a-target="chat-author-link"]') ||
+        messageElement.querySelector('[data-a-user]') ||
+        messageElement.querySelector('a[href^="/"][data-a-target*="chat"]') ||
+        messageElement.querySelector('button[data-a-target*="chat"] [class*="username"]') ||
+        messageElement.querySelector('.chat-author__display-name') ||
+        messageElement.querySelector('.chat-line__username');
+      if (usernameNode) {
+        const datasetLogin = usernameNode.dataset?.aUser || usernameNode.dataset?.userLogin || usernameNode.dataset?.login;
+        const loginFromDataset = this.cleanLoginCandidate(datasetLogin);
+        if (loginFromDataset) {
+          return loginFromDataset;
+        }
+        const href = usernameNode.getAttribute?.('href') || usernameNode.closest?.('a[href^="/"]')?.getAttribute('href') || '';
+        const hrefMatch = href.match(/^\/([^/?#]+)/);
+        if (hrefMatch?.[1]) {
+          return this.cleanLoginCandidate(hrefMatch[1]);
+        }
+        return this.cleanLoginCandidate(usernameNode.textContent);
       }
       return '';
+    }
+
+    cleanLoginCandidate(value) {
+      if (!value) return '';
+      return String(value)
+        .trim()
+        .replace(/^@/, '')
+        .replace(/[:：].*$/, '')
+        .replace(/\s+/g, '')
+        .toLowerCase();
     }
 
     extractDisplayName(messageElement) {
@@ -2032,18 +2077,19 @@
       const usernameNode =
         messageElement.querySelector('[data-a-target="chat-message-username"]') ||
         messageElement.querySelector('[data-test-selector="chat-message-username"]') ||
-        messageElement.querySelector('[data-a-target="chat-author-link"]');
-      return usernameNode?.textContent?.trim().replace(/^@/, '') || '';
+        messageElement.querySelector('[data-a-target="chat-author-link"]') ||
+        messageElement.querySelector('.chat-author__display-name') ||
+        messageElement.querySelector('.chat-line__username');
+      return usernameNode?.textContent?.trim().replace(/^@/, '').replace(/[:：]\s*$/, '') || '';
     }
 
     extractMessageText(messageElement) {
       const textContainer =
         messageElement.querySelector('[data-a-target="chat-message-text"]') ||
         messageElement.querySelector('[data-test-selector="chat-line-message-body"]') ||
-        messageElement.querySelector('.text-fragment')?.parentElement;
-      if (!textContainer) {
-        return '';
-      }
+        messageElement.querySelector('[data-a-target="chat-line-message-body"]') ||
+        messageElement.querySelector('.text-fragment')?.parentElement ||
+        messageElement;
       const tokens = [];
       const pushToken = (value) => {
         if (!value) return;
@@ -2052,6 +2098,21 @@
           tokens.push(normalized);
         }
       };
+      const skipSelectors = [
+        '[data-a-target="chat-message-timestamp"]',
+        '[data-test-selector="chat-message-timestamp"]',
+        '[data-a-target="chat-message-username"]',
+        '[data-test-selector="chat-message-username"]',
+        '[data-a-target="chat-author-link"]',
+        '[data-a-target="chat-badge"]',
+        '[data-test-selector="chat-badge"]',
+        '.chat-line__timestamp',
+        '.chat-author__display-name',
+        '.chat-line__username',
+        '.chat-badge',
+        '.reply-line',
+        '[data-a-target="chat-line-reply"]'
+      ];
       const collect = (node) => {
         if (!node) return;
         if (node.nodeType === Node.TEXT_NODE) {
@@ -2062,6 +2123,9 @@
           return;
         }
         const element = node;
+        if (skipSelectors.some((selector) => element.matches?.(selector))) {
+          return;
+        }
         const dataset = element.dataset || {};
         const plain =
           element.getAttribute('data-plain-text') ||
@@ -2084,20 +2148,27 @@
           pushToken(plain || alt || aria || title || element.textContent);
           return;
         }
-        if (plain || aria || title || alt) {
-          pushToken(plain || aria || title || alt);
+        if (plain && !element.childNodes?.length) {
+          pushToken(plain);
+          return;
         }
         if (element.childNodes && element.childNodes.length) {
           element.childNodes.forEach((child) => collect(child));
+        } else if (aria || title || alt) {
+          pushToken(aria || title || alt);
         }
       };
       collect(textContainer);
-      if (!tokens.length) {
-        return textContainer.textContent?.replace(/\s+/g, ' ').trim() || '';
+      const result = tokens.join(' ').replace(/\s+/g, ' ').trim();
+      if (result) {
+        return result;
       }
-      return tokens.join(' ').replace(/\s+/g, ' ').trim();
+      const clone = textContainer.cloneNode(true);
+      skipSelectors.forEach((selector) => {
+        clone.querySelectorAll?.(selector).forEach((node) => node.remove());
+      });
+      return clone.textContent?.replace(/\s+/g, ' ').trim() || '';
     }
-
     extractTimestamp(messageElement) {
       const dataset = messageElement.dataset || {};
       const numericCandidates = [
@@ -2180,13 +2251,13 @@
   }
 
   const CHAT_MESSAGE_SELECTOR =
-    '[data-a-target="chat-line-message"], [data-test-selector="chat-line-message"], [data-a-target="chat-line-user-notice"], .chat-line__message, .chat-line__status';
+    '[data-a-target="chat-line-message"], [data-test-selector="chat-line-message"], [data-a-target="chat-line-user-notice"], [data-test-selector="chat-line-user-notice"], [data-a-target="chat-line-message-body"], .chat-line__message, .chat-line__status, .seventv-message';
 
   class ModerationActionTracker {
     constructor(historyTracker) {
       this.historyTracker = historyTracker;
       this.actions = [];
-      this.maxActions = 200;
+      this.maxActions = 1000;
       this.observer = null;
       this.container = null;
       this.retryTimer = null;
@@ -2651,7 +2722,18 @@
         attributeHints.push(node.getAttribute?.('data-a-target'));
         attributeHints.push(node.getAttribute?.('data-test-selector'));
         attributeHints.push(node.getAttribute?.('aria-label'));
+        attributeHints.push(node.getAttribute?.('title'));
         attributeHints.push(node.className);
+      });
+      element.querySelectorAll('*').forEach((node) => {
+        const ariaLabel = node.getAttribute?.('aria-label');
+        const title = node.getAttribute?.('title');
+        const textValue = node.textContent;
+        if (ariaLabel) datasetTextHints.push(ariaLabel);
+        if (title) datasetTextHints.push(title);
+        if (textValue && /timeout|timed\s*out|tempo|temporaire|silence|mute|ban\s+temporaire|pour|pendant|for/i.test(textValue)) {
+          datasetTextHints.push(textValue);
+        }
       });
       analysisText = this.normalizeText([analysisText, ...datasetTextHints].filter(Boolean).join(' ')) || analysisText;
       const attributeHintSource = attributeHints
@@ -2739,25 +2821,30 @@
         return null;
       }
 
-      const textDurationCandidates = [
-        this.extractDurationFromText(analysisText),
-        this.extractDurationFromText(rawText),
-        this.extractDurationFromText(elementInnerText),
-        this.extractDurationFromText(element.getAttribute?.('aria-label')),
-        this.extractDurationFromText(element.getAttribute?.('data-duration-label')),
-        ...datasetTextHints.map((value) => this.extractDurationFromText(value))
-      ].filter((value) => Number.isFinite(value) && value > 0);
-      if (textDurationCandidates.length) {
-        const maxTextDuration = Math.max(...textDurationCandidates);
+      const durationSources = [
+        analysisText,
+        elementInnerText,
+        element.getAttribute?.('aria-label'),
+        element.getAttribute?.('title'),
+        element.getAttribute?.('data-duration-label'),
+        ...datasetTextHints
+      ].filter((value) => typeof value === 'string' && value.trim());
+      const contextualDurationCandidates = durationSources
+        .map((value) => this.extractTimeoutDurationFromText(value))
+        .filter((value) => Number.isFinite(value) && value > 0);
+      if (contextualDurationCandidates.length) {
+        const maxTextDuration = Math.max(...contextualDurationCandidates);
         if (!Number.isFinite(durationSeconds) || maxTextDuration > durationSeconds * 1.5 || (maxTextDuration >= 60 && durationSeconds < 60)) {
           durationSeconds = maxTextDuration;
         }
       }
-      if (!Number.isFinite(durationSeconds)) {
-        durationSeconds = this.extractDurationFromText(analysisText);
-      }
-      if (!Number.isFinite(durationSeconds)) {
-        durationSeconds = this.extractDurationFromText(rawText);
+      if (!Number.isFinite(durationSeconds) && type === 'timeout') {
+        const genericDurationCandidates = durationSources
+          .map((value) => this.extractDurationFromText(value))
+          .filter((value) => Number.isFinite(value) && value > 0);
+        if (genericDurationCandidates.length) {
+          durationSeconds = Math.max(...genericDurationCandidates);
+        }
       }
       if (Number.isFinite(durationSeconds) && durationSeconds > MAX_TIMEOUT_SECONDS) {
         durationSeconds = null;
@@ -3135,6 +3222,33 @@
       return null;
     }
 
+    extractTimeoutDurationFromText(text) {
+      if (!text) {
+        return null;
+      }
+      const normalizedText = String(text)
+        .replace(/[,]+/g, '.')
+        .replace(/\s+/g, ' ')
+        .trim();
+      if (!normalizedText || !/(timeout|timed\s*out|tempo|temporaire|silence|mute|ban\s+temporaire|reduit\s+au\s+silence|réduit\s+au\s+silence)/i.test(normalizedText)) {
+        return null;
+      }
+      const contextPatterns = [
+        /(?:timeout|timed\s*out|tempo|temporaire|silence|mute|ban\s+temporaire|reduit\s+au\s+silence|réduit\s+au\s+silence).{0,80}?(?:pour|pendant|for|dur[eé]e\s*:?|duration\s*:?|de)?\s*(\d+(?:\.\d+)?)\s*(millisecondes?|milliseconds?|ms|secondes?|seconds?|secs?|sec|minutes?|mins?|min|mn|heures?|hours?|hrs?|hr|jours?|days?|semaines?|weeks?|[smhdw])/i,
+        /(?:pour|pendant|for|dur[eé]e\s*:?|duration\s*:?)\s*(\d+(?:\.\d+)?)\s*(millisecondes?|milliseconds?|ms|secondes?|seconds?|secs?|sec|minutes?|mins?|min|mn|heures?|hours?|hrs?|hr|jours?|days?|semaines?|weeks?|[smhdw]).{0,80}?(?:timeout|timed\s*out|tempo|temporaire|silence|mute|ban\s+temporaire)/i
+      ];
+      for (const pattern of contextPatterns) {
+        const match = normalizedText.match(pattern);
+        if (match) {
+          const parsed = this.convertDuration(match[1], match[2]);
+          if (Number.isFinite(parsed) && parsed > 0) {
+            return parsed;
+          }
+        }
+      }
+      return null;
+    }
+
     extractDurationFromText(text) {
       if (!text) {
         return null;
@@ -3157,14 +3271,10 @@
         }
       }
       const durationMatch = normalizedText.match(
-        /(\d+(?:\.\d+)?)\s*(seconde|secondes|seconds?|sec|secs|min|minutes?|mn|heure|heures?|hour|hours?|hr|hrs|day|days?|jour|jours?|d|week|weeks?|semaine|semaines?|w|millisecondes?|milliseconds?|ms)/i
+        /(\d+(?:\.\d+)?)\s*(millisecondes?|milliseconds?|ms|secondes?|seconds?|secs?|sec|minutes?|mins?|min|mn|heures?|hours?|hrs?|hr|jours?|days?|semaines?|weeks?|[smhdw])/i
       );
       if (durationMatch) {
         return this.convertDuration(durationMatch[1], durationMatch[2]);
-      }
-      const compactMatch = normalizedText.match(/(\d+(?:\.\d+)?)(s|sec|m|min|h|hr|d|w)/i);
-      if (compactMatch) {
-        return this.convertDuration(compactMatch[1], compactMatch[2]);
       }
       return null;
     }
@@ -3525,41 +3635,39 @@
       }
       const list = document.createElement('ul');
       list.className = 'tfr-mod-history-list';
-      const entries = actions.slice(-50).reverse();
+      const entries = actions.slice().reverse();
       entries.forEach((entry) => {
         const info = this.getEntryInfo(entry);
         const item = document.createElement('li');
-        item.className = 'tfr-mod-history-entry';
+        item.className = `tfr-mod-history-entry is-${entry.type || 'deletion'}`;
+
+        const header = document.createElement('div');
+        header.className = 'tfr-mod-history-entry__header';
+        item.appendChild(header);
+
+        const action = document.createElement('span');
+        action.className = 'tfr-mod-history-entry__action';
+        action.textContent = info.actionLabel;
+        header.appendChild(action);
+
         const time = document.createElement('time');
         time.className = 'tfr-mod-history-entry__time';
         const date = new Date(entry.timestamp);
         time.dateTime = date.toISOString();
         time.textContent = info.timeLabel || '';
-        item.appendChild(time);
+        header.appendChild(time);
 
-        const body = document.createElement('div');
-        body.className = 'tfr-mod-history-entry__body';
-        item.appendChild(body);
+        const user = document.createElement('div');
+        user.className = 'tfr-mod-history-entry__user';
+        const loginLabel = entry.login || '';
+        const displayLabel = entry.displayName || '';
+        user.textContent = displayLabel && displayLabel.toLowerCase() !== loginLabel.toLowerCase()
+          ? `${displayLabel} (@${loginLabel})`
+          : (displayLabel || (loginLabel ? `@${loginLabel}` : 'Utilisateur inconnu'));
+        item.appendChild(user);
 
         const offenseMessage = (entry.offenseMessage || '').trim();
         const lastMessage = (entry.lastMessage || '').trim();
-        const line = document.createElement('div');
-        line.className = 'tfr-mod-history-entry__line';
-
-        const name = document.createElement('span');
-        name.className = 'tfr-mod-history-entry__author';
-        const loginLabel = entry.login || '';
-        const displayLabel = entry.displayName || '';
-        let combinedLabel = loginLabel;
-        if (displayLabel && displayLabel.toLowerCase() !== loginLabel.toLowerCase()) {
-          combinedLabel = `${displayLabel} (${loginLabel})`;
-        }
-        if (combinedLabel) {
-          name.textContent = `${combinedLabel} :`;
-          line.appendChild(name);
-          body.appendChild(line);
-        }
-
         const message = document.createElement('div');
         message.className = 'tfr-mod-history-entry__message';
         const messageToDisplay = offenseMessage || lastMessage;
@@ -3569,37 +3677,34 @@
           message.textContent = t('moderation.history.lastMessage.none');
           message.classList.add('is-empty');
         }
-        body.appendChild(message);
+        item.appendChild(message);
 
         if (info.metaLabel) {
           const meta = document.createElement('div');
           meta.className = 'tfr-mod-history-entry__meta';
           meta.textContent = info.metaLabel;
-          body.appendChild(meta);
+          item.appendChild(meta);
         }
 
         list.appendChild(item);
       });
       content.appendChild(list);
     }
-
     getEntryInfo(entry) {
       const durationValue = Number(entry?.duration);
       const hasDuration = Number.isFinite(durationValue) && durationValue > 0;
-      const durationLabel = hasDuration ? formatDurationClock(durationValue) : '';
+      const durationLabel = hasDuration ? formatModerationDurationLabel(durationValue) : '';
       let actionLabel = '';
       if (entry.type === 'ban') {
         if (entry.isPermanent) {
           actionLabel = t('moderation.history.action.banPermanent');
         } else if (durationLabel) {
-          actionLabel = t('moderation.history.action.timeout', { duration: durationLabel });
+          actionLabel = durationLabel;
         } else {
           actionLabel = t('moderation.history.action.ban');
         }
       } else if (entry.type === 'timeout') {
-        actionLabel = durationLabel
-          ? t('moderation.history.action.timeout', { duration: durationLabel })
-          : t('moderation.history.action.timeoutShort');
+        actionLabel = durationLabel || t('moderation.history.action.timeoutShort');
       } else {
         actionLabel = t('moderation.history.action.deletion');
       }
@@ -3612,7 +3717,7 @@
       if (moderatorLabel) {
         metaParts.push(moderatorLabel);
       }
-      const metaLabel = metaParts.join(' - ');
+      const metaLabel = metaParts.filter((part) => part !== actionLabel).join(' - ');
       return { actionLabel, moderatorLabel, timeLabel, metaLabel };
     }
 
@@ -3671,7 +3776,7 @@
       }
       const rect = this.button.getBoundingClientRect();
       const panel = this.panel;
-      const maxHeight = Math.min(420, window.innerHeight - 24);
+      const maxHeight = Math.min(620, Math.floor(window.innerHeight * 0.82), window.innerHeight - 24);
       panel.style.maxHeight = `${Math.max(220, maxHeight)}px`;
       panel.style.visibility = 'hidden';
       const panelRect = panel.getBoundingClientRect();
@@ -3954,37 +4059,52 @@
         this.rendering = false;
         return;
       }
-      this.removeNativeRecentMessages(host);
       const history = this.tracker.getHistory(this.activeLogin);
       let container = host.querySelector('#tfr-viewer-history');
       const previousList = container?.querySelector('.tfr-viewer-history__list') || null;
+      const wasOpen = container instanceof HTMLDetailsElement ? container.open : true;
       let previousScrollTop = 0;
-      let previousScrollHeight = 0;
-      let previousClientHeight = 0;
       if (previousList) {
         previousScrollTop = previousList.scrollTop;
-        previousScrollHeight = previousList.scrollHeight;
-        previousClientHeight = previousList.clientHeight;
       }
-      if (!container) {
-        container = document.createElement('div');
-        container.id = 'tfr-viewer-history';
-        container.className = 'tfr-viewer-history';
-        host.appendChild(container);
+      if (!(container instanceof HTMLDetailsElement)) {
+        const nextContainer = document.createElement('details');
+        nextContainer.id = 'tfr-viewer-history';
+        nextContainer.className = 'tfr-viewer-history';
+        if (container?.parentElement) {
+          container.parentElement.replaceChild(nextContainer, container);
+        } else {
+          host.appendChild(nextContainer);
+        }
+        container = nextContainer;
       } else {
         container.innerHTML = '';
       }
-      const title = document.createElement('h4');
+      container.open = wasOpen;
+
+      const summary = document.createElement('summary');
+      summary.className = 'tfr-viewer-history__summary';
+      const title = document.createElement('span');
       title.className = 'tfr-viewer-history__title';
-      title.textContent = t('history.title');
-      container.appendChild(title);
+      title.textContent = `${t('history.title')} (${history.length})`;
+      const chevron = document.createElement('span');
+      chevron.className = 'tfr-viewer-history__chevron';
+      chevron.textContent = '⌄';
+      summary.appendChild(title);
+      summary.appendChild(chevron);
+      container.appendChild(summary);
+
       if (!history.length) {
+        const empty = document.createElement('p');
+        empty.className = 'tfr-viewer-history__empty';
+        empty.textContent = t('history.empty');
+        container.appendChild(empty);
         this.rendering = false;
         return;
       }
       const list = document.createElement('ul');
       list.className = 'tfr-viewer-history__list';
-      const entries = history.slice(-this.maxDisplayed);
+      const entries = history.slice(-this.maxDisplayed).reverse();
       entries.forEach((entry) => {
         const item = document.createElement('li');
         item.className = 'tfr-viewer-history__item';
@@ -4000,29 +4120,27 @@
             .toString()
             .padStart(2, '0')}`;
         }
+        const author = document.createElement('strong');
+        author.className = 'tfr-viewer-history__author';
+        author.textContent = entry.displayName || entry.login || '';
         const message = document.createElement('span');
         message.className = 'tfr-viewer-history__message';
         message.textContent = entry.text;
         item.appendChild(time);
+        item.appendChild(author);
         item.appendChild(message);
         list.appendChild(item);
       });
       container.appendChild(list);
-      const shouldStickToBottom =
-        !previousList ||
-        previousScrollHeight <= previousClientHeight + 1 ||
-        previousScrollTop + previousClientHeight >= previousScrollHeight - 4;
       requestAnimationFrame(() => {
-        if (shouldStickToBottom) {
-          list.scrollTop = list.scrollHeight;
-        } else if (previousScrollHeight) {
-          const delta = list.scrollHeight - previousScrollHeight;
-          list.scrollTop = Math.max(0, previousScrollTop + delta);
+        if (previousList && previousScrollTop > 0) {
+          list.scrollTop = previousScrollTop;
+        } else {
+          list.scrollTop = 0;
         }
         this.rendering = false;
       });
     }
-
     removeNativeRecentMessages(host) {
       if (!(host instanceof HTMLElement)) {
         return;
