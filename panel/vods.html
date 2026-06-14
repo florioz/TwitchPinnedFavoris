@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <title>Planning VODs - Twitch Favorites Sidebar</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" href="../styles/vods.css" />
+  </head>
+  <body>
+    <main class="tfr-vods-shell">
+      <header class="tfr-vods-header">
+        <div>
+          <p class="tfr-vods-kicker">Twitch Favorites Sidebar</p>
+          <h1>Planning VODs</h1>
+        </div>
+        <div class="tfr-vods-header__actions">
+          <button class="tfr-vods-button tfr-vods-button--ghost" id="refreshButton" type="button">Actualiser les VODs</button>
+        </div>
+      </header>
+
+      <section class="tfr-vods-toolbar" aria-label="Filtres du planning">
+        <label class="tfr-vods-field tfr-vods-field--search">
+          <span>Recherche</span>
+          <input id="searchInput" type="search" placeholder="Streamer ou titre de VOD" />
+        </label>
+        <label class="tfr-vods-field">
+          <span>Groupe</span>
+          <select id="groupSelect"></select>
+        </label>
+        <label class="tfr-vods-field">
+          <span>Trier par</span>
+          <div class="tfr-vods-sort-control">
+            <select id="sortSelect">
+              <option value="time">Heure de VOD</option>
+              <option value="name">Nom du streamer</option>
+              <option value="views">Nombre de vues</option>
+              <option value="duration">Duree des VODs</option>
+              <option value="videos">Nombre de VODs</option>
+            </select>
+            <button id="sortDirectionButton" class="tfr-vods-icon-button" type="button" aria-label="Inverser le tri">Desc</button>
+          </div>
+        </label>
+        <label class="tfr-vods-field">
+          <span>Jour</span>
+          <div class="tfr-vods-day-control">
+            <button id="previousDayButton" class="tfr-vods-icon-button" type="button" aria-label="Jour precedent">Prev</button>
+            <input id="dayInput" type="date" />
+            <button id="nextDayButton" class="tfr-vods-icon-button" type="button" aria-label="Jour suivant">Next</button>
+          </div>
+          <small id="dayHint"></small>
+        </label>
+      </section>
+
+      <section class="tfr-vods-summary" id="summary" aria-live="polite"></section>
+
+      <section class="tfr-vods-board" aria-label="Planning des VODs">
+        <div class="tfr-vods-timeline" id="timeline"></div>
+      </section>
+
+      <section class="tfr-vods-inspector" id="vodInspector" aria-label="Analyse de la VOD" hidden></section>
+
+      <section class="tfr-vods-empty" id="emptyState" hidden>
+        <h2>Aucune VOD à afficher</h2>
+        <p>Essaie un autre jour, un autre groupe, ou actualise les données Twitch.</p>
+      </section>
+    </main>
+
+    <script src="./vods.js"></script>
+  </body>
+</html>

@@ -1,4 +1,4 @@
-﻿(() => {
+(() => {
   const STORAGE_KEY = 'tfr_state';
   const DEFAULT_STATE = {
     favorites: {},
@@ -194,8 +194,10 @@
       'moderation.history.meta.by': 'par {moderator}',
       'moderation.history.meta.at': '\u00e0 {time}',
       'moderation.history.lastMessage.none': 'Aucun message enregistr\u00e9.',
-      'settings.chatHistory.toggle': 'Activer l\'historique du chat',
-      'settings.moderation.toggle': 'Activer l\'historique de mod\u00e9ration',
+      'settings.chatHistory.toggle': 'Messages sur les fiches viewers',
+      'settings.chatHistory.description': 'Affiche les derniers messages captur\u00e9s dans la carte d\u2019un viewer.',
+      'settings.moderation.toggle': 'Bouton historique mod\u00e9ration',
+      'settings.moderation.description': 'Ajoute un bouton dans le chat pour consulter les bans, timeouts et messages supprim\u00e9s.',
       'recent.badgeLabel': 'D\u00e9but de live',
       'recent.badgeShort': 'Live'
     },
@@ -306,8 +308,10 @@
       'moderation.history.meta.by': 'by {moderator}',
       'moderation.history.meta.at': 'at {time}',
       'moderation.history.lastMessage.none': 'No message captured.',
-      'settings.chatHistory.toggle': 'Enable chat history',
-      'settings.moderation.toggle': 'Enable moderation history',
+      'settings.chatHistory.toggle': 'Viewer-card chat messages',
+      'settings.chatHistory.description': 'Shows captured recent messages inside viewer cards.',
+      'settings.moderation.toggle': 'Moderation history button',
+      'settings.moderation.description': 'Adds a chat button for bans, timeouts, and deleted messages.',
       'recent.badgeLabel': 'Recently live',
       'recent.badgeShort': 'Live'
     }
@@ -476,6 +480,26 @@
     return `${minutes}:${String(remainingSeconds).padStart(2, '0')}`;
   };
 
+  const formatModerationDurationLabel = (seconds) => {
+    const value = Number(seconds);
+    if (!Number.isFinite(value) || value <= 0) {
+      return '';
+    }
+    const totalSeconds = Math.round(value);
+    if (totalSeconds < 60) {
+      return `${totalSeconds}s`;
+    }
+    const minutes = Math.round(totalSeconds / 60);
+    if (minutes < 60) {
+      return `${minutes} min`;
+    }
+    const hours = Math.round(minutes / 60);
+    if (hours < 24) {
+      return `${hours} h`;
+    }
+    const days = Math.round(hours / 24);
+    return `${days} j`;
+  };
   const formatModerationTimestamp = (timestamp) => {
     if (!Number.isFinite(timestamp)) {
       return '';
@@ -563,9 +587,51 @@
     }
     const currentCategory = normalizeCategoryName(liveEntry.game);
     if (!currentCategory) {
-      return false;
+      return Boolean(liveEntry.fetchFailed || liveEntry.inferredFromPage);
     }
     return requiredSet.has(currentCategory);
+  };
+
+  const getLiveDataEntry = (liveData, favOrLogin) => {
+    const login = typeof favOrLogin === 'string' ? favOrLogin : favOrLogin?.login;
+    const normalized = String(login || '').toLowerCase();
+    return normalized ? liveData?.[normalized] || liveData?.[login] || null : null;
+  };
+
+  const getSidebarVisibilityInfo = (favoriteEntry, liveEntry) => {
+    if (!favoriteEntry) {
+      return { visible: false, reason: 'Favori introuvable.' };
+    }
+    if (!liveEntry) {
+      return { visible: false, reason: 'Pas de donnée live reçue pour ce streamer.' };
+    }
+    if (!liveEntry.isLive) {
+      return { visible: false, reason: 'Le streamer est considéré hors-ligne par les données actuelles.' };
+    }
+    const filter = favoriteEntry.categoryFilter;
+    if (!filter || !filter.enabled) {
+      return { visible: true, reason: 'Visible dans la sidebar : aucun filtre Twitch actif.' };
+    }
+    const categories = Array.isArray(filter.categories)
+      ? filter.categories
+      : typeof filter.category === 'string'
+      ? [filter.category]
+      : [];
+    if (!categories.length) {
+      return { visible: true, reason: 'Visible dans la sidebar : filtre actif mais vide.' };
+    }
+    const currentCategory = normalizeCategoryName(liveEntry.game);
+    if (!currentCategory) {
+      if (liveEntry.fetchFailed || liveEntry.inferredFromPage) {
+        return { visible: true, reason: 'Visible dans la sidebar : catégorie Twitch inconnue, mais live détecté.' };
+      }
+      return { visible: false, reason: 'Caché : catégorie Twitch actuelle inconnue.' };
+    }
+    const requiredSet = new Set(categories.map((category) => normalizeCategoryName(category)).filter(Boolean));
+    if (requiredSet.has(currentCategory)) {
+      return { visible: true, reason: `Visible dans la sidebar : catégorie Twitch "${liveEntry.game}" acceptée.` };
+    }
+    return { visible: false, reason: `Caché : catégorie Twitch "${liveEntry.game}" hors filtre.` };
   };
 
   const getChannelFromLocation = (locationLike = window.location) => {
@@ -575,11 +641,129 @@
     return RESERVED_PATHS.has(candidate) ? null : candidate;
   };
 
-  const fetchStreamerLiveData = async (login) => {
+  const getFirstText = (selectors) => {
+    for (const selector of selectors) {
+      const node = document.querySelector(selector);
+      const text = node?.textContent?.trim();
+      if (text) {
+        return text;
+      }
+    }
+    return '';
+  };
+
+  const parseViewerText = (value) => {
+    const normalized = String(value || '').trim().toLowerCase();
+    if (!normalized) {
+      return 0;
+    }
+    const match = normalized.match(/(\d+(?:[\s.,]\d+)?)(\s*[km])?/i);
+    if (!match) {
+      return 0;
+    }
+    const numeric = Number(match[1].replace(/\s/g, '').replace(',', '.'));
+    if (!Number.isFinite(numeric)) {
+      return 0;
+    }
+    const suffix = (match[2] || '').trim().toLowerCase();
+    if (suffix === 'k') {
+      return Math.round(numeric * 1000);
+    }
+    if (suffix === 'm') {
+      return Math.round(numeric * 1000000);
+    }
+    return Math.round(numeric);
+  };
+
+  const inferCurrentPageLiveData = (login, fallback = {}) => {
+    const normalized = String(login || '').toLowerCase();
+    if (!normalized || getChannelFromLocation(window.location) !== normalized) {
+      return null;
+    }
+    const hasOfflineMarker = Boolean(
+      document.querySelector(
+        '[data-a-target="offline-channel-main-content"], [data-test-selector="offline-channel-main-content"], [data-a-target="channel-offline-status"]'
+      )
+    );
+    if (hasOfflineMarker) {
+      return null;
+    }
+    const hasLiveMarker = Boolean(
+      document.querySelector(
+        '[data-a-target="animated-channel-viewers-count"], [data-a-target="channel-viewers-count"], [data-a-target="stream-title"], [data-a-target="video-player"], .video-player__container'
+      )
+    );
+    const pageText = document.body?.innerText || '';
+    const hasLiveText = /\bLIVE\b|Bienvenue sur le chat de|spectateurs?/i.test(pageText);
+    if (!hasLiveMarker && !hasLiveText) {
+      return null;
+    }
+    const title = getFirstText([
+      '[data-a-target="stream-title"]',
+      '[data-test-selector="stream-title"]',
+      'h1[data-a-target]'
+    ]);
+    const game = getFirstText([
+      '[data-a-target="stream-game-link"]',
+      '[data-test-selector="stream-game-link"]',
+      'a[href^="/directory/category/"]'
+    ]);
+    const viewerText = getFirstText([
+      '[data-a-target="animated-channel-viewers-count"]',
+      '[data-a-target="channel-viewers-count"]',
+      '[data-test-selector="animated-channel-viewers-count"]'
+    ]);
+    return {
+      login: normalized,
+      displayName: fallback.displayName || fallback.display_name || normalized,
+      avatarUrl: fallback.avatarUrl || fallback.profileImageURL || DEFAULT_AVATAR,
+      isLive: true,
+      viewers: parseViewerText(viewerText) || Number(fallback.viewers) || 0,
+      title: title || fallback.title || '',
+      game: game || fallback.game || '',
+      startedAt: fallback.startedAt || new Date().toISOString(),
+      fetchFailed: Boolean(fallback.fetchFailed),
+      inferredFromPage: true
+    };
+  };
+
+  const createOfflineLiveData = (login, fallback = {}) => ({
+    login: String(fallback.login || login || '').toLowerCase(),
+    displayName: fallback.displayName || fallback.display_name || login,
+    avatarUrl: fallback.avatarUrl || fallback.profileImageURL || DEFAULT_AVATAR,
+    isLive: false,
+    viewers: 0,
+    title: '',
+    game: '',
+    startedAt: null
+  });
+
+  const createLiveDataFallback = (login, fallback = {}) => {
+    const offline = createOfflineLiveData(login, fallback);
+    if (fallback && fallback.isLive) {
+      return {
+        ...offline,
+        ...fallback,
+        login: String(fallback.login || login || '').toLowerCase(),
+        displayName: fallback.displayName || offline.displayName,
+        avatarUrl: fallback.avatarUrl || offline.avatarUrl,
+        fetchFailed: true
+      };
+    }
+    return { ...offline, fetchFailed: true };
+  };
+
+  const fetchStreamerLiveData = async (login, fallback = {}) => {
     if (!login) return null;
-    const backgroundResponse = await sendExtensionMessage({ type: 'TFR_FETCH_LIVE_DATA', login });
+    const fallbackLiveData = createLiveDataFallback(login, fallback);
+    const backgroundResponse = await sendExtensionMessage({ type: 'TFR_FETCH_LIVE_DATA', login, fallback: fallbackLiveData });
     if (backgroundResponse?.ok && backgroundResponse.liveData) {
-      return backgroundResponse.liveData;
+      return {
+        ...fallbackLiveData,
+        ...backgroundResponse.liveData,
+        login: String(backgroundResponse.liveData.login || fallbackLiveData.login || login).toLowerCase(),
+        fetchFailed: Boolean(backgroundResponse.liveData.fetchFailed)
+      };
     }
     try {
       const response = await fetch(TWITCH_GRAPHQL_ENDPOINT, {
@@ -597,40 +781,23 @@
       const data = Array.isArray(payload) ? payload[0]?.data : payload?.data;
       const user = data?.user;
       if (!user) {
-        return {
-          login,
-          displayName: login,
-          avatarUrl: DEFAULT_AVATAR,
-          isLive: false,
-          viewers: 0,
-          title: '',
-          game: '',
-          startedAt: null
-        };
+        return fallbackLiveData;
       }
       const stream = user.stream;
       return {
-        login: user.login || login,
+        login: String(user.login || login).toLowerCase(),
         displayName: user.displayName || user.login || login,
-        avatarUrl: user.profileImageURL || DEFAULT_AVATAR,
+        avatarUrl: user.profileImageURL || fallbackLiveData.avatarUrl || DEFAULT_AVATAR,
         isLive: Boolean(stream),
         viewers: stream?.viewersCount || 0,
         title: stream?.title || '',
         game: stream?.game?.name || '',
-        startedAt: stream?.createdAt || null
+        startedAt: stream?.createdAt || null,
+        fetchFailed: false
       };
     } catch (error) {
-      console.error('[TFR] Failed to fetch live data', login, error);
-      return {
-        login,
-        displayName: login,
-        avatarUrl: DEFAULT_AVATAR,
-        isLive: false,
-        viewers: 0,
-        title: '',
-        game: '',
-        startedAt: null
-      };
+      console.debug('[TFR] Live data temporarily unavailable', login, error);
+      return fallbackLiveData;
     }
   };
 
@@ -823,10 +990,16 @@
           parentId: null
         });
       }
+      const normalizedFavorites = {};
       Object.entries(this.state.favorites).forEach(([login, fav]) => {
         if (!fav) {
           return;
         }
+        const normalizedLogin = String(fav.login || login || '').toLowerCase();
+        if (!normalizedLogin) {
+          return;
+        }
+        fav.login = normalizedLogin;
         if (Array.isArray(fav.categories)) {
           fav.categories = fav.categories.map((id) => (typeof id === 'string' ? id : null)).filter(Boolean);
           if (fav.categories.length > 1) {
@@ -861,7 +1034,9 @@
         if (typeof fav.recentHighlightEnabled !== 'boolean') {
           fav.recentHighlightEnabled = true;
         }
+        normalizedFavorites[normalizedLogin] = fav;
       });
+      this.state.favorites = normalizedFavorites;
     }
 
     startPolling() {
@@ -900,7 +1075,6 @@
       } catch (error) {
         const message = String(error?.message || '').toLowerCase();
         if (message.includes('extension context invalidated') || message.includes('context invalidated')) {
-          console.warn('[TFR] persist state skipped: extension context invalidated');
           return;
         }
         console.error('[TFR] Failed to persist state', error);
@@ -1082,7 +1256,7 @@
     async addFavorite(login) {
       const normalized = login?.toLowerCase();
       if (!normalized || this.state.favorites[normalized]) return;
-      const live = await fetchStreamerLiveData(normalized);
+      const live = await fetchStreamerLiveData(normalized, this.store.getState().favorites[normalized]);
     const favoriteEntry = {
       login: normalized,
       displayName: live?.displayName || normalized,
@@ -1110,6 +1284,23 @@
       });
       delete this.liveData[normalized];
       this.emitter.emit({ kind: CHANGE_KIND.LIVE, liveData: this.getLiveData() });
+    }
+
+    applyCurrentPageLiveData(login) {
+      const normalized = String(login || '').toLowerCase();
+      if (!normalized || !this.state.favorites[normalized]) {
+        return false;
+      }
+      const pageLive = inferCurrentPageLiveData(normalized, {
+        ...this.state.favorites[normalized],
+        ...(getLiveDataEntry(this.liveData, normalized) || {})
+      });
+      if (!pageLive) {
+        return false;
+      }
+      this.liveData[normalized] = pageLive;
+      this.emitter.emit({ kind: CHANGE_KIND.LIVE, liveData: this.getLiveData() });
+      return true;
     }
 
     async setFavoriteCategory(login, categoryId) {
@@ -1522,10 +1713,32 @@
           return;
         }
         const now = Date.now();
-        const updates = await Promise.all(favorites.map((login) => fetchStreamerLiveData(login)));
+        const updates = await Promise.all(favorites.map((login) => {
+          const previousLive = getLiveDataEntry(this.liveData, login);
+          return fetchStreamerLiveData(login, {
+            ...this.state.favorites[login],
+            ...(previousLive || {})
+          });
+        }));
         const nextLive = {};
         const favoriteUpdates = {};
-        updates.forEach((entry) => {
+        updates.forEach((entry, index) => {
+          const requestedLogin = favorites[index];
+          const pageLive = inferCurrentPageLiveData(requestedLogin, {
+            ...this.state.favorites[requestedLogin],
+            ...(this.liveData[requestedLogin] || {}),
+            ...(entry || {})
+          });
+          if (pageLive && (!entry?.isLive || entry.fetchFailed || !entry.game)) {
+            entry = {
+              ...pageLive,
+              ...(entry || {}),
+              viewers: Number(entry?.viewers) || pageLive.viewers,
+              title: entry?.title || pageLive.title,
+              game: entry?.game || pageLive.game,
+              inferredFromPage: true
+            };
+          }
           if (!entry || !entry.login) return;
           const normalized = entry.login.toLowerCase();
           nextLive[normalized] = entry;
@@ -1736,7 +1949,7 @@
     }
 
     captureExistingMessages(container) {
-      const nodes = container.querySelectorAll('[data-a-target="chat-line-message"], .chat-line__message');
+      const nodes = container.querySelectorAll(CHAT_MESSAGE_SELECTOR);
       nodes.forEach((node) => this.captureMessage(node));
     }
 
@@ -1752,10 +1965,10 @@
     }
 
     scanNode(node) {
-      if (node.matches('[data-a-target="chat-line-message"], .chat-line__message')) {
+      if (node.matches(CHAT_MESSAGE_SELECTOR)) {
         this.captureMessage(node);
       }
-      const descendants = node.querySelectorAll?.('[data-a-target="chat-line-message"], .chat-line__message');
+      const descendants = node.querySelectorAll?.(CHAT_MESSAGE_SELECTOR);
       if (descendants && descendants.length) {
         descendants.forEach((child) => this.captureMessage(child));
       }
@@ -1766,18 +1979,9 @@
         return;
       }
       const login = this.extractLogin(messageElement);
-      if (!login) {
-        messageElement.dataset.tfrChatTracked = 'true';
-        return;
-      }
       const text = this.extractMessageText(messageElement);
-      if (!text) {
-        messageElement.dataset.tfrChatTracked = 'true';
-        return;
-      }
       const normalized = this.normalizeLogin(login);
-      if (!normalized) {
-        messageElement.dataset.tfrChatTracked = 'true';
+      if (!normalized || !text) {
         return;
       }
       const displayName = this.extractDisplayName(messageElement) || login;
@@ -1789,6 +1993,13 @@
         timestamp
       };
       const existing = this.history.get(normalized) || [];
+      const duplicate = existing.some((candidate) => (
+        Math.abs(Number(candidate.timestamp || 0) - timestamp) < 1000 && candidate.text === text
+      ));
+      if (duplicate) {
+        messageElement.dataset.tfrChatTracked = 'true';
+        return;
+      }
       existing.push(entry);
       if (existing.length > 1) {
         existing.sort((a, b) => a.timestamp - b.timestamp);
@@ -1814,21 +2025,48 @@
         dataset.aUser,
         messageElement.getAttribute('data-user'),
         messageElement.getAttribute('data-username'),
-        messageElement.getAttribute('data-sender')
+        messageElement.getAttribute('data-sender'),
+        messageElement.getAttribute('data-login')
       ];
       for (const value of candidates) {
-        if (value && value.trim()) {
-          return value.trim();
+        const login = this.cleanLoginCandidate(value);
+        if (login) {
+          return login;
         }
       }
       const usernameNode =
         messageElement.querySelector('[data-a-target="chat-message-username"]') ||
         messageElement.querySelector('[data-test-selector="chat-message-username"]') ||
-        messageElement.querySelector('[data-a-target="chat-author-link"]');
-      if (usernameNode && usernameNode.textContent) {
-        return usernameNode.textContent.trim().replace(/^@/, '');
+        messageElement.querySelector('[data-a-target="chat-author-link"]') ||
+        messageElement.querySelector('[data-a-user]') ||
+        messageElement.querySelector('a[href^="/"][data-a-target*="chat"]') ||
+        messageElement.querySelector('button[data-a-target*="chat"] [class*="username"]') ||
+        messageElement.querySelector('.chat-author__display-name') ||
+        messageElement.querySelector('.chat-line__username');
+      if (usernameNode) {
+        const datasetLogin = usernameNode.dataset?.aUser || usernameNode.dataset?.userLogin || usernameNode.dataset?.login;
+        const loginFromDataset = this.cleanLoginCandidate(datasetLogin);
+        if (loginFromDataset) {
+          return loginFromDataset;
+        }
+        const href = usernameNode.getAttribute?.('href') || usernameNode.closest?.('a[href^="/"]')?.getAttribute('href') || '';
+        const hrefMatch = href.match(/^\/([^/?#]+)/);
+        if (hrefMatch?.[1]) {
+          return this.cleanLoginCandidate(hrefMatch[1]);
+        }
+        return this.cleanLoginCandidate(usernameNode.textContent);
       }
       return '';
+    }
+
+    cleanLoginCandidate(value) {
+      if (!value) return '';
+      return String(value)
+        .trim()
+        .replace(/^@/, '')
+        .replace(/[:：].*$/, '')
+        .replace(/\s+/g, '')
+        .toLowerCase();
     }
 
     extractDisplayName(messageElement) {
@@ -1839,18 +2077,19 @@
       const usernameNode =
         messageElement.querySelector('[data-a-target="chat-message-username"]') ||
         messageElement.querySelector('[data-test-selector="chat-message-username"]') ||
-        messageElement.querySelector('[data-a-target="chat-author-link"]');
-      return usernameNode?.textContent?.trim().replace(/^@/, '') || '';
+        messageElement.querySelector('[data-a-target="chat-author-link"]') ||
+        messageElement.querySelector('.chat-author__display-name') ||
+        messageElement.querySelector('.chat-line__username');
+      return usernameNode?.textContent?.trim().replace(/^@/, '').replace(/[:：]\s*$/, '') || '';
     }
 
     extractMessageText(messageElement) {
       const textContainer =
         messageElement.querySelector('[data-a-target="chat-message-text"]') ||
         messageElement.querySelector('[data-test-selector="chat-line-message-body"]') ||
-        messageElement.querySelector('.text-fragment')?.parentElement;
-      if (!textContainer) {
-        return '';
-      }
+        messageElement.querySelector('[data-a-target="chat-line-message-body"]') ||
+        messageElement.querySelector('.text-fragment')?.parentElement ||
+        messageElement;
       const tokens = [];
       const pushToken = (value) => {
         if (!value) return;
@@ -1859,6 +2098,21 @@
           tokens.push(normalized);
         }
       };
+      const skipSelectors = [
+        '[data-a-target="chat-message-timestamp"]',
+        '[data-test-selector="chat-message-timestamp"]',
+        '[data-a-target="chat-message-username"]',
+        '[data-test-selector="chat-message-username"]',
+        '[data-a-target="chat-author-link"]',
+        '[data-a-target="chat-badge"]',
+        '[data-test-selector="chat-badge"]',
+        '.chat-line__timestamp',
+        '.chat-author__display-name',
+        '.chat-line__username',
+        '.chat-badge',
+        '.reply-line',
+        '[data-a-target="chat-line-reply"]'
+      ];
       const collect = (node) => {
         if (!node) return;
         if (node.nodeType === Node.TEXT_NODE) {
@@ -1869,6 +2123,9 @@
           return;
         }
         const element = node;
+        if (skipSelectors.some((selector) => element.matches?.(selector))) {
+          return;
+        }
         const dataset = element.dataset || {};
         const plain =
           element.getAttribute('data-plain-text') ||
@@ -1891,20 +2148,27 @@
           pushToken(plain || alt || aria || title || element.textContent);
           return;
         }
-        if (plain || aria || title || alt) {
-          pushToken(plain || aria || title || alt);
+        if (plain && !element.childNodes?.length) {
+          pushToken(plain);
+          return;
         }
         if (element.childNodes && element.childNodes.length) {
           element.childNodes.forEach((child) => collect(child));
+        } else if (aria || title || alt) {
+          pushToken(aria || title || alt);
         }
       };
       collect(textContainer);
-      if (!tokens.length) {
-        return textContainer.textContent?.replace(/\s+/g, ' ').trim() || '';
+      const result = tokens.join(' ').replace(/\s+/g, ' ').trim();
+      if (result) {
+        return result;
       }
-      return tokens.join(' ').replace(/\s+/g, ' ').trim();
+      const clone = textContainer.cloneNode(true);
+      skipSelectors.forEach((selector) => {
+        clone.querySelectorAll?.(selector).forEach((node) => node.remove());
+      });
+      return clone.textContent?.replace(/\s+/g, ' ').trim() || '';
     }
-
     extractTimestamp(messageElement) {
       const dataset = messageElement.dataset || {};
       const numericCandidates = [
@@ -1987,13 +2251,13 @@
   }
 
   const CHAT_MESSAGE_SELECTOR =
-    '[data-a-target="chat-line-message"], [data-test-selector="chat-line-message"], [data-a-target="chat-line-user-notice"], .chat-line__message, .chat-line__status';
+    '[data-a-target="chat-line-message"], [data-test-selector="chat-line-message"], [data-a-target="chat-line-user-notice"], [data-test-selector="chat-line-user-notice"], [data-a-target="chat-line-message-body"], .chat-line__message, .chat-line__status, .seventv-message';
 
   class ModerationActionTracker {
     constructor(historyTracker) {
       this.historyTracker = historyTracker;
       this.actions = [];
-      this.maxActions = 200;
+      this.maxActions = 1000;
       this.observer = null;
       this.container = null;
       this.retryTimer = null;
@@ -2458,7 +2722,18 @@
         attributeHints.push(node.getAttribute?.('data-a-target'));
         attributeHints.push(node.getAttribute?.('data-test-selector'));
         attributeHints.push(node.getAttribute?.('aria-label'));
+        attributeHints.push(node.getAttribute?.('title'));
         attributeHints.push(node.className);
+      });
+      element.querySelectorAll('*').forEach((node) => {
+        const ariaLabel = node.getAttribute?.('aria-label');
+        const title = node.getAttribute?.('title');
+        const textValue = node.textContent;
+        if (ariaLabel) datasetTextHints.push(ariaLabel);
+        if (title) datasetTextHints.push(title);
+        if (textValue && /timeout|timed\s*out|tempo|temporaire|silence|mute|ban\s+temporaire|pour|pendant|for/i.test(textValue)) {
+          datasetTextHints.push(textValue);
+        }
       });
       analysisText = this.normalizeText([analysisText, ...datasetTextHints].filter(Boolean).join(' ')) || analysisText;
       const attributeHintSource = attributeHints
@@ -2546,25 +2821,30 @@
         return null;
       }
 
-      const textDurationCandidates = [
-        this.extractDurationFromText(analysisText),
-        this.extractDurationFromText(rawText),
-        this.extractDurationFromText(elementInnerText),
-        this.extractDurationFromText(element.getAttribute?.('aria-label')),
-        this.extractDurationFromText(element.getAttribute?.('data-duration-label')),
-        ...datasetTextHints.map((value) => this.extractDurationFromText(value))
-      ].filter((value) => Number.isFinite(value) && value > 0);
-      if (textDurationCandidates.length) {
-        const maxTextDuration = Math.max(...textDurationCandidates);
+      const durationSources = [
+        analysisText,
+        elementInnerText,
+        element.getAttribute?.('aria-label'),
+        element.getAttribute?.('title'),
+        element.getAttribute?.('data-duration-label'),
+        ...datasetTextHints
+      ].filter((value) => typeof value === 'string' && value.trim());
+      const contextualDurationCandidates = durationSources
+        .map((value) => this.extractTimeoutDurationFromText(value))
+        .filter((value) => Number.isFinite(value) && value > 0);
+      if (contextualDurationCandidates.length) {
+        const maxTextDuration = Math.max(...contextualDurationCandidates);
         if (!Number.isFinite(durationSeconds) || maxTextDuration > durationSeconds * 1.5 || (maxTextDuration >= 60 && durationSeconds < 60)) {
           durationSeconds = maxTextDuration;
         }
       }
-      if (!Number.isFinite(durationSeconds)) {
-        durationSeconds = this.extractDurationFromText(analysisText);
-      }
-      if (!Number.isFinite(durationSeconds)) {
-        durationSeconds = this.extractDurationFromText(rawText);
+      if (!Number.isFinite(durationSeconds) && type === 'timeout') {
+        const genericDurationCandidates = durationSources
+          .map((value) => this.extractDurationFromText(value))
+          .filter((value) => Number.isFinite(value) && value > 0);
+        if (genericDurationCandidates.length) {
+          durationSeconds = Math.max(...genericDurationCandidates);
+        }
       }
       if (Number.isFinite(durationSeconds) && durationSeconds > MAX_TIMEOUT_SECONDS) {
         durationSeconds = null;
@@ -2942,6 +3222,33 @@
       return null;
     }
 
+    extractTimeoutDurationFromText(text) {
+      if (!text) {
+        return null;
+      }
+      const normalizedText = String(text)
+        .replace(/[,]+/g, '.')
+        .replace(/\s+/g, ' ')
+        .trim();
+      if (!normalizedText || !/(timeout|timed\s*out|tempo|temporaire|silence|mute|ban\s+temporaire|reduit\s+au\s+silence|réduit\s+au\s+silence)/i.test(normalizedText)) {
+        return null;
+      }
+      const contextPatterns = [
+        /(?:timeout|timed\s*out|tempo|temporaire|silence|mute|ban\s+temporaire|reduit\s+au\s+silence|réduit\s+au\s+silence).{0,80}?(?:pour|pendant|for|dur[eé]e\s*:?|duration\s*:?|de)?\s*(\d+(?:\.\d+)?)\s*(millisecondes?|milliseconds?|ms|secondes?|seconds?|secs?|sec|minutes?|mins?|min|mn|heures?|hours?|hrs?|hr|jours?|days?|semaines?|weeks?|[smhdw])/i,
+        /(?:pour|pendant|for|dur[eé]e\s*:?|duration\s*:?)\s*(\d+(?:\.\d+)?)\s*(millisecondes?|milliseconds?|ms|secondes?|seconds?|secs?|sec|minutes?|mins?|min|mn|heures?|hours?|hrs?|hr|jours?|days?|semaines?|weeks?|[smhdw]).{0,80}?(?:timeout|timed\s*out|tempo|temporaire|silence|mute|ban\s+temporaire)/i
+      ];
+      for (const pattern of contextPatterns) {
+        const match = normalizedText.match(pattern);
+        if (match) {
+          const parsed = this.convertDuration(match[1], match[2]);
+          if (Number.isFinite(parsed) && parsed > 0) {
+            return parsed;
+          }
+        }
+      }
+      return null;
+    }
+
     extractDurationFromText(text) {
       if (!text) {
         return null;
@@ -2964,14 +3271,10 @@
         }
       }
       const durationMatch = normalizedText.match(
-        /(\d+(?:\.\d+)?)\s*(seconde|secondes|seconds?|sec|secs|min|minutes?|mn|heure|heures?|hour|hours?|hr|hrs|day|days?|jour|jours?|d|week|weeks?|semaine|semaines?|w|millisecondes?|milliseconds?|ms)/i
+        /(\d+(?:\.\d+)?)\s*(millisecondes?|milliseconds?|ms|secondes?|seconds?|secs?|sec|minutes?|mins?|min|mn|heures?|hours?|hrs?|hr|jours?|days?|semaines?|weeks?|[smhdw])/i
       );
       if (durationMatch) {
         return this.convertDuration(durationMatch[1], durationMatch[2]);
-      }
-      const compactMatch = normalizedText.match(/(\d+(?:\.\d+)?)(s|sec|m|min|h|hr|d|w)/i);
-      if (compactMatch) {
-        return this.convertDuration(compactMatch[1], compactMatch[2]);
       }
       return null;
     }
@@ -3332,41 +3635,39 @@
       }
       const list = document.createElement('ul');
       list.className = 'tfr-mod-history-list';
-      const entries = actions.slice(-50).reverse();
+      const entries = actions.slice().reverse();
       entries.forEach((entry) => {
         const info = this.getEntryInfo(entry);
         const item = document.createElement('li');
-        item.className = 'tfr-mod-history-entry';
+        item.className = `tfr-mod-history-entry is-${entry.type || 'deletion'}`;
+
+        const header = document.createElement('div');
+        header.className = 'tfr-mod-history-entry__header';
+        item.appendChild(header);
+
+        const action = document.createElement('span');
+        action.className = 'tfr-mod-history-entry__action';
+        action.textContent = info.actionLabel;
+        header.appendChild(action);
+
         const time = document.createElement('time');
         time.className = 'tfr-mod-history-entry__time';
         const date = new Date(entry.timestamp);
         time.dateTime = date.toISOString();
         time.textContent = info.timeLabel || '';
-        item.appendChild(time);
+        header.appendChild(time);
 
-        const body = document.createElement('div');
-        body.className = 'tfr-mod-history-entry__body';
-        item.appendChild(body);
+        const user = document.createElement('div');
+        user.className = 'tfr-mod-history-entry__user';
+        const loginLabel = entry.login || '';
+        const displayLabel = entry.displayName || '';
+        user.textContent = displayLabel && displayLabel.toLowerCase() !== loginLabel.toLowerCase()
+          ? `${displayLabel} (@${loginLabel})`
+          : (displayLabel || (loginLabel ? `@${loginLabel}` : 'Utilisateur inconnu'));
+        item.appendChild(user);
 
         const offenseMessage = (entry.offenseMessage || '').trim();
         const lastMessage = (entry.lastMessage || '').trim();
-        const line = document.createElement('div');
-        line.className = 'tfr-mod-history-entry__line';
-
-        const name = document.createElement('span');
-        name.className = 'tfr-mod-history-entry__author';
-        const loginLabel = entry.login || '';
-        const displayLabel = entry.displayName || '';
-        let combinedLabel = loginLabel;
-        if (displayLabel && displayLabel.toLowerCase() !== loginLabel.toLowerCase()) {
-          combinedLabel = `${displayLabel} (${loginLabel})`;
-        }
-        if (combinedLabel) {
-          name.textContent = `${combinedLabel} :`;
-          line.appendChild(name);
-          body.appendChild(line);
-        }
-
         const message = document.createElement('div');
         message.className = 'tfr-mod-history-entry__message';
         const messageToDisplay = offenseMessage || lastMessage;
@@ -3376,37 +3677,34 @@
           message.textContent = t('moderation.history.lastMessage.none');
           message.classList.add('is-empty');
         }
-        body.appendChild(message);
+        item.appendChild(message);
 
         if (info.metaLabel) {
           const meta = document.createElement('div');
           meta.className = 'tfr-mod-history-entry__meta';
           meta.textContent = info.metaLabel;
-          body.appendChild(meta);
+          item.appendChild(meta);
         }
 
         list.appendChild(item);
       });
       content.appendChild(list);
     }
-
     getEntryInfo(entry) {
       const durationValue = Number(entry?.duration);
       const hasDuration = Number.isFinite(durationValue) && durationValue > 0;
-      const durationLabel = hasDuration ? formatDurationClock(durationValue) : '';
+      const durationLabel = hasDuration ? formatModerationDurationLabel(durationValue) : '';
       let actionLabel = '';
       if (entry.type === 'ban') {
         if (entry.isPermanent) {
           actionLabel = t('moderation.history.action.banPermanent');
         } else if (durationLabel) {
-          actionLabel = t('moderation.history.action.timeout', { duration: durationLabel });
+          actionLabel = durationLabel;
         } else {
           actionLabel = t('moderation.history.action.ban');
         }
       } else if (entry.type === 'timeout') {
-        actionLabel = durationLabel
-          ? t('moderation.history.action.timeout', { duration: durationLabel })
-          : t('moderation.history.action.timeoutShort');
+        actionLabel = durationLabel || t('moderation.history.action.timeoutShort');
       } else {
         actionLabel = t('moderation.history.action.deletion');
       }
@@ -3419,7 +3717,7 @@
       if (moderatorLabel) {
         metaParts.push(moderatorLabel);
       }
-      const metaLabel = metaParts.join(' - ');
+      const metaLabel = metaParts.filter((part) => part !== actionLabel).join(' - ');
       return { actionLabel, moderatorLabel, timeLabel, metaLabel };
     }
 
@@ -3478,7 +3776,7 @@
       }
       const rect = this.button.getBoundingClientRect();
       const panel = this.panel;
-      const maxHeight = Math.min(420, window.innerHeight - 24);
+      const maxHeight = Math.min(620, Math.floor(window.innerHeight * 0.82), window.innerHeight - 24);
       panel.style.maxHeight = `${Math.max(220, maxHeight)}px`;
       panel.style.visibility = 'hidden';
       const panelRect = panel.getBoundingClientRect();
@@ -3761,37 +4059,52 @@
         this.rendering = false;
         return;
       }
-      this.removeNativeRecentMessages(host);
       const history = this.tracker.getHistory(this.activeLogin);
       let container = host.querySelector('#tfr-viewer-history');
       const previousList = container?.querySelector('.tfr-viewer-history__list') || null;
+      const wasOpen = container instanceof HTMLDetailsElement ? container.open : true;
       let previousScrollTop = 0;
-      let previousScrollHeight = 0;
-      let previousClientHeight = 0;
       if (previousList) {
         previousScrollTop = previousList.scrollTop;
-        previousScrollHeight = previousList.scrollHeight;
-        previousClientHeight = previousList.clientHeight;
       }
-      if (!container) {
-        container = document.createElement('div');
-        container.id = 'tfr-viewer-history';
-        container.className = 'tfr-viewer-history';
-        host.appendChild(container);
+      if (!(container instanceof HTMLDetailsElement)) {
+        const nextContainer = document.createElement('details');
+        nextContainer.id = 'tfr-viewer-history';
+        nextContainer.className = 'tfr-viewer-history';
+        if (container?.parentElement) {
+          container.parentElement.replaceChild(nextContainer, container);
+        } else {
+          host.appendChild(nextContainer);
+        }
+        container = nextContainer;
       } else {
         container.innerHTML = '';
       }
-      const title = document.createElement('h4');
+      container.open = wasOpen;
+
+      const summary = document.createElement('summary');
+      summary.className = 'tfr-viewer-history__summary';
+      const title = document.createElement('span');
       title.className = 'tfr-viewer-history__title';
-      title.textContent = t('history.title');
-      container.appendChild(title);
+      title.textContent = `${t('history.title')} (${history.length})`;
+      const chevron = document.createElement('span');
+      chevron.className = 'tfr-viewer-history__chevron';
+      chevron.textContent = '⌄';
+      summary.appendChild(title);
+      summary.appendChild(chevron);
+      container.appendChild(summary);
+
       if (!history.length) {
+        const empty = document.createElement('p');
+        empty.className = 'tfr-viewer-history__empty';
+        empty.textContent = t('history.empty');
+        container.appendChild(empty);
         this.rendering = false;
         return;
       }
       const list = document.createElement('ul');
       list.className = 'tfr-viewer-history__list';
-      const entries = history.slice(-this.maxDisplayed);
+      const entries = history.slice(-this.maxDisplayed).reverse();
       entries.forEach((entry) => {
         const item = document.createElement('li');
         item.className = 'tfr-viewer-history__item';
@@ -3807,29 +4120,27 @@
             .toString()
             .padStart(2, '0')}`;
         }
+        const author = document.createElement('strong');
+        author.className = 'tfr-viewer-history__author';
+        author.textContent = entry.displayName || entry.login || '';
         const message = document.createElement('span');
         message.className = 'tfr-viewer-history__message';
         message.textContent = entry.text;
         item.appendChild(time);
+        item.appendChild(author);
         item.appendChild(message);
         list.appendChild(item);
       });
       container.appendChild(list);
-      const shouldStickToBottom =
-        !previousList ||
-        previousScrollHeight <= previousClientHeight + 1 ||
-        previousScrollTop + previousClientHeight >= previousScrollHeight - 4;
       requestAnimationFrame(() => {
-        if (shouldStickToBottom) {
-          list.scrollTop = list.scrollHeight;
-        } else if (previousScrollHeight) {
-          const delta = list.scrollHeight - previousScrollHeight;
-          list.scrollTop = Math.max(0, previousScrollTop + delta);
+        if (previousList && previousScrollTop > 0) {
+          list.scrollTop = previousScrollTop;
+        } else {
+          list.scrollTop = 0;
         }
         this.rendering = false;
       });
     }
-
     removeNativeRecentMessages(host) {
       if (!(host instanceof HTMLElement)) {
         return;
@@ -4373,8 +4684,8 @@
       const comparator = (a, b) => {
         if (sortMode === 'alphabetical') return a.displayName.localeCompare(b.displayName, 'fr');
         if (sortMode === 'recent') return (b.addedAt || 0) - (a.addedAt || 0);
-        const viewersA = liveData[a.login]?.viewers || 0;
-        const viewersB = liveData[b.login]?.viewers || 0;
+        const viewersA = getLiveDataEntry(liveData, a)?.viewers || 0;
+        const viewersB = getLiveDataEntry(liveData, b)?.viewers || 0;
         if (viewersB !== viewersA) return viewersB - viewersA;
         return a.displayName.localeCompare(b.displayName, 'fr');
       };
@@ -4382,7 +4693,7 @@
         const children = node.children.map((child) => buildNode(child)).filter(Boolean);
         const rawEntries = assignments.get(node.id) || [];
         const entries = rawEntries
-          .filter((fav) => shouldDisplayFavorite(fav, liveData[fav.login]))
+          .filter((fav) => shouldDisplayFavorite(fav, getLiveDataEntry(liveData, fav)))
           .sort(comparator);
         const totalEntries = entries.length + children.reduce((sum, child) => sum + child.totalEntries, 0);
         if (!totalEntries) {
@@ -4413,9 +4724,9 @@
         const now = Date.now();
         const recentEntries = favorites
           .filter((fav) => fav.recentHighlightEnabled !== false)
-          .filter((fav) => shouldDisplayFavorite(fav, liveData[fav.login]))
+          .filter((fav) => shouldDisplayFavorite(fav, getLiveDataEntry(liveData, fav)))
           .filter((fav) => {
-            const live = liveData[fav.login];
+            const live = getLiveDataEntry(liveData, fav);
             if (!live?.isLive) {
               return false;
             }
@@ -4441,7 +4752,7 @@
         }
       }
       const uncategorizedEntries = uncategorized
-        .filter((fav) => shouldDisplayFavorite(fav, liveData[fav.login]))
+        .filter((fav) => shouldDisplayFavorite(fav, getLiveDataEntry(liveData, fav)))
         .sort(comparator);
       if (uncategorizedEntries.length) {
         groups.push({
@@ -4458,7 +4769,7 @@
     }
 
     createFavoriteEntry(fav, liveData) {
-      const live = liveData[fav.login];
+      const live = getLiveDataEntry(liveData, fav);
       const anchor = document.createElement('a');
       anchor.className = 'tfr-favorite-entry';
       anchor.classList.add('side-nav-card__link', 'tw-link');
@@ -4621,6 +4932,7 @@
       this.currentLogin = null;
       this.unsubscribe = null;
       this.domObserver = null;
+      this.refreshTimer = null;
       this.locationWatcher = new LocationWatcher(() => this.handleLocationChange());
     }
 
@@ -4634,6 +4946,10 @@
     dispose() {
       this.unsubscribe?.();
       this.domObserver?.disconnect();
+      if (this.refreshTimer) {
+        clearTimeout(this.refreshTimer);
+        this.refreshTimer = null;
+      }
       this.locationWatcher.stop();
     }
 
@@ -4650,6 +4966,17 @@
       this.currentLogin = getChannelFromLocation(window.location);
       this.updateButtonAppearance();
       this.tryMountButton();
+      if (this.refreshTimer) {
+        clearTimeout(this.refreshTimer);
+      }
+      const login = this.currentLogin?.toLowerCase();
+      this.refreshTimer = setTimeout(() => {
+        this.refreshTimer = null;
+        if (login && this.store.getState().favorites[login]) {
+          this.store.applyCurrentPageLiveData(login);
+          this.store.refreshLiveData();
+        }
+      }, 1500);
     }
 
     findAnchor() {
@@ -5120,6 +5447,7 @@ class FavoritesOverlay {
       {
         key: 'chatHistoryEnabled',
         label: t('settings.chatHistory.toggle'),
+        description: t('settings.chatHistory.description'),
         handler: async (checked) => {
           await this.store.setChatHistoryEnabled(checked);
           this.render();
@@ -5128,6 +5456,7 @@ class FavoritesOverlay {
       {
         key: 'moderationHistoryEnabled',
         label: t('settings.moderation.toggle'),
+        description: t('settings.moderation.description'),
         handler: async (checked) => {
           await this.store.setModerationHistoryEnabled(checked);
           this.render();
@@ -5143,9 +5472,15 @@ class FavoritesOverlay {
       input.checked = prefs[toggleConfig.key] !== false;
       input.className = 'tfr-feature-toggle__input';
       item.appendChild(input);
-      const text = document.createElement('span');
-      text.textContent = toggleConfig.label;
-      item.appendChild(text);
+      const body = document.createElement('span');
+      body.className = 'tfr-feature-toggle__body';
+      const label = document.createElement('strong');
+      label.textContent = toggleConfig.label;
+      const description = document.createElement('small');
+      description.textContent = toggleConfig.description;
+      body.appendChild(label);
+      body.appendChild(description);
+      item.appendChild(body);
       input.addEventListener('change', (event) => {
         toggleConfig.handler(Boolean(event.target.checked));
       });
@@ -5154,7 +5489,6 @@ class FavoritesOverlay {
 
     return wrapper;
   }
-
   async getCategorySuggestions(term) {
     const normalized = normalizeCategoryName(term);
     if (!normalized || normalized.length < 2) {
@@ -5250,7 +5584,7 @@ class FavoritesOverlay {
     }
 
     const img = document.createElement('img');
-    img.src = (liveData[fav.login]?.avatarUrl) || fav.avatarUrl || DEFAULT_AVATAR;
+    img.src = getLiveDataEntry(liveData, fav)?.avatarUrl || fav.avatarUrl || DEFAULT_AVATAR;
     img.alt = '';
     button.appendChild(img);
 
@@ -5558,7 +5892,7 @@ class FavoritesOverlay {
 
     const avatar = document.createElement('img');
     avatar.className = 'tfr-category-square__avatar';
-    avatar.src = (liveData[fav.login]?.avatarUrl) || fav.avatarUrl || DEFAULT_AVATAR;
+    avatar.src = getLiveDataEntry(liveData, fav)?.avatarUrl || fav.avatarUrl || DEFAULT_AVATAR;
     avatar.alt = '';
     button.appendChild(avatar);
     if (fav.recentHighlightEnabled !== false) {
@@ -6391,7 +6725,7 @@ class FavoritesOverlay {
       this.activeFavoriteLogin = null;
       return null;
     }
-    const live = liveData[login];
+    const live = getLiveDataEntry(liveData, login);
     const prefs = state.preferences || {};
     const filterCategories = Array.isArray(favorite.categoryFilter?.categories)
       ? favorite.categoryFilter.categories
@@ -6766,6 +7100,13 @@ class FavoritesOverlay {
       statusLine.textContent = t('details.status.offline');
     }
     infoSection.appendChild(statusLine);
+    const visibilityInfo = getSidebarVisibilityInfo(favorite, live);
+    const visibilityLine = document.createElement('p');
+    visibilityLine.className = visibilityInfo.visible
+      ? 'tfr-details-info tfr-details-info--highlight'
+      : 'tfr-details-info tfr-details-info--warning';
+    visibilityLine.textContent = visibilityInfo.reason;
+    infoSection.appendChild(visibilityLine);
     if (highlightLine) {
       infoSection.appendChild(highlightLine);
     }
@@ -6792,6 +7133,7 @@ class FavoritesOverlay {
   constructor(overlay) {
     this.overlay = overlay;
     this.button = null;
+    this.vodsButton = null;
     this.observer = null;
     this.retryTimer = null;
     this.overlayListeners = [];
@@ -6857,6 +7199,7 @@ class FavoritesOverlay {
     }
     this.slot = null;
     this.button = null;
+    this.vodsButton = null;
   }
 
   scheduleRetry() {
@@ -7084,15 +7427,62 @@ class FavoritesOverlay {
     return button;
   }
 
+  ensureVodsButton() {
+    if (this.vodsButton) {
+      return this.vodsButton;
+    }
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.dataset.tfrVodsButton = 'true';
+    button.dataset.aTarget = 'top-nav-vods-button';
+    button.className = 'tfr-topnav-action tfr-topnav-action--icon';
+    button.style.pointerEvents = 'auto';
+    button.style.display = 'inline-flex';
+    button.style.flex = '0 0 auto';
+    button.style.position = 'relative';
+    button.style.zIndex = '1';
+    button.tabIndex = 0;
+    button.setAttribute('aria-label', 'Ouvrir le planning VODs');
+    button.title = 'Planning VODs';
+    button.innerHTML = '<svg class="tfr-topnav-action__icon" width="20" height="20" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M7 2h2v3h6V2h2v3h3a1 1 0 0 1 1 1v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a1 1 0 0 1 1-1h3V2zm12 8H5v10h14V10z" fill="currentColor"></path><path d="M10 13.2v4.1l3.7-2.05L10 13.2z" fill="#fff"></path></svg>';
+    button.addEventListener('click', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      sendExtensionMessage({ type: 'TFR_OPEN_VODS_PAGE' }).then((response) => {
+        if (response?.ok) {
+          return;
+        }
+        const url = extensionApi?.runtime?.getURL?.('panel/vods.html');
+        if (url) {
+          window.open(url, '_blank', 'noopener');
+        }
+      });
+    });
+    this.vodsButton = button;
+    this.log('vods-button-created');
+    return button;
+  }
+
+  populateSlot(slot) {
+    const favoritesButton = this.ensureButton();
+    const vodsButton = this.ensureVodsButton();
+    [favoritesButton, vodsButton].forEach((button) => {
+      if (button && !slot.contains(button)) {
+        slot.appendChild(button);
+      }
+    });
+  }
+
   syncWithAnchor(anchor, parent) {
     const button = this.ensureButton();
+    const vodsButton = this.ensureVodsButton();
     if (!button) {
       return null;
     }
     const slot = this.ensureSlot(anchor);
-    if (!slot.contains(button)) {
+    if (!slot.contains(button) || !slot.contains(vodsButton)) {
       slot.innerHTML = '';
-      slot.appendChild(button);
+      this.populateSlot(slot);
     }
     let source = anchor;
     if (!source && parent) {
@@ -7113,6 +7503,11 @@ class FavoritesOverlay {
       button.style.width = '32px';
       button.style.height = '32px';
       button.style.margin = '0';
+      if (vodsButton) {
+        vodsButton.style.width = '32px';
+        vodsButton.style.height = '32px';
+        vodsButton.style.margin = '0';
+      }
       this.log('sync-anchor-missing');
       return slot;
     }
@@ -7134,12 +7529,10 @@ class FavoritesOverlay {
     } else if (source?.offsetWidth) {
       width = `${source.offsetWidth}px`;
     }
-    if (width) {
-      slot.style.width = width;
-      button.style.width = width;
-    } else {
-      slot.style.width = '';
-      button.style.width = '32px';
+    slot.style.width = '';
+    button.style.width = width || '32px';
+    if (vodsButton) {
+      vodsButton.style.width = width || '32px';
     }
     let height = '';
     if (style?.height && style.height !== 'auto') {
@@ -7150,11 +7543,20 @@ class FavoritesOverlay {
     if (height) {
       slot.style.height = height;
       button.style.height = height;
+      if (vodsButton) {
+        vodsButton.style.height = height;
+      }
     } else {
       slot.style.height = '';
       button.style.height = '32px';
+      if (vodsButton) {
+        vodsButton.style.height = '32px';
+      }
     }
     button.style.margin = '0';
+    if (vodsButton) {
+      vodsButton.style.margin = '0';
+    }
     this.log('sync-anchor', { sourceTag: source?.tagName });
     return slot;
   }
@@ -7178,6 +7580,7 @@ class FavoritesOverlay {
       return;
     }
     const button = this.ensureButton();
+    const vodsButton = this.ensureVodsButton();
     if (!button) {
       this.log('button-missing');
       return;
@@ -7200,9 +7603,9 @@ class FavoritesOverlay {
         this.scheduleRetry();
         return;
       }
-      if (!slot.contains(button)) {
+      if (!slot.contains(button) || !slot.contains(vodsButton)) {
         slot.innerHTML = '';
-        slot.appendChild(button);
+        this.populateSlot(slot);
       }
       let insertionParent = parent;
       let insertionReference = reference;
@@ -7283,14 +7686,24 @@ class FeatureController {
   }
 
   applyPreferences(prefs) {
-    const wantsChatHistory = prefs.chatHistoryEnabled !== false;
-    if (wantsChatHistory) {
+    const wantsViewerChatHistory = prefs.chatHistoryEnabled !== false;
+    const wantsModeration = prefs.moderationHistoryEnabled !== false;
+    const needsMessageTracker = wantsViewerChatHistory || wantsModeration;
+
+    if (needsMessageTracker) {
       this.ensureChatHistory();
     } else {
       this.teardownModeration();
       this.teardownChatHistory();
+      return;
     }
-    const wantsModeration = wantsChatHistory && prefs.moderationHistoryEnabled !== false;
+
+    if (wantsViewerChatHistory) {
+      this.ensureViewerCardHistory();
+    } else {
+      this.teardownViewerCardHistory();
+    }
+
     if (wantsModeration) {
       this.ensureModerationFeatures();
     } else {
@@ -7304,20 +7717,33 @@ class FeatureController {
     }
     this.chatHistory = new ChatHistoryTracker();
     this.chatHistory.init();
+  }
+
+  ensureViewerCardHistory() {
+    if (this.viewerCardHistory || !this.chatHistory) {
+      return;
+    }
     this.viewerCardHistory = new ViewerCardHistoryRenderer(this.chatHistory);
     this.viewerCardHistory.init();
   }
 
-  teardownChatHistory() {
+  teardownViewerCardHistory() {
     this.viewerCardHistory?.dispose();
     this.viewerCardHistory = null;
+  }
+
+  teardownChatHistory() {
+    this.teardownViewerCardHistory();
     this.chatHistory?.dispose();
     this.chatHistory = null;
   }
 
   ensureModerationFeatures() {
-    if (this.moderationTracker || !this.chatHistory) {
-      if (this.moderationTracker && !this.moderationHistoryUI) {
+    if (!this.chatHistory) {
+      this.ensureChatHistory();
+    }
+    if (this.moderationTracker) {
+      if (!this.moderationHistoryUI) {
         this.moderationHistoryUI = new ModerationHistoryUI(this.moderationTracker);
         this.moderationHistoryUI.init();
       }
@@ -7328,7 +7754,6 @@ class FeatureController {
     this.moderationHistoryUI = new ModerationHistoryUI(this.moderationTracker);
     this.moderationHistoryUI.init();
   }
-
   teardownModeration() {
     this.moderationHistoryUI?.dispose();
     this.moderationHistoryUI = null;
@@ -7375,12 +7800,3 @@ const bootstrap = async () => {
     bootstrap();
   }
 })();
-
-
-
-
-
-
-
-
-
