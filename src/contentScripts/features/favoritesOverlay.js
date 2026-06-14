@@ -5,7 +5,8 @@
     formatViewers,
     getLiveDataEntry,
     getSidebarVisibilityInfo,
-    normalizeCategoryName
+    normalizeCategoryName,
+    fetchCategorySuggestions
   }) => {
 class FavoritesOverlay {
   constructor(store) {

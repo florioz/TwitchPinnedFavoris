@@ -872,7 +872,8 @@
     formatViewers,
     getLiveDataEntry,
     getSidebarVisibilityInfo,
-    normalizeCategoryName
+    normalizeCategoryName,
+    fetchCategorySuggestions
   });
   if (!FavoritesOverlay) {
     throw new Error('[TFR] favorites overlay module is missing');
