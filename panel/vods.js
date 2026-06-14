@@ -88,7 +88,8 @@
     selectedVideo: null,
     clipsLoadingVideoId: null,
     clipsError: '',
-    isLoading: false
+    isLoading: false,
+    loadingProgress: { done: 0, total: 0 }
   };
 
   const elements = {
@@ -381,9 +382,16 @@
       .sort((a, b) => a.offsetSeconds - b.offsetSeconds || b.viewCount - a.viewCount);
   }
 
-  async function mapWithConcurrency(items, limit, mapper) {
+  async function mapWithConcurrency(items, limit, mapper, onProgress) {
     const results = [];
     let index = 0;
+    let completed = 0;
+    const reportProgress = () => {
+      completed += 1;
+      if (typeof onProgress === 'function') {
+        onProgress(completed, items.length);
+      }
+    };
     const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
       while (index < items.length) {
         const currentIndex = index++;
@@ -392,6 +400,8 @@
         } catch (error) {
           console.warn('[TFR VODs] fetch failed', items[currentIndex], error);
           results[currentIndex] = null;
+        } finally {
+          reportProgress();
         }
       }
     });
@@ -757,9 +767,15 @@
     });
 
     const totalVideos = rows.reduce((sum, row) => sum + row.videos.length, 0);
-    elements.summary.textContent = state.isLoading
-      ? 'Chargement des VODs Twitch...'
-      : `${rows.length} streamer${rows.length > 1 ? 's' : ''} - ${totalVideos} VOD${totalVideos > 1 ? 's' : ''}`;
+    if (state.isLoading) {
+      const done = Number(state.loadingProgress?.done) || 0;
+      const total = Number(state.loadingProgress?.total) || 0;
+      elements.summary.textContent = total
+        ? `Chargement des VODs Twitch... ${done}/${total} streamers analysés`
+        : 'Chargement des VODs Twitch...';
+      return;
+    }
+    elements.summary.textContent = `${rows.length} streamer${rows.length > 1 ? 's' : ''} - ${totalVideos} VOD${totalVideos > 1 ? 's' : ''}`;
   }
 
   function buildClipSegments(clips, duration) {
@@ -919,6 +935,7 @@
 
   async function refreshData() {
     state.isLoading = true;
+    state.loadingProgress = { done: 0, total: 0 };
     elements.refreshButton.disabled = true;
     elements.refreshButton.textContent = 'Chargement...';
     renderTimeline();
@@ -927,12 +944,18 @@
     const logins = Object.values(state.favorites)
       .map((fav) => fav.login)
       .filter(Boolean);
-    const channels = await mapWithConcurrency(logins, 4, fetchChannelVods);
+    state.loadingProgress = { done: 0, total: logins.length };
+    renderTimeline();
+    const channels = await mapWithConcurrency(logins, 4, fetchChannelVods, (done, total) => {
+      state.loadingProgress = { done, total };
+      renderTimeline();
+    });
     state.videosByLogin = new Map();
     channels.filter(Boolean).forEach((channel) => {
       state.videosByLogin.set(channel.login.toLowerCase(), channel);
     });
     state.isLoading = false;
+    state.loadingProgress = { done: 0, total: 0 };
     elements.refreshButton.disabled = false;
     elements.refreshButton.textContent = 'Actualiser les VODs';
     ensureSelectedDayHasContent();
