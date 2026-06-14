@@ -10,3 +10,7 @@ temp_*.js
 
 .DS_Store
 Thumbs.db
+dist/
+*.backup
+*.backup_*
+*.bin
