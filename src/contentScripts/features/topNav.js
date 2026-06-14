@@ -18,20 +18,8 @@
     this.bodyReadyFrame = null;
   }
 
-  log(event, detail) {
-    try {
-      if (detail !== undefined) {
-        console.log('[TFR] TopNav', event, detail);
-      } else {
-        console.log('[TFR] TopNav', event);
-      }
-    } catch (error) {
-      console.error('[TFR] TopNav log error', error);
-    }
-  }
 
   init() {
-    this.log('init');
     this.injectButton();
     if (!this.overlayListeners.length) {
       const onOpenUnsub = this.overlay.onOpen(() => this.setButtonActive(true));
@@ -47,7 +35,6 @@
   }
 
   dispose() {
-    this.log('dispose');
     this.observer?.disconnect();
     this.observer = null;
     if (this.injectFrame !== null) {

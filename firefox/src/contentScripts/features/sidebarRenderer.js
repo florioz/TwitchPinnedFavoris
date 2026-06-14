@@ -391,10 +391,6 @@
     const totalLive = groups.reduce((sum, group) => sum + group.totalEntries, 0);
     const isCollapsed = Boolean(state.preferences?.liveFavoritesCollapsed);
 
-      if (!window.__tfrRenderLogged) {
-        console.log('[TFR] rendering favorites sidebar');
-        window.__tfrRenderLogged = true;
-      }
       this.container.innerHTML = '';
     const header = document.createElement('button');
     header.type = 'button';
