@@ -32,6 +32,7 @@
       ],
       "js": [
         "src/contentScripts/features/favoritesStore.js",
+        "src/contentScripts/features/locationWatcher.js",
         "src/contentScripts/features/chatModeration.js",
         "src/contentScripts/features/updateNotifier.js",
         "src/contentScripts/features/topNav.js",

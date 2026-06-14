@@ -818,29 +818,12 @@
   if (!FavoritesStore) {
     throw new Error('[TFR] favorites store module is missing');
   }
-  class LocationWatcher {
-    constructor(callback) {
-      this.callback = callback;
-      this.timer = null;
-      this.lastHref = window.location.href;
-    }
-    start() {
-      this.stop();
-      this.timer = setInterval(() => {
-        if (window.location.href !== this.lastHref) {
-          this.lastHref = window.location.href;
-          this.callback(window.location.href);
-        }
-      }, LOCATION_CHECK_INTERVAL);
-    }
-    stop() {
-      if (this.timer) {
-        clearInterval(this.timer);
-        this.timer = null;
-      }
-    }
+  const LocationWatcher = window.TFRLocationWatcher?.create?.({
+    LOCATION_CHECK_INTERVAL
+  });
+  if (!LocationWatcher) {
+    throw new Error('[TFR] location watcher module is missing');
   }
-
   const chatModerationFeatures = window.TFRChatModeration?.create?.({
     t,
     formatModerationDurationLabel,
