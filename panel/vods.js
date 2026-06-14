@@ -194,7 +194,7 @@
     })[char]);
   }
 
-  function sanitizeCatégories(categories = []) {
+  function sanitizeCategories(categories = []) {
     const byId = new Map();
     categories.forEach((category) => {
       if (!category || typeof category.id !== 'string') return;
@@ -226,16 +226,16 @@
     return roots;
   }
 
-  function flattenCatégories(nodes, depth = 0, output = []) {
+  function flattenCategories(nodes, depth = 0, output = []) {
     nodes.forEach((node) => {
       output.push({ ...node, depth });
-      flattenCatégories(node.children || [], depth + 1, output);
+      flattenCategories(node.children || [], depth + 1, output);
     });
     return output;
   }
 
   function collectDescendantIds(categoryId) {
-    const tree = sanitizeCatégories(state.categories);
+    const tree = sanitizeCategories(state.categories);
     const stack = [...tree];
     const result = new Set();
     while (stack.length) {
@@ -630,7 +630,7 @@
     [
       { id: 'all', name: 'Tous les groupes', depth: 0 },
       { id: 'uncategorized', name: 'Sans groupe', depth: 0 },
-      ...flattenCatégories(sanitizeCatégories(state.categories))
+      ...flattenCategories(sanitizeCategories(state.categories))
     ].forEach((category) => {
       const option = document.createElement('option');
       option.value = category.id;
@@ -659,9 +659,9 @@
     }
     if (elements.sortDirectionButton) {
       const isAsc = state.sortDirection === 'asc';
-      elements.sortDirectionButton.textContent = isAsc ? 'Asc' : 'Desc';
-      elements.sortDirectionButton.title = isAsc ? 'Tri croissant' : 'Tri decroissant';
-      elements.sortDirectionButton.setAttribute('aria-label', isAsc ? 'Tri croissant' : 'Tri decroissant');
+      elements.sortDirectionButton.textContent = isAsc ? '↑' : '↓';
+      elements.sortDirectionButton.title = isAsc ? 'Tri croissant' : 'Tri décroissant';
+      elements.sortDirectionButton.setAttribute('aria-label', isAsc ? 'Tri croissant' : 'Tri décroissant');
     }
     const count = dayCounts.get(Number(state.selectedDay)) || 0;
     elements.dayHint.textContent = count

@@ -588,6 +588,26 @@
       }
     }
 
+    async createCategory(name, parentId = null) {
+      const trimmed = (name || '').trim();
+      if (!trimmed) return null;
+      let parent = typeof parentId === 'string' && parentId.trim() ? parentId.trim() : null;
+      if (parent && !this.state.categories.some((cat) => cat.id === parent)) {
+        parent = null;
+      }
+      const id = `cat_${Date.now()}`;
+      await this.updateState((draft) => {
+        draft.categories.push({
+          id,
+          name: trimmed,
+          collapsed: false,
+          sortOrder: Date.now(),
+          parentId: parent
+        });
+      });
+      return id;
+    }
+
     async moveCategoryUp(categoryId) {
       await this.updateState((draft) => {
         const target = draft.categories.find((cat) => cat.id === categoryId);
@@ -626,6 +646,35 @@
       });
     }
 
+    async indentCategory(categoryId) {
+      await this.updateState((draft) => {
+        const target = draft.categories.find((cat) => cat.id === categoryId);
+        if (!target) return;
+        const siblings = draft.categories
+          .filter((cat) => cat.parentId === target.parentId)
+          .sort((a, b) => {
+            if (a.sortOrder !== b.sortOrder) return a.sortOrder - b.sortOrder;
+            return a.name.localeCompare(b.name, 'fr');
+          });
+        const index = siblings.findIndex((cat) => cat.id === categoryId);
+        if (index <= 0) return;
+        const newParent = siblings[index - 1];
+        if (!newParent || newParent.id === target.id) return;
+        const isDescendant = (candidateId, childId) => {
+          let current = candidateId;
+          while (current) {
+            if (current === childId) return true;
+            const next = draft.categories.find((cat) => cat.id === current);
+            current = next?.parentId || null;
+          }
+          return false;
+        };
+        if (isDescendant(newParent.id, target.id)) return;
+        target.parentId = newParent.id;
+        target.sortOrder = Date.now();
+      });
+    }
+
     async outdentCategory(categoryId) {
       await this.updateState((draft) => {
         const target = draft.categories.find((cat) => cat.id === categoryId);
@@ -656,26 +705,6 @@
             cat.sortOrder = (index + 1) * 1000;
           });
       });
-    }
-
-    async createCategory(name, parentId = null) {
-      const trimmed = (name || '').trim();
-      if (!trimmed) return null;
-      let parent = typeof parentId === 'string' && parentId.trim() ? parentId.trim() : null;
-      if (parent && !this.state.categories.some((cat) => cat.id === parent)) {
-        parent = null;
-      }
-      const id = `cat_${Date.now()}`;
-      await this.updateState((draft) => {
-        draft.categories.push({
-          id,
-          name: trimmed,
-          collapsed: false,
-          sortOrder: Date.now(),
-          parentId: parent
-        });
-      });
-      return id;
     }
 
     async setCategoryParent(categoryId, parentId) {

@@ -395,11 +395,11 @@
 
 
 
-  const buildCategoryOrder = (rawCatégories = []) => {
+  const buildCategoryOrder = (rawCategories = []) => {
 
-    if (!Array.isArray(rawCatégories)) return [];
+    if (!Array.isArray(rawCategories)) return [];
 
-    const nodes = rawCatégories
+    const nodes = rawCategories
 
       .map((category, index) => ({
 

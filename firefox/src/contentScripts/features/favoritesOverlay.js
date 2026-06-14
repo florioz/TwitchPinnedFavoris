@@ -481,8 +481,24 @@ class FavoritesOverlay {
     return column;
   }
 
+  openChannel(login) {
+    const extensionApi = globalThis.chrome ?? globalThis.browser;
+    if (extensionApi?.runtime?.sendMessage) {
+      try {
+        extensionApi.runtime.sendMessage({ type: 'TFR_OPEN_CHANNEL_TAB', login });
+      } catch (error) {
+        window.open(`https://www.twitch.tv/${login}`, '_blank', 'noopener');
+      }
+    } else {
+      window.open(`https://www.twitch.tv/${login}`, '_blank', 'noopener');
+    }
+  }
+
   createFavoriteChip(fav, liveData) {
     const normalizedLogin = fav.login?.toLowerCase();
+    const wrapper = document.createElement('div');
+    wrapper.className = 'tfr-free-chip';
+
     const button = document.createElement('button');
     button.type = 'button';
     button.className = 'tfr-free-avatar';
@@ -526,7 +542,21 @@ class FavoritesOverlay {
     });
 
     this.makeFavoriteDraggable(button, fav.login);
-    return button;
+    wrapper.appendChild(button);
+
+    const removeButton = document.createElement('button');
+    removeButton.type = 'button';
+    removeButton.className = 'tfr-free-chip__remove';
+    removeButton.title = 'Retirer des favoris';
+    removeButton.textContent = '×';
+    removeButton.addEventListener('click', async (event) => {
+      event.stopPropagation();
+      await this.store.removeFavorite(fav.login);
+      this.render();
+    });
+    wrapper.appendChild(removeButton);
+
+    return wrapper;
   }
 
   renderCategoriesColumn(state, liveData, term) {
@@ -1202,34 +1232,58 @@ class FavoritesOverlay {
         meta.textContent = t('categories.uncategorizedMeta', { count: uncategorizedFavorites.length });
         title.appendChild(name);
         title.appendChild(meta);
+        uncategorizedItem.appendChild(title);
 
         const chips = document.createElement('div');
         chips.className = 'tfr-category-assigned';
         uncategorizedFavorites.forEach((fav) => {
-          const chip = document.createElement('span');
-          chip.className = 'tfr-category-chip';
-          const chipAvatar = document.createElement('img');
-          chipAvatar.className = 'tfr-category-chip-avatar';
-          chipAvatar.src = fav.avatarUrl || DEFAULT_AVATAR;
-          chipAvatar.alt = '';
-          const chipLabel = document.createElement('span');
-          chipLabel.textContent = fav.displayName || fav.login;
-          chip.appendChild(chipAvatar);
-          chip.appendChild(chipLabel);
-          chips.appendChild(chip);
+        const chipWrapper = document.createElement('div');
+        chipWrapper.className = 'tfr-category-chip-wrapper';
+
+        const chipButton = document.createElement('button');
+        chipButton.type = 'button';
+        chipButton.className = 'tfr-category-chip-btn';
+        chipButton.title = fav.displayName || fav.login;
+        chipButton.addEventListener('click', () => {
+          this.openChannel(fav.login);
         });
 
-        const hint = document.createElement('div');
-        hint.className = 'tfr-category-assigned tfr-category-assigned--empty';
-        hint.textContent = t('categories.assignHint');
-        uncategorizedItem.appendChild(chips);
-        uncategorizedItem.appendChild(hint);
-        this.enableUncategorizedDrop(uncategorizedItem);
-        list.appendChild(uncategorizedItem);
-      }
-    }
+        const chipAvatar = document.createElement('img');
+        chipAvatar.className = 'tfr-category-chip-btn__avatar';
+        chipAvatar.src = fav.avatarUrl || DEFAULT_AVATAR;
+        chipAvatar.alt = '';
+        const chipLabel = document.createElement('span');
+        chipLabel.textContent = fav.displayName || fav.login;
+        chipButton.appendChild(chipAvatar);
+        chipButton.appendChild(chipLabel);
 
-    this.setupCategoryDropTarget(list, null);
+        const removeButton = document.createElement('button');
+        removeButton.type = 'button';
+        removeButton.className = 'tfr-category-chip-remove';
+        removeButton.title = 'Retirer des favoris';
+        removeButton.textContent = '×';
+        removeButton.addEventListener('click', async (event) => {
+          event.stopPropagation();
+          await this.store.removeFavorite(fav.login);
+          this.render();
+        });
+
+        chipWrapper.appendChild(chipButton);
+        chipWrapper.appendChild(removeButton);
+        chips.appendChild(chipWrapper);
+      });
+
+      const hint = document.createElement('div');
+      hint.className = 'tfr-category-assigned tfr-category-assigned--empty';
+      hint.textContent = t('categories.assignHint');
+      uncategorizedItem.appendChild(chips);
+      uncategorizedItem.appendChild(hint);
+      this.enableUncategorizedDrop(uncategorizedItem);
+      list.appendChild(uncategorizedItem);
+    }
+  }
+
+  this.setupCategoryDropTarget(list, null);
     categoriesSection.appendChild(header);
     categoriesSection.appendChild(dragHint);
     categoriesSection.appendChild(addCategory);
@@ -1267,9 +1321,9 @@ class FavoritesOverlay {
     const title = document.createElement('div');
     title.className = 'tfr-category-item-title';
     const name = document.createElement('span');
-    const indent = depth > 1 ? '  '.repeat(depth - 1) : '';
+    const indentText = depth > 1 ? '  '.repeat(depth - 1) : '';
     const bullet = depth ? '- ' : '';
-    name.textContent = `${indent}${bullet}${category.name}`;
+    name.textContent = `${indentText}${bullet}${category.name}`;
     const meta = document.createElement('span');
     meta.className = 'tfr-category-meta';
     const totalCount = aggregatedCounts.get(category.id) || 0;
@@ -1279,6 +1333,46 @@ class FavoritesOverlay {
 
     const actions = document.createElement('div');
     actions.className = 'tfr-category-item-actions';
+
+    const moveUp = document.createElement('button');
+    moveUp.type = 'button';
+    moveUp.className = 'tfr-button tfr-button--ghost';
+    moveUp.textContent = '↑';
+    moveUp.title = 'Déplacer vers le haut';
+    moveUp.addEventListener('click', async () => {
+      await this.store.moveCategoryUp(category.id);
+      this.render();
+    });
+
+    const moveDown = document.createElement('button');
+    moveDown.type = 'button';
+    moveDown.className = 'tfr-button tfr-button--ghost';
+    moveDown.textContent = '↓';
+    moveDown.title = 'Déplacer vers le bas';
+    moveDown.addEventListener('click', async () => {
+      await this.store.moveCategoryDown(category.id);
+      this.render();
+    });
+
+    const indent = document.createElement('button');
+    indent.type = 'button';
+    indent.className = 'tfr-button tfr-button--ghost';
+    indent.textContent = '→';
+    indent.title = 'Déplacer dans une sous-catégorie';
+    indent.addEventListener('click', async () => {
+      await this.store.indentCategory(category.id);
+      this.render();
+    });
+
+    const outdent = document.createElement('button');
+    outdent.type = 'button';
+    outdent.className = 'tfr-button tfr-button--ghost';
+    outdent.textContent = '←';
+    outdent.title = 'Remonter de niveau';
+    outdent.addEventListener('click', async () => {
+      await this.store.outdentCategory(category.id);
+      this.render();
+    });
 
     const toggle = document.createElement('button');
     toggle.type = 'button';
@@ -1328,6 +1422,10 @@ class FavoritesOverlay {
       this.render();
     });
 
+    actions.appendChild(moveUp);
+    actions.appendChild(moveDown);
+    actions.appendChild(indent);
+    actions.appendChild(outdent);
     actions.appendChild(toggle);
     actions.appendChild(rename);
     actions.appendChild(addSub);
@@ -1337,6 +1435,8 @@ class FavoritesOverlay {
     headerRow.appendChild(title);
     headerRow.appendChild(actions);
     item.appendChild(headerRow);
+
+
 
     container.appendChild(item);
 
@@ -1394,8 +1494,8 @@ class FavoritesOverlay {
           option.value = fav.login;
           const current = Array.isArray(fav.categories) && fav.categories.length ? fav.categories[0] : null;
           const suffix = current ? ` (actuellement: ${this.findCategoryName(current)})` : '';
-          option.textContent = (fav.displayName || fav.login) + suffix;
-          assignSelect.appendChild(option);
+        option.textContent = (fav.displayName || fav.login) + suffix;
+        assignSelect.appendChild(option);
       });
 
       const assignButton = document.createElement('button');
@@ -1467,6 +1567,7 @@ class FavoritesOverlay {
       event.preventDefault();
       event.stopPropagation();
       removeHighlight();
+
       const draggedCategoryId = this.parseDraggedCategoryId(event);
       if (draggedCategoryId) {
         const placement = targetCategoryId ? this.getCategoryDropPlacement(event, element) : 'root';
@@ -1477,6 +1578,7 @@ class FavoritesOverlay {
           return;
         }
       }
+
       const logins = this.parseDraggedLogins(event);
       if (!logins.length) return;
       try {
