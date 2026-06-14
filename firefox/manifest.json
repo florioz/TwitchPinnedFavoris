@@ -38,6 +38,7 @@
         "src/contentScripts/features/topNav.js",
         "src/contentScripts/features/sidebarRenderer.js",
         "src/contentScripts/features/channelFavoriteButton.js",
+        "src/contentScripts/features/favoritesOverlay.js",
         "src/contentScripts/main.js"
       ],
       "css": [
