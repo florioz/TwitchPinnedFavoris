@@ -194,7 +194,7 @@
     })[char]);
   }
 
-  function sanitizeCategories(categories = []) {
+  function sanitizeCatégories(categories = []) {
     const byId = new Map();
     categories.forEach((category) => {
       if (!category || typeof category.id !== 'string') return;
@@ -226,16 +226,16 @@
     return roots;
   }
 
-  function flattenCategories(nodes, depth = 0, output = []) {
+  function flattenCatégories(nodes, depth = 0, output = []) {
     nodes.forEach((node) => {
       output.push({ ...node, depth });
-      flattenCategories(node.children || [], depth + 1, output);
+      flattenCatégories(node.children || [], depth + 1, output);
     });
     return output;
   }
 
   function collectDescendantIds(categoryId) {
-    const tree = sanitizeCategories(state.categories);
+    const tree = sanitizeCatégories(state.categories);
     const stack = [...tree];
     const result = new Set();
     while (stack.length) {
@@ -608,7 +608,7 @@
     } catch (error) {
       console.warn('[TFR VODs] clips fetch failed', channel.login, video.id, error);
       state.clipsByVideoId.set(video.id, []);
-      state.clipsError = 'Impossible de charger les clips associes pour le moment.';
+      state.clipsError = 'Impossible de charger les clips associés pour le moment.';
     } finally {
       if (state.clipsLoadingVideoId === video.id) {
         state.clipsLoadingVideoId = null;
@@ -630,7 +630,7 @@
     [
       { id: 'all', name: 'Tous les groupes', depth: 0 },
       { id: 'uncategorized', name: 'Sans groupe', depth: 0 },
-      ...flattenCategories(sanitizeCategories(state.categories))
+      ...flattenCatégories(sanitizeCatégories(state.categories))
     ].forEach((category) => {
       const option = document.createElement('option');
       option.value = category.id;
@@ -836,10 +836,10 @@
         <article class="tfr-vods-inspector__preview">
           ${video.thumbnailUrl ? `<img src="${escapeHtml(video.thumbnailUrl)}" alt="" />` : '<div class="tfr-vods-inspector__placeholder"></div>'}
           <div class="tfr-vods-inspector__stats">
-            <span><strong>${escapeHtml(formatDuration(video.lengthSeconds))}</strong>Duree</span>
+            <span><strong>${escapeHtml(formatDuration(video.lengthSeconds))}</strong>Durée</span>
             <span><strong>${Number(video.viewCount || 0).toLocaleString('fr-FR')}</strong>Vues</span>
             <span><strong>${clips.length}</strong>Clips detectes</span>
-            <span><strong>${escapeHtml(video.game || 'Inconnue')}</strong>Categorie</span>
+            <span><strong>${escapeHtml(video.game || 'Inconnue')}</strong>Catégorie</span>
           </div>
         </article>
 
@@ -878,14 +878,14 @@
                   <small>${Number(clip.viewCount || 0).toLocaleString('fr-FR')} vues</small>
                 </a>
               `).join('')
-              : '<span class="tfr-vods-muted">Aucun temps fort clippe charge pour cette VOD.</span>'}
+              : '<span class="tfr-vods-muted">Aucun temps fort clippé chargé pour cette VOD.</span>'}
           </div>
         </article>
       </div>
 
       <section class="tfr-vods-clips">
         <div class="tfr-vods-clips__header">
-          <h3>Temps forts et clips associes</h3>
+          <h3>Temps forts et clips associés</h3>
           <span>${isLoading ? 'Chargement des clips...' : `${clips.length} clip${clips.length > 1 ? 's' : ''}`}</span>
         </div>
         ${state.clipsError ? `<p class="tfr-vods-clips__notice">${escapeHtml(state.clipsError)}</p>` : ''}
@@ -911,7 +911,7 @@
               `).join('')}
             </div>
           `
-          : `<p class="tfr-vods-clips__notice">${isLoading ? 'Recherche des clips en cours...' : 'Aucun clip associe trouve sur la fenetre de cette VOD.'}</p>`}
+          : `<p class="tfr-vods-clips__notice">${isLoading ? 'Recherche des clips en cours...' : 'Aucun clip associé trouvé sur la fenêtre de cette VOD.'}</p>`}
       </section>
     `;
     elements.vodInspector.querySelector('#closeInspectorButton')?.addEventListener('click', closeInspector);
