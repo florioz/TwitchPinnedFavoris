@@ -18,6 +18,7 @@
     this.bodyReadyFrame = null;
   }
 
+  log() {}
 
   init() {
     this.injectButton();
