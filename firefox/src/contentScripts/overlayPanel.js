@@ -192,7 +192,7 @@
 
       if (Number.isNaN(date.getTime())) return '';
 
-      return `Mis a jour a ${date.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}`;
+      return `Mis à jour à ${date.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}`;
 
     } catch (error) {
 
@@ -237,7 +237,7 @@
 
       </div>
 
-      <div class="tfr-panel__empty">Aucun favori enregistre.</div>
+      <div class="tfr-panel__empty">Aucun favori enregistré.</div>
 
       <div class="tfr-panel__sections"></div>
 
@@ -411,7 +411,7 @@
 
             ? category.name.trim()
 
-            : `Categorie ${index + 1}`,
+            : `Catégorie ${index + 1}`,
 
         sortOrder: typeof category?.sortOrder === 'number' ? category.sortOrder : Date.now() + index,
 
@@ -541,7 +541,7 @@
 
     const uncategorized = {
 
-      category: { id: 'uncategorized', name: 'Sans categorie', collapsed: state.categoryCollapse.get('uncategorized') || false },
+      category: { id: 'uncategorized', name: 'Sans catégorie', collapsed: state.categoryCollapse.get('uncategorized') || false },
 
       favorites: [],
 
@@ -627,7 +627,7 @@
 
     if (!totalFavorites) {
 
-      emptyEl.textContent = 'Aucun favori enregistre.';
+      emptyEl.textContent = 'Aucun favori enregistré.';
 
       emptyEl.classList.remove('tfr-hidden');
 
@@ -669,7 +669,7 @@
 
       const categoryId = group.category?.id || 'uncategorized';
 
-      const categoryName = group.category?.name || 'Sans categorie';
+      const categoryName = group.category?.name || 'Sans catégorie';
       const categoryCount = group.favorites.length;
 
       header.innerHTML = `
@@ -746,7 +746,7 @@
 
             </div>
 
-            <div class="tfr-panel__game">${live.game || 'Categorie inconnue'}</div>
+            <div class="tfr-panel__game">${live.game || 'Catégorie inconnue'}</div>
 
             <div class="tfr-panel__titleLine">${live.title || 'Live sans titre'}</div>
 
@@ -788,7 +788,7 @@
 
     } else {
 
-      state.subtitleEl.textContent = 'Impossible de recuperer les favoris.';
+      state.subtitleEl.textContent = 'Impossible de récupérer les favoris.';
 
     }
 

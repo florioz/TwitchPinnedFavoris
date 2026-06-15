@@ -175,6 +175,67 @@
   cursor: grabbing;
 }
 
+.tfr-free-chip {
+  position: relative;
+  width: 52px;
+  height: 52px;
+}
+
+.tfr-free-chip__remove {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.18);
+  color: #f7f7f8;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.1s ease;
+}
+
+.tfr-free-chip__remove:hover {
+  background: rgba(255, 255, 255, 0.28);
+}
+
+.tfr-free-chip__remove:active {
+  transform: scale(0.95);
+}
+
+.tfr-category-chip-wrapper {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tfr-category-chip-remove {
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.12);
+  color: #f7f7f8;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s ease, transform 0.1s ease;
+}
+
+.tfr-category-chip-remove:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.tfr-category-chip-remove:active {
+  transform: scale(0.95);
+}
+
 .tfr-manager-controls {
   display: flex;
   flex-wrap: wrap;
@@ -672,6 +733,13 @@
   box-shadow: 0 0 0 2px rgba(191, 148, 255, 0.25);
 }
 
+.tfr-category-square.is-selected,
+.tfr-free-avatar.is-selected {
+  border-color: rgba(119, 214, 255, 0.95);
+  box-shadow: 0 0 0 2px rgba(119, 214, 255, 0.22);
+  transform: translateY(-1px);
+}
+
 .tfr-category-square--recent {
   border-color: rgba(255, 200, 120, 0.75);
   box-shadow: 0 0 0 1px rgba(255, 200, 120, 0.35);
@@ -696,12 +764,6 @@
 .tfr-board-column--free .is-drop-target,
 .tfr-category-card__grid.is-drop-target {
   background: rgba(145, 71, 255, 0.28);
-}
-
-.tfr-free-avatar.is-selected,
-.tfr-category-square.is-selected {
-  outline: 2px solid rgba(255, 255, 255, 0.95);
-  box-shadow: 0 0 0 3px rgba(145, 71, 255, 0.45);
 }
 
 .tfr-free-avatar.is-dragging,

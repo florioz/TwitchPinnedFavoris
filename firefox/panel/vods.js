@@ -88,7 +88,8 @@
     selectedVideo: null,
     clipsLoadingVideoId: null,
     clipsError: '',
-    isLoading: false
+    isLoading: false,
+    loadingProgress: { done: 0, total: 0 }
   };
 
   const elements = {
@@ -381,9 +382,16 @@
       .sort((a, b) => a.offsetSeconds - b.offsetSeconds || b.viewCount - a.viewCount);
   }
 
-  async function mapWithConcurrency(items, limit, mapper) {
+  async function mapWithConcurrency(items, limit, mapper, onProgress) {
     const results = [];
     let index = 0;
+    let completed = 0;
+    const reportProgress = () => {
+      completed += 1;
+      if (typeof onProgress === 'function') {
+        onProgress(completed, items.length);
+      }
+    };
     const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
       while (index < items.length) {
         const currentIndex = index++;
@@ -392,6 +400,8 @@
         } catch (error) {
           console.warn('[TFR VODs] fetch failed', items[currentIndex], error);
           results[currentIndex] = null;
+        } finally {
+          reportProgress();
         }
       }
     });
@@ -608,7 +618,7 @@
     } catch (error) {
       console.warn('[TFR VODs] clips fetch failed', channel.login, video.id, error);
       state.clipsByVideoId.set(video.id, []);
-      state.clipsError = 'Impossible de charger les clips associes pour le moment.';
+      state.clipsError = 'Impossible de charger les clips associés pour le moment.';
     } finally {
       if (state.clipsLoadingVideoId === video.id) {
         state.clipsLoadingVideoId = null;
@@ -659,9 +669,9 @@
     }
     if (elements.sortDirectionButton) {
       const isAsc = state.sortDirection === 'asc';
-      elements.sortDirectionButton.textContent = isAsc ? 'Asc' : 'Desc';
-      elements.sortDirectionButton.title = isAsc ? 'Tri croissant' : 'Tri decroissant';
-      elements.sortDirectionButton.setAttribute('aria-label', isAsc ? 'Tri croissant' : 'Tri decroissant');
+      elements.sortDirectionButton.textContent = isAsc ? '↑' : '↓';
+      elements.sortDirectionButton.title = isAsc ? 'Tri croissant' : 'Tri décroissant';
+      elements.sortDirectionButton.setAttribute('aria-label', isAsc ? 'Tri croissant' : 'Tri décroissant');
     }
     const count = dayCounts.get(Number(state.selectedDay)) || 0;
     elements.dayHint.textContent = count
@@ -757,9 +767,15 @@
     });
 
     const totalVideos = rows.reduce((sum, row) => sum + row.videos.length, 0);
-    elements.summary.textContent = state.isLoading
-      ? 'Chargement des VODs Twitch...'
-      : `${rows.length} streamer${rows.length > 1 ? 's' : ''} - ${totalVideos} VOD${totalVideos > 1 ? 's' : ''}`;
+    if (state.isLoading) {
+      const done = Number(state.loadingProgress?.done) || 0;
+      const total = Number(state.loadingProgress?.total) || 0;
+      elements.summary.textContent = total
+        ? `Chargement des VODs Twitch... ${done}/${total} streamers analysés`
+        : 'Chargement des VODs Twitch...';
+      return;
+    }
+    elements.summary.textContent = `${rows.length} streamer${rows.length > 1 ? 's' : ''} - ${totalVideos} VOD${totalVideos > 1 ? 's' : ''}`;
   }
 
   function buildClipSegments(clips, duration) {
@@ -836,10 +852,10 @@
         <article class="tfr-vods-inspector__preview">
           ${video.thumbnailUrl ? `<img src="${escapeHtml(video.thumbnailUrl)}" alt="" />` : '<div class="tfr-vods-inspector__placeholder"></div>'}
           <div class="tfr-vods-inspector__stats">
-            <span><strong>${escapeHtml(formatDuration(video.lengthSeconds))}</strong>Duree</span>
+            <span><strong>${escapeHtml(formatDuration(video.lengthSeconds))}</strong>Durée</span>
             <span><strong>${Number(video.viewCount || 0).toLocaleString('fr-FR')}</strong>Vues</span>
             <span><strong>${clips.length}</strong>Clips detectes</span>
-            <span><strong>${escapeHtml(video.game || 'Inconnue')}</strong>Categorie</span>
+            <span><strong>${escapeHtml(video.game || 'Inconnue')}</strong>Catégorie</span>
           </div>
         </article>
 
@@ -878,14 +894,14 @@
                   <small>${Number(clip.viewCount || 0).toLocaleString('fr-FR')} vues</small>
                 </a>
               `).join('')
-              : '<span class="tfr-vods-muted">Aucun temps fort clippe charge pour cette VOD.</span>'}
+              : '<span class="tfr-vods-muted">Aucun temps fort clippé chargé pour cette VOD.</span>'}
           </div>
         </article>
       </div>
 
       <section class="tfr-vods-clips">
         <div class="tfr-vods-clips__header">
-          <h3>Temps forts et clips associes</h3>
+          <h3>Temps forts et clips associés</h3>
           <span>${isLoading ? 'Chargement des clips...' : `${clips.length} clip${clips.length > 1 ? 's' : ''}`}</span>
         </div>
         ${state.clipsError ? `<p class="tfr-vods-clips__notice">${escapeHtml(state.clipsError)}</p>` : ''}
@@ -911,7 +927,7 @@
               `).join('')}
             </div>
           `
-          : `<p class="tfr-vods-clips__notice">${isLoading ? 'Recherche des clips en cours...' : 'Aucun clip associe trouve sur la fenetre de cette VOD.'}</p>`}
+          : `<p class="tfr-vods-clips__notice">${isLoading ? 'Recherche des clips en cours...' : 'Aucun clip associé trouvé sur la fenêtre de cette VOD.'}</p>`}
       </section>
     `;
     elements.vodInspector.querySelector('#closeInspectorButton')?.addEventListener('click', closeInspector);
@@ -919,6 +935,7 @@
 
   async function refreshData() {
     state.isLoading = true;
+    state.loadingProgress = { done: 0, total: 0 };
     elements.refreshButton.disabled = true;
     elements.refreshButton.textContent = 'Chargement...';
     renderTimeline();
@@ -927,12 +944,18 @@
     const logins = Object.values(state.favorites)
       .map((fav) => fav.login)
       .filter(Boolean);
-    const channels = await mapWithConcurrency(logins, 4, fetchChannelVods);
+    state.loadingProgress = { done: 0, total: logins.length };
+    renderTimeline();
+    const channels = await mapWithConcurrency(logins, 4, fetchChannelVods, (done, total) => {
+      state.loadingProgress = { done, total };
+      renderTimeline();
+    });
     state.videosByLogin = new Map();
     channels.filter(Boolean).forEach((channel) => {
       state.videosByLogin.set(channel.login.toLowerCase(), channel);
     });
     state.isLoading = false;
+    state.loadingProgress = { done: 0, total: 0 };
     elements.refreshButton.disabled = false;
     elements.refreshButton.textContent = 'Actualiser les VODs';
     ensureSelectedDayHasContent();

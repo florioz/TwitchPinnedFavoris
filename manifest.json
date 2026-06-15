@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Twitch Favorites Sidebar",
   "description": "Pin favorite Twitch streamers with live viewer counts, smart categories, and quick management tools.",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "icons": {
     "16": "assets/icon16.png",
     "48": "assets/icon48.png",
@@ -31,6 +31,15 @@
         "https://twitch.tv/*"
       ],
       "js": [
+        "src/contentScripts/features/favoritesStore.js",
+        "src/contentScripts/features/locationWatcher.js",
+        "src/contentScripts/features/chatModeration.js",
+        "src/contentScripts/features/updateNotifier.js",
+        "src/contentScripts/features/topNav.js",
+        "src/contentScripts/features/sidebarRenderer.js",
+        "src/contentScripts/features/channelFavoriteButton.js",
+        "src/contentScripts/features/favoritesOverlay.js",
+        "src/contentScripts/features/featureController.js",
         "src/contentScripts/main.js"
       ],
       "css": [

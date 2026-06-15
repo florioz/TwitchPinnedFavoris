@@ -161,7 +161,8 @@ body {
   color: var(--tfr-text);
   padding: 0 10px;
   font: inherit;
-  font-size: 12px;
+  font-size: 18px;
+  line-height: 1;
   font-weight: 800;
   cursor: pointer;
 }
