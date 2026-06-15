@@ -1,0 +1,15 @@
+{
+  "name": "Twitch Favorites Mobile",
+  "short_name": "TFR Mobile",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#0d0715",
+  "theme_color": "#120a1f",
+  "icons": [
+    {
+      "src": "./assets/icon128.png",
+      "sizes": "128x128",
+      "type": "image/png"
+    }
+  ]
+}

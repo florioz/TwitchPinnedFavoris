@@ -9,6 +9,7 @@ const files = [
   'src/contentScripts/overlayPanel.js',
   'panel/bootstrap.js',
   'panel/vods.js',
+  'mobile/app.js',
   'firefox/src/background/serviceWorker.js',
   'firefox/src/contentScripts/main.js',
   'firefox/src/contentScripts/overlayPanel.js',

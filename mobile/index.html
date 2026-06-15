@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#120a1f" />
+    <title>Twitch Favorites Mobile</title>
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="tfm-shell">
+      <header class="tfm-header">
+        <div>
+          <p>Twitch Favorites</p>
+          <h1>Mobile</h1>
+        </div>
+        <button id="refreshButton" class="tfm-button tfm-button--primary" type="button">Actualiser</button>
+      </header>
+
+      <nav class="tfm-tabs" aria-label="Navigation">
+        <button class="tfm-tab is-active" type="button" data-view="favorites">Groupes</button>
+        <button class="tfm-tab" type="button" data-view="vods">VODs</button>
+      </nav>
+
+      <section id="setupCard" class="tfm-setup" hidden>
+        <h2>Importer tes favoris</h2>
+        <p>
+          L'app mobile lit le meme format que l'export backup de l'extension.
+          Exporte depuis la gestion des favoris, puis importe le fichier ici.
+        </p>
+        <label class="tfm-file">
+          <input id="backupInput" type="file" accept="application/json,.json" />
+          Choisir un backup JSON
+        </label>
+      </section>
+
+      <section class="tfm-toolbar" aria-label="Filtres">
+        <label>
+          <span>Recherche</span>
+          <input id="searchInput" type="search" placeholder="Streamer, groupe ou VOD" />
+        </label>
+        <label>
+          <span>Groupe</span>
+          <select id="groupSelect"></select>
+        </label>
+      </section>
+
+      <section id="favoritesView" class="tfm-view"></section>
+
+      <section id="vodsView" class="tfm-view" hidden>
+        <div class="tfm-vods-controls">
+          <button id="previousDayButton" class="tfm-icon-button" type="button" aria-label="Jour precedent">‹</button>
+          <label>
+            <span>Jour</span>
+            <input id="dayInput" type="date" />
+          </label>
+          <button id="nextDayButton" class="tfm-icon-button" type="button" aria-label="Jour suivant">›</button>
+        </div>
+        <p id="vodSummary" class="tfm-summary"></p>
+        <div id="vodList" class="tfm-vod-list"></div>
+      </section>
+    </main>
+
+    <script src="./app.js"></script>
+  </body>
+</html>

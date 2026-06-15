@@ -1,0 +1,284 @@
+:root {
+  color-scheme: dark;
+  --bg: #0d0715;
+  --panel: #171025;
+  --panel-2: #211633;
+  --line: #4b2876;
+  --text: #f7f2ff;
+  --muted: #bca9d8;
+  --accent: #9147ff;
+  --accent-2: #d2a86a;
+  --danger: #ff5470;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--text);
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+button,
+input,
+select {
+  font: inherit;
+}
+
+.tfm-shell {
+  min-height: 100vh;
+  padding: max(18px, env(safe-area-inset-top)) 14px max(20px, env(safe-area-inset-bottom));
+}
+
+.tfm-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.tfm-header p,
+.tfm-header h1 {
+  margin: 0;
+}
+
+.tfm-header p {
+  color: var(--muted);
+  font-size: 12px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.tfm-header h1 {
+  font-size: 28px;
+  line-height: 1.1;
+}
+
+.tfm-button,
+.tfm-icon-button,
+.tfm-tab,
+.tfm-file {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-2);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.tfm-button {
+  padding: 10px 12px;
+  font-weight: 800;
+}
+
+.tfm-button--primary {
+  background: var(--accent);
+  border-color: #b17cff;
+}
+
+.tfm-icon-button {
+  width: 44px;
+  min-width: 44px;
+  height: 44px;
+  font-size: 28px;
+  line-height: 1;
+}
+
+.tfm-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.tfm-tab {
+  padding: 12px;
+  font-weight: 800;
+}
+
+.tfm-tab.is-active {
+  background: var(--accent);
+  border-color: #b17cff;
+}
+
+.tfm-setup,
+.tfm-toolbar,
+.tfm-card,
+.tfm-vod,
+.tfm-vods-controls {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+.tfm-setup {
+  padding: 16px;
+  margin-bottom: 12px;
+}
+
+.tfm-setup h2,
+.tfm-setup p {
+  margin: 0 0 10px;
+}
+
+.tfm-setup p {
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.tfm-file {
+  display: inline-flex;
+  padding: 10px 12px;
+  font-weight: 800;
+}
+
+.tfm-file input {
+  display: none;
+}
+
+.tfm-toolbar {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  margin-bottom: 14px;
+}
+
+label {
+  display: grid;
+  gap: 6px;
+}
+
+label span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+input,
+select {
+  width: 100%;
+  min-height: 42px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #110a1c;
+  color: var(--text);
+  padding: 0 10px;
+}
+
+.tfm-view {
+  display: grid;
+  gap: 12px;
+}
+
+.tfm-card {
+  overflow: hidden;
+}
+
+.tfm-card__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 14px;
+  background: #130b20;
+}
+
+.tfm-card__header h2 {
+  margin: 0;
+  font-size: 17px;
+}
+
+.tfm-count {
+  color: #d7b3ff;
+  font-weight: 800;
+}
+
+.tfm-streamers {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+}
+
+.tfm-streamer,
+.tfm-vod {
+  display: grid;
+  grid-template-columns: 46px 1fr;
+  gap: 10px;
+  align-items: center;
+  padding: 10px;
+  color: inherit;
+  text-decoration: none;
+}
+
+.tfm-streamer img,
+.tfm-vod img {
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: #2a1d3d;
+}
+
+.tfm-vod img {
+  width: 92px;
+  height: 52px;
+  border-radius: 6px;
+}
+
+.tfm-vod {
+  grid-template-columns: 92px 1fr;
+}
+
+.tfm-streamer strong,
+.tfm-vod strong {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tfm-streamer small,
+.tfm-vod small {
+  display: block;
+  color: var(--muted);
+  margin-top: 3px;
+}
+
+.tfm-live {
+  color: #ff8aa0;
+  font-weight: 800;
+}
+
+.tfm-vods-controls {
+  display: grid;
+  grid-template-columns: 44px 1fr 44px;
+  gap: 10px;
+  align-items: end;
+  padding: 12px;
+}
+
+.tfm-summary,
+.tfm-empty {
+  color: var(--muted);
+  margin: 0;
+}
+
+.tfm-vod-list {
+  display: grid;
+  gap: 10px;
+}
+
+@media (min-width: 720px) {
+  .tfm-shell {
+    max-width: 780px;
+    margin: 0 auto;
+  }
+
+  .tfm-toolbar {
+    grid-template-columns: 1fr 260px;
+  }
+}
