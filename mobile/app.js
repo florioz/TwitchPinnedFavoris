@@ -40,12 +40,16 @@
     selectedCategoryId: 'all',
     selectedDay: startOfDay(Date.now()),
     searchTerm: '',
-    isLoading: false
+    isLoading: false,
+    lastVodErrors: []
   };
 
   const elements = {
     setupCard: document.getElementById('setupCard'),
     backupInput: document.getElementById('backupInput'),
+    demoButton: document.getElementById('demoButton'),
+    importStatus: document.getElementById('importStatus'),
+    clearDataButton: document.getElementById('clearDataButton'),
     refreshButton: document.getElementById('refreshButton'),
     searchInput: document.getElementById('searchInput'),
     groupSelect: document.getElementById('groupSelect'),
@@ -121,6 +125,52 @@
     }));
   }
 
+  function setImportStatus(message, isError = false) {
+    elements.importStatus.textContent = message || '';
+    elements.importStatus.classList.toggle('is-error', Boolean(isError));
+  }
+
+  function loadDemoData() {
+    normalizeBackup({
+      categories: [
+        { id: 'demo_fr', name: 'Streamers FR', sortOrder: 1000 },
+        { id: 'demo_rp', name: 'RP / GTA', sortOrder: 2000 }
+      ],
+      favorites: {
+        zerator: {
+          login: 'zerator',
+          displayName: 'ZeratoR',
+          avatarUrl: DEFAULT_AVATAR,
+          categories: ['demo_fr']
+        },
+        ponce: {
+          login: 'ponce',
+          displayName: 'Ponce',
+          avatarUrl: DEFAULT_AVATAR,
+          categories: ['demo_fr']
+        },
+        jl_tomy: {
+          login: 'jl_tomy',
+          displayName: 'JLTomy',
+          avatarUrl: DEFAULT_AVATAR,
+          categories: ['demo_rp']
+        }
+      }
+    });
+    state.videosByLogin.clear();
+    setImportStatus('Mode demo charge. Tu peux tester les groupes et les VODs.');
+  }
+
+  function clearData() {
+    state.favorites = {};
+    state.categories = [];
+    state.videosByLogin.clear();
+    state.selectedCategoryId = 'all';
+    localStorage.removeItem(STORAGE_KEY);
+    setImportStatus('');
+    render();
+  }
+
   function normalizeBackup(payload = {}) {
     const favorites = payload.favorites && typeof payload.favorites === 'object' ? payload.favorites : {};
     const categories = Array.isArray(payload.categories) ? payload.categories : [];
@@ -147,6 +197,7 @@
         parentId: typeof category.parentId === 'string' && category.parentId.trim() ? category.parentId : null,
         sortOrder: Number.isFinite(category.sortOrder) ? category.sortOrder : index * 1000
       }));
+    state.selectedCategoryId = 'all';
     persistLocalState();
   }
 
@@ -252,12 +303,24 @@
 
   async function refreshVods() {
     const favorites = getVisibleFavorites();
+    if (!favorites.length) {
+      state.videosByLogin.clear();
+      state.lastVodErrors = [];
+      renderVods();
+      return;
+    }
     state.isLoading = true;
+    state.lastVodErrors = [];
     renderVods();
     const results = await Promise.allSettled(favorites.map((favorite) => fetchChannelVods(favorite.login)));
-    results.forEach((result) => {
+    results.forEach((result, index) => {
       if (result.status === 'fulfilled' && result.value) {
         state.videosByLogin.set(result.value.login.toLowerCase(), result.value);
+      } else if (result.status === 'rejected') {
+        state.lastVodErrors.push({
+          login: favorites[index]?.login || 'unknown',
+          message: result.reason?.message || 'Erreur Twitch'
+        });
       }
     });
     state.isLoading = false;
@@ -298,7 +361,9 @@
   }
 
   function renderFilters() {
-    elements.setupCard.hidden = Object.keys(state.favorites).length > 0;
+    const hasFavorites = Object.keys(state.favorites).length > 0;
+    elements.setupCard.hidden = hasFavorites;
+    elements.clearDataButton.hidden = !hasFavorites;
     const selected = state.selectedCategoryId;
     elements.groupSelect.innerHTML = '<option value="all">Tous les groupes</option>';
     flattenCategories().forEach((category) => {
@@ -378,9 +443,12 @@
     const videos = getVisibleVideos();
     elements.refreshButton.disabled = state.isLoading;
     elements.refreshButton.textContent = state.isLoading ? 'Chargement...' : 'Actualiser';
-    elements.vodSummary.textContent = state.isLoading
-      ? 'Chargement des VODs Twitch...'
-      : `${videos.length} VOD${videos.length > 1 ? 's' : ''}`;
+    if (state.isLoading) {
+      elements.vodSummary.textContent = 'Chargement des VODs Twitch...';
+    } else {
+      const errorText = state.lastVodErrors.length ? ` - ${state.lastVodErrors.length} erreur${state.lastVodErrors.length > 1 ? 's' : ''} Twitch` : '';
+      elements.vodSummary.textContent = `${videos.length} VOD${videos.length > 1 ? 's' : ''}${errorText}`;
+    }
     elements.vodList.innerHTML = videos.length
       ? videos.map(renderVod).join('')
       : '<p class="tfm-empty">Aucune VOD pour ce jour et ce groupe.</p>';
@@ -429,6 +497,11 @@
       render();
     });
     elements.refreshButton.addEventListener('click', refreshVods);
+    elements.demoButton.addEventListener('click', () => {
+      loadDemoData();
+      render();
+    });
+    elements.clearDataButton.addEventListener('click', clearData);
     elements.previousDayButton.addEventListener('click', () => {
       state.selectedDay = clampDay(state.selectedDay - DAY_MS);
       renderFilters();
@@ -447,9 +520,14 @@
     elements.backupInput.addEventListener('change', async (event) => {
       const [file] = event.target.files || [];
       if (!file) return;
-      normalizeBackup(JSON.parse(await file.text()));
-      state.videosByLogin.clear();
-      render();
+      try {
+        normalizeBackup(JSON.parse(await file.text()));
+        state.videosByLogin.clear();
+        setImportStatus('Backup importe. Les groupes et streamers sont prets.');
+        render();
+      } catch (error) {
+        setImportStatus(`Import impossible: ${error?.message || 'JSON invalide'}`, true);
+      }
     });
   }
 

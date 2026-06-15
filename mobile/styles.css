@@ -80,6 +80,10 @@ select {
   border-color: #b17cff;
 }
 
+.tfm-button--ghost {
+  background: transparent;
+}
+
 .tfm-icon-button {
   width: 44px;
   min-width: 44px;
@@ -128,6 +132,21 @@ select {
 .tfm-setup p {
   color: var(--muted);
   line-height: 1.45;
+}
+
+.tfm-setup__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.tfm-status {
+  min-height: 20px;
+  margin-bottom: 0;
+}
+
+.tfm-status.is-error {
+  color: var(--danger);
 }
 
 .tfm-file {
@@ -279,6 +298,7 @@ select {
   }
 
   .tfm-toolbar {
-    grid-template-columns: 1fr 260px;
+    grid-template-columns: 1fr 260px auto;
+    align-items: end;
   }
 }

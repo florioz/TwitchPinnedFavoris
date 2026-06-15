@@ -29,10 +29,14 @@
           L'app mobile lit le meme format que l'export backup de l'extension.
           Exporte depuis la gestion des favoris, puis importe le fichier ici.
         </p>
-        <label class="tfm-file">
-          <input id="backupInput" type="file" accept="application/json,.json" />
-          Choisir un backup JSON
-        </label>
+        <div class="tfm-setup__actions">
+          <label class="tfm-file">
+            <input id="backupInput" type="file" accept="application/json,.json" />
+            Choisir un backup JSON
+          </label>
+          <button id="demoButton" class="tfm-button" type="button">Mode demo</button>
+        </div>
+        <p id="importStatus" class="tfm-status" aria-live="polite"></p>
       </section>
 
       <section class="tfm-toolbar" aria-label="Filtres">
@@ -44,18 +48,19 @@
           <span>Groupe</span>
           <select id="groupSelect"></select>
         </label>
+        <button id="clearDataButton" class="tfm-button tfm-button--ghost" type="button" hidden>Vider les donnees</button>
       </section>
 
       <section id="favoritesView" class="tfm-view"></section>
 
       <section id="vodsView" class="tfm-view" hidden>
         <div class="tfm-vods-controls">
-          <button id="previousDayButton" class="tfm-icon-button" type="button" aria-label="Jour precedent">‹</button>
+          <button id="previousDayButton" class="tfm-icon-button" type="button" aria-label="Jour precedent">&lt;</button>
           <label>
             <span>Jour</span>
             <input id="dayInput" type="date" />
           </label>
-          <button id="nextDayButton" class="tfm-icon-button" type="button" aria-label="Jour suivant">›</button>
+          <button id="nextDayButton" class="tfm-icon-button" type="button" aria-label="Jour suivant">&gt;</button>
         </div>
         <p id="vodSummary" class="tfm-summary"></p>
         <div id="vodList" class="tfm-vod-list"></div>

@@ -10,6 +10,7 @@ const files = [
   'panel/bootstrap.js',
   'panel/vods.js',
   'mobile/app.js',
+  'scripts/serve-mobile.js',
   'firefox/src/background/serviceWorker.js',
   'firefox/src/contentScripts/main.js',
   'firefox/src/contentScripts/overlayPanel.js',
