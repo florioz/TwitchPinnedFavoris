@@ -21,6 +21,7 @@
 
 body {
   margin: 0;
+  overflow-x: hidden;
   min-height: 100vh;
   background: var(--bg);
   color: var(--text);
@@ -34,8 +35,11 @@ select {
 }
 
 .tfm-shell {
+  width: 100%;
+  max-width: 100vw;
   min-height: 100vh;
   padding: max(18px, env(safe-area-inset-top)) 14px max(20px, env(safe-area-inset-bottom));
+  overflow-x: hidden;
 }
 
 .tfm-header {
@@ -98,7 +102,7 @@ select {
 
 .tfm-tabs {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr;
   gap: 10px;
   margin-bottom: 14px;
 }
@@ -178,9 +182,11 @@ select {
 
 .tfm-toolbar {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 10px;
   padding: 12px;
   margin-bottom: 14px;
+  min-width: 0;
 }
 
 .tfm-toolbar--groups {
@@ -290,6 +296,7 @@ select {
   padding: 10px;
   color: inherit;
   text-decoration: none;
+  min-width: 0;
 }
 
 .tfm-streamer img,
@@ -302,13 +309,15 @@ select {
 }
 
 .tfm-vod img {
-  width: 92px;
-  height: 52px;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 16 / 9;
   border-radius: 6px;
 }
 
 .tfm-vod {
-  grid-template-columns: 92px 1fr;
+  grid-template-columns: 1fr;
+  align-items: start;
 }
 
 .tfm-streamer strong,
@@ -316,7 +325,8 @@ select {
   display: block;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .tfm-streamer small,
@@ -333,9 +343,10 @@ select {
 
 .tfm-vods-controls {
   display: grid;
-  grid-template-columns: 44px 1fr 44px;
+  grid-template-columns: 44px minmax(0, 1fr) 44px;
   gap: 10px;
   align-items: end;
+  min-width: 0;
 }
 
 .tfm-summary,
@@ -347,6 +358,7 @@ select {
 .tfm-vod-list {
   display: grid;
   gap: 10px;
+  min-width: 0;
 }
 
 @media (min-width: 720px) {
@@ -358,5 +370,17 @@ select {
   .tfm-toolbar {
     grid-template-columns: 1fr 260px auto;
     align-items: end;
+  }
+
+  .tfm-toolbar--vods {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .tfm-tabs {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .tfm-vod {
+    grid-template-columns: 120px minmax(0, 1fr);
   }
 }
