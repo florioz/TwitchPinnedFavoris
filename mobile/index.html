@@ -62,6 +62,10 @@
             <span>Afficher le groupe</span>
             <select id="groupSelect"></select>
           </label>
+          <label class="tfm-toggle">
+            <input id="liveOnlyInput" type="checkbox" />
+            <span>En live seulement</span>
+          </label>
         </section>
         <div id="favoritesList" class="tfm-view-list"></div>
       </section>
@@ -83,6 +87,16 @@
             <span>Groupe VOD</span>
             <select id="vodGroupSelect"></select>
           </label>
+          <label>
+            <span>Trier par</span>
+            <select id="vodSortSelect">
+              <option value="time">Heure de VOD</option>
+              <option value="views">Nombre de vues</option>
+              <option value="duration">Duree</option>
+              <option value="name">Nom du streamer</option>
+            </select>
+          </label>
+          <button id="vodSortDirectionButton" class="tfm-button tfm-button--ghost" type="button">Croissant</button>
           <div class="tfm-vods-controls">
             <button id="previousDayButton" class="tfm-icon-button" type="button" aria-label="Jour precedent">&lt;</button>
             <label>

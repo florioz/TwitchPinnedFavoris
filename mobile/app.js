@@ -7,6 +7,24 @@
   const MAX_DAY_OFFSET = 60;
   const VIDEO_LIMIT = 40;
 
+  const LIVE_QUERY = `
+    query TfmChannelLive($login: String!) {
+      user(login: $login) {
+        id
+        login
+        displayName
+        profileImageURL(width: 96)
+        stream {
+          id
+          title
+          viewersCount
+          createdAt
+          game { name }
+        }
+      }
+    }
+  `;
+
   const VODS_QUERY = `
     query TfmChannelVideos($login: String!, $limit: Int!) {
       user(login: $login) {
@@ -35,6 +53,7 @@
   const state = {
     favorites: {},
     categories: [],
+    liveByLogin: new Map(),
     videosByLogin: new Map(),
     activeView: 'favorites',
     selectedCategoryId: 'all',
@@ -42,7 +61,12 @@
     selectedDay: startOfDay(Date.now()),
     searchTerm: '',
     vodSearchTerm: '',
+    liveOnly: false,
+    collapsedCategoryIds: new Set(),
+    vodSortKey: 'time',
+    vodSortDirection: 'asc',
     isLoading: false,
+    isLiveLoading: false,
     lastVodErrors: []
   };
 
@@ -55,8 +79,11 @@
     refreshButton: document.getElementById('refreshButton'),
     searchInput: document.getElementById('searchInput'),
     groupSelect: document.getElementById('groupSelect'),
+    liveOnlyInput: document.getElementById('liveOnlyInput'),
     vodSearchInput: document.getElementById('vodSearchInput'),
     vodGroupSelect: document.getElementById('vodGroupSelect'),
+    vodSortSelect: document.getElementById('vodSortSelect'),
+    vodSortDirectionButton: document.getElementById('vodSortDirectionButton'),
     tabs: Array.from(document.querySelectorAll('.tfm-tab')),
     favoritesView: document.getElementById('favoritesView'),
     favoritesList: document.getElementById('favoritesList'),
@@ -169,9 +196,11 @@
   function clearData() {
     state.favorites = {};
     state.categories = [];
+    state.liveByLogin.clear();
     state.videosByLogin.clear();
     state.selectedCategoryId = 'all';
     state.selectedVodCategoryId = 'all';
+    state.collapsedCategoryIds.clear();
     localStorage.removeItem(STORAGE_KEY);
     setImportStatus('');
     render();
@@ -205,6 +234,7 @@
       }));
     state.selectedCategoryId = 'all';
     state.selectedVodCategoryId = 'all';
+    state.collapsedCategoryIds.clear();
     persistLocalState();
   }
 
@@ -250,12 +280,13 @@
     return result;
   }
 
-  function getVisibleFavorites(categoryId = state.selectedCategoryId, termValue = state.searchTerm) {
+  function getVisibleFavorites(categoryId = state.selectedCategoryId, termValue = state.searchTerm, liveFilter = true) {
     const term = termValue.trim().toLowerCase();
     const allowed = categoryId === 'all' ? null : collectDescendantIds(categoryId);
     return Object.values(state.favorites)
       .filter((favorite) => {
         if (allowed && !favorite.categories?.some((id) => allowed.has(id))) return false;
+        if (liveFilter && state.liveOnly && !state.liveByLogin.get(favorite.login)?.isLive) return false;
         if (!term) return true;
         return (
           favorite.displayName.toLowerCase().includes(term) ||
@@ -308,8 +339,59 @@
     };
   }
 
+  async function fetchChannelLive(login) {
+    const response = await fetch(TWITCH_GRAPHQL_ENDPOINT, {
+      method: 'POST',
+      headers: {
+        'Client-ID': TWITCH_CLIENT_ID,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        query: LIVE_QUERY,
+        variables: { login }
+      })
+    });
+    if (!response.ok) throw new Error(`Twitch ${response.status}`);
+    const payload = await response.json();
+    const user = payload?.data?.user;
+    if (!user) return null;
+    const stream = user.stream;
+    return {
+      login: user.login || login,
+      displayName: user.displayName || state.favorites[login]?.displayName || login,
+      avatarUrl: user.profileImageURL || state.favorites[login]?.avatarUrl || DEFAULT_AVATAR,
+      isLive: Boolean(stream),
+      title: stream?.title || '',
+      game: stream?.game?.name || '',
+      viewers: Number(stream?.viewersCount) || 0,
+      startedAt: stream?.createdAt || ''
+    };
+  }
+
+  async function refreshLiveData() {
+    const favorites = Object.values(state.favorites);
+    if (!favorites.length || state.isLiveLoading) return;
+    state.isLiveLoading = true;
+    renderFavorites();
+    const results = await Promise.allSettled(favorites.map((favorite) => fetchChannelLive(favorite.login)));
+    results.forEach((result) => {
+      if (result.status !== 'fulfilled' || !result.value) return;
+      const live = result.value;
+      const login = live.login.toLowerCase();
+      state.liveByLogin.set(login, live);
+      const favorite = state.favorites[login];
+      if (favorite) {
+        favorite.displayName = live.displayName || favorite.displayName;
+        favorite.avatarUrl = live.avatarUrl || favorite.avatarUrl;
+      }
+    });
+    state.isLiveLoading = false;
+    persistLocalState();
+    renderFavorites();
+  }
+
   async function refreshVods() {
-    const favorites = getVisibleFavorites(state.selectedVodCategoryId, '');
+    const favorites = getVisibleFavorites(state.selectedVodCategoryId, '', false);
     if (!favorites.length) {
       state.videosByLogin.clear();
       state.lastVodErrors = [];
@@ -338,7 +420,7 @@
   function ensureDayHasContent() {
     if (getVisibleVideos().length) return;
     const days = [];
-    getVisibleFavorites(state.selectedVodCategoryId, '').forEach((favorite) => {
+    getVisibleFavorites(state.selectedVodCategoryId, '', false).forEach((favorite) => {
       const channel = state.videosByLogin.get(favorite.login);
       channel?.videos.forEach((video) => days.push(startOfDay(video.createdAt)));
     });
@@ -347,11 +429,18 @@
     }
   }
 
+  function getVodMetric(entry) {
+    if (state.vodSortKey === 'views') return Number(entry.video.viewCount) || 0;
+    if (state.vodSortKey === 'duration') return Number(entry.video.lengthSeconds) || 0;
+    if (state.vodSortKey === 'name') return entry.channel.displayName || entry.channel.login || '';
+    return new Date(entry.video.createdAt).getTime();
+  }
+
   function getVisibleVideos() {
     const dayStart = Number(state.selectedDay);
     const dayEnd = dayStart + DAY_MS;
     const term = state.vodSearchTerm.trim().toLowerCase();
-    return getVisibleFavorites(state.selectedVodCategoryId, '')
+    return getVisibleFavorites(state.selectedVodCategoryId, '', false)
       .flatMap((favorite) => {
         const channel = state.videosByLogin.get(favorite.login);
         if (!channel) return [];
@@ -360,11 +449,24 @@
             const startedAt = new Date(video.createdAt).getTime();
             if (startedAt < dayStart || startedAt >= dayEnd) return false;
             if (!term) return true;
-            return video.title.toLowerCase().includes(term) || video.game.toLowerCase().includes(term);
+            return (
+              video.title.toLowerCase().includes(term) ||
+              video.game.toLowerCase().includes(term) ||
+              channel.displayName.toLowerCase().includes(term) ||
+              channel.login.toLowerCase().includes(term)
+            );
           })
           .map((video) => ({ channel, video }));
       })
-      .sort((a, b) => new Date(a.video.createdAt).getTime() - new Date(b.video.createdAt).getTime());
+      .sort((a, b) => {
+        const direction = state.vodSortDirection === 'asc' ? 1 : -1;
+        const aMetric = getVodMetric(a);
+        const bMetric = getVodMetric(b);
+        if (typeof aMetric === 'string' || typeof bMetric === 'string') {
+          return String(aMetric).localeCompare(String(bMetric), 'fr', { sensitivity: 'base' }) * direction;
+        }
+        return ((aMetric || 0) - (bMetric || 0)) * direction;
+      });
   }
 
   function renderFilters() {
@@ -390,6 +492,9 @@
     elements.vodGroupSelect.innerHTML = '';
     elements.vodGroupSelect.appendChild(groupOptions.cloneNode(true));
     elements.vodGroupSelect.value = selectedVod;
+    elements.liveOnlyInput.checked = state.liveOnly;
+    elements.vodSortSelect.value = state.vodSortKey;
+    elements.vodSortDirectionButton.textContent = state.vodSortDirection === 'asc' ? 'Croissant' : 'Descendant';
 
     const today = startOfDay(Date.now());
     const oldest = today - MAX_DAY_OFFSET * DAY_MS;
@@ -418,24 +523,28 @@
       byCategory.get(categoryId).push(favorite);
     });
     const cards = flattenCategories()
-      .map((category) => renderCategoryCard(category, byCategory.get(category.id) || []))
+      .map((category) => renderCategoryCard(category, byCategory.get(category.id) || [], category.id))
       .filter(Boolean);
     if (uncategorized.length) {
-      cards.unshift(renderCategoryCard({ name: 'Sans groupe' }, uncategorized));
+      cards.unshift(renderCategoryCard({ name: 'Sans groupe' }, uncategorized, 'uncategorized'));
     }
     elements.favoritesList.innerHTML = cards.join('') || '<p class="tfm-empty">Aucun streamer dans ce groupe.</p>';
   }
 
-  function renderCategoryCard(category, favorites) {
+  function renderCategoryCard(category, favorites, categoryId) {
     if (!favorites.length && state.selectedCategoryId !== 'all') return '';
     if (!favorites.length) return '';
+    const isCollapsed = state.collapsedCategoryIds.has(categoryId);
     return `
       <article class="tfm-card">
         <header class="tfm-card__header">
-          <h2>${escapeHtml(category.name)}</h2>
+          <button class="tfm-collapse-button" type="button" data-category-id="${escapeHtml(categoryId)}" aria-expanded="${String(!isCollapsed)}">
+            <span>${isCollapsed ? '+' : '-'}</span>
+            <h2>${escapeHtml(category.name)}</h2>
+          </button>
           <span class="tfm-count">${favorites.length}</span>
         </header>
-        <div class="tfm-streamers">
+        <div class="tfm-streamers" ${isCollapsed ? 'hidden' : ''}>
           ${favorites.map(renderStreamer).join('')}
         </div>
       </article>
@@ -444,12 +553,17 @@
 
   function renderStreamer(favorite) {
     const liveLabel = favorite.categoryFilter?.enabled ? '<small>Filtre Twitch actif</small>' : '';
+    const live = state.liveByLogin.get(favorite.login);
+    const liveStatus = live?.isLive
+      ? `<small class="tfm-live">LIVE - ${Number(live.viewers || 0).toLocaleString('fr-FR')} viewers${live.game ? ` - ${escapeHtml(live.game)}` : ''}</small>`
+      : '<small>Hors ligne</small>';
     return `
       <a class="tfm-streamer" href="https://www.twitch.tv/${escapeHtml(favorite.login)}" target="_blank" rel="noopener noreferrer">
         <img src="${escapeHtml(favorite.avatarUrl || DEFAULT_AVATAR)}" alt="" />
         <span>
           <strong>${escapeHtml(favorite.displayName || favorite.login)}</strong>
           <small>@${escapeHtml(favorite.login)}</small>
+          ${liveStatus}
           ${liveLabel}
         </span>
       </a>
@@ -475,7 +589,10 @@
     const startedAt = new Date(video.createdAt);
     return `
       <a class="tfm-vod" href="${escapeHtml(video.url)}" target="_blank" rel="noopener noreferrer">
-        <img src="${escapeHtml(video.thumbnailUrl || channel.avatarUrl || DEFAULT_AVATAR)}" alt="" />
+        <div class="tfm-vod-media">
+          <img class="tfm-vod-thumb" src="${escapeHtml(video.thumbnailUrl || channel.avatarUrl || DEFAULT_AVATAR)}" alt="" />
+          <img class="tfm-vod-avatar" src="${escapeHtml(channel.avatarUrl || DEFAULT_AVATAR)}" alt="" />
+        </div>
         <span>
           <strong>${escapeHtml(video.title)}</strong>
           <small>${escapeHtml(channel.displayName)} - ${startedAt.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })} - ${escapeHtml(formatDuration(video.lengthSeconds))}</small>
@@ -513,6 +630,26 @@
       state.selectedCategoryId = event.target.value || 'all';
       render();
     });
+    elements.liveOnlyInput.addEventListener('change', (event) => {
+      state.liveOnly = Boolean(event.target.checked);
+      if (state.liveOnly && !state.liveByLogin.size) {
+        refreshLiveData();
+      }
+      renderFilters();
+      renderFavorites();
+    });
+    elements.favoritesList.addEventListener('click', (event) => {
+      const button = event.target.closest('.tfm-collapse-button');
+      if (!button) return;
+      const categoryId = button.dataset.categoryId;
+      if (!categoryId) return;
+      if (state.collapsedCategoryIds.has(categoryId)) {
+        state.collapsedCategoryIds.delete(categoryId);
+      } else {
+        state.collapsedCategoryIds.add(categoryId);
+      }
+      renderFavorites();
+    });
     elements.vodSearchInput.addEventListener('input', (event) => {
       state.vodSearchTerm = event.target.value || '';
       renderVods();
@@ -523,10 +660,21 @@
       renderFilters();
       renderVods();
     });
+    elements.vodSortSelect.addEventListener('change', (event) => {
+      state.vodSortKey = event.target.value || 'time';
+      renderFilters();
+      renderVods();
+    });
+    elements.vodSortDirectionButton.addEventListener('click', () => {
+      state.vodSortDirection = state.vodSortDirection === 'asc' ? 'desc' : 'asc';
+      renderFilters();
+      renderVods();
+    });
     elements.refreshButton.addEventListener('click', refreshVods);
     elements.demoButton.addEventListener('click', () => {
       loadDemoData();
       render();
+      refreshLiveData();
     });
     elements.clearDataButton.addEventListener('click', clearData);
     elements.previousDayButton.addEventListener('click', () => {
@@ -549,9 +697,11 @@
       if (!file) return;
       try {
         normalizeBackup(JSON.parse(await file.text()));
+        state.liveByLogin.clear();
         state.videosByLogin.clear();
         setImportStatus('Backup importe. Les groupes et streamers sont prets.');
         render();
+        refreshLiveData();
       } catch (error) {
         setImportStatus(`Import impossible: ${error?.message || 'JSON invalide'}`, true);
       }
@@ -562,4 +712,5 @@
   bindEvents();
   render();
   setView(state.activeView);
+  refreshLiveData();
 })();
