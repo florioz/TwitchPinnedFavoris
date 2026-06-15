@@ -38,8 +38,10 @@
     videosByLogin: new Map(),
     activeView: 'favorites',
     selectedCategoryId: 'all',
+    selectedVodCategoryId: 'all',
     selectedDay: startOfDay(Date.now()),
     searchTerm: '',
+    vodSearchTerm: '',
     isLoading: false,
     lastVodErrors: []
   };
@@ -53,8 +55,11 @@
     refreshButton: document.getElementById('refreshButton'),
     searchInput: document.getElementById('searchInput'),
     groupSelect: document.getElementById('groupSelect'),
+    vodSearchInput: document.getElementById('vodSearchInput'),
+    vodGroupSelect: document.getElementById('vodGroupSelect'),
     tabs: Array.from(document.querySelectorAll('.tfm-tab')),
     favoritesView: document.getElementById('favoritesView'),
+    favoritesList: document.getElementById('favoritesList'),
     vodsView: document.getElementById('vodsView'),
     previousDayButton: document.getElementById('previousDayButton'),
     nextDayButton: document.getElementById('nextDayButton'),
@@ -166,6 +171,7 @@
     state.categories = [];
     state.videosByLogin.clear();
     state.selectedCategoryId = 'all';
+    state.selectedVodCategoryId = 'all';
     localStorage.removeItem(STORAGE_KEY);
     setImportStatus('');
     render();
@@ -198,6 +204,7 @@
         sortOrder: Number.isFinite(category.sortOrder) ? category.sortOrder : index * 1000
       }));
     state.selectedCategoryId = 'all';
+    state.selectedVodCategoryId = 'all';
     persistLocalState();
   }
 
@@ -243,9 +250,9 @@
     return result;
   }
 
-  function getVisibleFavorites() {
-    const term = state.searchTerm.trim().toLowerCase();
-    const allowed = state.selectedCategoryId === 'all' ? null : collectDescendantIds(state.selectedCategoryId);
+  function getVisibleFavorites(categoryId = state.selectedCategoryId, termValue = state.searchTerm) {
+    const term = termValue.trim().toLowerCase();
+    const allowed = categoryId === 'all' ? null : collectDescendantIds(categoryId);
     return Object.values(state.favorites)
       .filter((favorite) => {
         if (allowed && !favorite.categories?.some((id) => allowed.has(id))) return false;
@@ -302,7 +309,7 @@
   }
 
   async function refreshVods() {
-    const favorites = getVisibleFavorites();
+    const favorites = getVisibleFavorites(state.selectedVodCategoryId, '');
     if (!favorites.length) {
       state.videosByLogin.clear();
       state.lastVodErrors = [];
@@ -331,7 +338,7 @@
   function ensureDayHasContent() {
     if (getVisibleVideos().length) return;
     const days = [];
-    getVisibleFavorites().forEach((favorite) => {
+    getVisibleFavorites(state.selectedVodCategoryId, '').forEach((favorite) => {
       const channel = state.videosByLogin.get(favorite.login);
       channel?.videos.forEach((video) => days.push(startOfDay(video.createdAt)));
     });
@@ -343,8 +350,8 @@
   function getVisibleVideos() {
     const dayStart = Number(state.selectedDay);
     const dayEnd = dayStart + DAY_MS;
-    const term = state.searchTerm.trim().toLowerCase();
-    return getVisibleFavorites()
+    const term = state.vodSearchTerm.trim().toLowerCase();
+    return getVisibleFavorites(state.selectedVodCategoryId, '')
       .flatMap((favorite) => {
         const channel = state.videosByLogin.get(favorite.login);
         if (!channel) return [];
@@ -365,14 +372,24 @@
     elements.setupCard.hidden = hasFavorites;
     elements.clearDataButton.hidden = !hasFavorites;
     const selected = state.selectedCategoryId;
-    elements.groupSelect.innerHTML = '<option value="all">Tous les groupes</option>';
+    const selectedVod = state.selectedVodCategoryId;
+    const groupOptions = document.createDocumentFragment();
+    const allOption = document.createElement('option');
+    allOption.value = 'all';
+    allOption.textContent = 'Tous les groupes';
+    groupOptions.appendChild(allOption);
     flattenCategories().forEach((category) => {
       const option = document.createElement('option');
       option.value = category.id;
       option.textContent = `${category.depth ? '  '.repeat(category.depth) + '- ' : ''}${category.name}`;
-      elements.groupSelect.appendChild(option);
+      groupOptions.appendChild(option);
     });
+    elements.groupSelect.innerHTML = '';
+    elements.groupSelect.appendChild(groupOptions.cloneNode(true));
     elements.groupSelect.value = selected;
+    elements.vodGroupSelect.innerHTML = '';
+    elements.vodGroupSelect.appendChild(groupOptions.cloneNode(true));
+    elements.vodGroupSelect.value = selectedVod;
 
     const today = startOfDay(Date.now());
     const oldest = today - MAX_DAY_OFFSET * DAY_MS;
@@ -386,7 +403,7 @@
   function renderFavorites() {
     const favorites = getVisibleFavorites();
     if (!favorites.length) {
-      elements.favoritesView.innerHTML = '<p class="tfm-empty">Aucun streamer a afficher.</p>';
+      elements.favoritesList.innerHTML = '<p class="tfm-empty">Aucun streamer a afficher.</p>';
       return;
     }
     const byCategory = new Map();
@@ -406,7 +423,7 @@
     if (uncategorized.length) {
       cards.unshift(renderCategoryCard({ name: 'Sans groupe' }, uncategorized));
     }
-    elements.favoritesView.innerHTML = cards.join('') || '<p class="tfm-empty">Aucun streamer dans ce groupe.</p>';
+    elements.favoritesList.innerHTML = cards.join('') || '<p class="tfm-empty">Aucun streamer dans ce groupe.</p>';
   }
 
   function renderCategoryCard(category, favorites) {
@@ -473,6 +490,7 @@
     elements.tabs.forEach((tab) => tab.classList.toggle('is-active', tab.dataset.view === view));
     elements.favoritesView.hidden = view !== 'favorites';
     elements.vodsView.hidden = view !== 'vods';
+    elements.refreshButton.hidden = view !== 'vods';
     if (view === 'vods' && !state.videosByLogin.size) {
       refreshVods();
     }
@@ -493,8 +511,17 @@
     });
     elements.groupSelect.addEventListener('change', (event) => {
       state.selectedCategoryId = event.target.value || 'all';
-      ensureDayHasContent();
       render();
+    });
+    elements.vodSearchInput.addEventListener('input', (event) => {
+      state.vodSearchTerm = event.target.value || '';
+      renderVods();
+    });
+    elements.vodGroupSelect.addEventListener('change', (event) => {
+      state.selectedVodCategoryId = event.target.value || 'all';
+      ensureDayHasContent();
+      renderFilters();
+      renderVods();
     });
     elements.refreshButton.addEventListener('click', refreshVods);
     elements.demoButton.addEventListener('click', () => {
@@ -534,4 +561,5 @@
   readLocalState();
   bindEvents();
   render();
+  setView(state.activeView);
 })();

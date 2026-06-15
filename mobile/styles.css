@@ -95,13 +95,16 @@ select {
 .tfm-tabs {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 8px;
-  margin-bottom: 12px;
+  gap: 10px;
+  margin-bottom: 14px;
 }
 
 .tfm-tab {
+  display: grid;
+  gap: 4px;
   padding: 12px;
   font-weight: 800;
+  text-align: left;
 }
 
 .tfm-tab.is-active {
@@ -109,11 +112,21 @@ select {
   border-color: #b17cff;
 }
 
+.tfm-tab span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.tfm-tab.is-active span {
+  color: #f2e8ff;
+}
+
 .tfm-setup,
 .tfm-toolbar,
 .tfm-card,
 .tfm-vod,
-.tfm-vods-controls {
+.tfm-view-header {
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--panel);
@@ -166,6 +179,14 @@ select {
   margin-bottom: 14px;
 }
 
+.tfm-toolbar--groups {
+  border-color: #5a3288;
+}
+
+.tfm-toolbar--vods {
+  border-color: #6a4a2b;
+}
+
 label {
   display: grid;
   gap: 6px;
@@ -189,6 +210,40 @@ select {
 }
 
 .tfm-view {
+  display: grid;
+  gap: 12px;
+}
+
+.tfm-view-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px;
+}
+
+.tfm-view-header p,
+.tfm-view-header h2 {
+  margin: 0;
+}
+
+.tfm-view-header p {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
+.tfm-view-header h2 {
+  font-size: 19px;
+}
+
+.tfm-view-header--vods {
+  border-color: #6a4a2b;
+}
+
+.tfm-view-list {
   display: grid;
   gap: 12px;
 }
@@ -277,7 +332,6 @@ select {
   grid-template-columns: 44px 1fr 44px;
   gap: 10px;
   align-items: end;
-  padding: 12px;
 }
 
 .tfm-summary,

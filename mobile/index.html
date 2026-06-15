@@ -19,8 +19,14 @@
       </header>
 
       <nav class="tfm-tabs" aria-label="Navigation">
-        <button class="tfm-tab is-active" type="button" data-view="favorites">Groupes</button>
-        <button class="tfm-tab" type="button" data-view="vods">VODs</button>
+        <button class="tfm-tab is-active" type="button" data-view="favorites">
+          <strong>Groupes</strong>
+          <span>Streamers et categories</span>
+        </button>
+        <button class="tfm-tab" type="button" data-view="vods">
+          <strong>VODs</strong>
+          <span>Planning par jour</span>
+        </button>
       </nav>
 
       <section id="setupCard" class="tfm-setup" hidden>
@@ -39,30 +45,53 @@
         <p id="importStatus" class="tfm-status" aria-live="polite"></p>
       </section>
 
-      <section class="tfm-toolbar" aria-label="Filtres">
-        <label>
-          <span>Recherche</span>
-          <input id="searchInput" type="search" placeholder="Streamer, groupe ou VOD" />
-        </label>
-        <label>
-          <span>Groupe</span>
-          <select id="groupSelect"></select>
-        </label>
-        <button id="clearDataButton" class="tfm-button tfm-button--ghost" type="button" hidden>Vider les donnees</button>
+      <section id="favoritesView" class="tfm-view">
+        <div class="tfm-view-header">
+          <div>
+            <p>Bibliotheque</p>
+            <h2>Groupes et streamers</h2>
+          </div>
+          <button id="clearDataButton" class="tfm-button tfm-button--ghost" type="button" hidden>Vider</button>
+        </div>
+        <section class="tfm-toolbar tfm-toolbar--groups" aria-label="Filtres des groupes">
+          <label>
+            <span>Recherche streamer</span>
+            <input id="searchInput" type="search" placeholder="Nom du streamer ou groupe" />
+          </label>
+          <label>
+            <span>Afficher le groupe</span>
+            <select id="groupSelect"></select>
+          </label>
+        </section>
+        <div id="favoritesList" class="tfm-view-list"></div>
       </section>
 
-      <section id="favoritesView" class="tfm-view"></section>
-
       <section id="vodsView" class="tfm-view" hidden>
-        <div class="tfm-vods-controls">
-          <button id="previousDayButton" class="tfm-icon-button" type="button" aria-label="Jour precedent">&lt;</button>
-          <label>
-            <span>Jour</span>
-            <input id="dayInput" type="date" />
-          </label>
-          <button id="nextDayButton" class="tfm-icon-button" type="button" aria-label="Jour suivant">&gt;</button>
+        <div class="tfm-view-header tfm-view-header--vods">
+          <div>
+            <p>Planning</p>
+            <h2>VODs disponibles</h2>
+          </div>
+          <span id="vodSummary" class="tfm-summary"></span>
         </div>
-        <p id="vodSummary" class="tfm-summary"></p>
+        <section class="tfm-toolbar tfm-toolbar--vods" aria-label="Filtres des VODs">
+          <label>
+            <span>Recherche VOD</span>
+            <input id="vodSearchInput" type="search" placeholder="Titre, jeu ou streamer" />
+          </label>
+          <label>
+            <span>Groupe VOD</span>
+            <select id="vodGroupSelect"></select>
+          </label>
+          <div class="tfm-vods-controls">
+            <button id="previousDayButton" class="tfm-icon-button" type="button" aria-label="Jour precedent">&lt;</button>
+            <label>
+              <span>Jour</span>
+              <input id="dayInput" type="date" />
+            </label>
+            <button id="nextDayButton" class="tfm-icon-button" type="button" aria-label="Jour suivant">&gt;</button>
+          </div>
+        </section>
         <div id="vodList" class="tfm-vod-list"></div>
       </section>
     </main>
