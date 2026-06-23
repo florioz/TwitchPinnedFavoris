@@ -1,0 +1,8 @@
+{
+  "appId": "com.florioz.twitchfavorites",
+  "appName": "Twitch Favorites Mobile",
+  "webDir": "mobile",
+  "server": {
+    "androidScheme": "https"
+  }
+}

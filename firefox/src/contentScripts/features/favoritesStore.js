@@ -73,7 +73,59 @@
       this.startPolling();
     }
 
+    createProfileSnapshot(profile = {}) {
+      const now = Date.now();
+      return {
+        id: typeof profile.id === 'string' && profile.id.trim() ? profile.id.trim() : 'default',
+        name: typeof profile.name === 'string' && profile.name.trim() ? profile.name.trim() : t('profiles.defaultName'),
+        favorites: deepCopy(profile.favorites && typeof profile.favorites === 'object' ? profile.favorites : {}),
+        categories: deepCopy(Array.isArray(profile.categories) ? profile.categories : []),
+        preferences: deepCopy(profile.preferences && typeof profile.preferences === 'object' ? profile.preferences : this.state.preferences || DEFAULT_STATE.preferences),
+        createdAt: Number.isFinite(profile.createdAt) ? profile.createdAt : now,
+        updatedAt: Number.isFinite(profile.updatedAt) ? profile.updatedAt : now
+      };
+    }
+
+    syncActiveProfile(target = this.state) {
+      const activeId = typeof target.activeProfileId === 'string' && target.activeProfileId.trim()
+        ? target.activeProfileId
+        : 'default';
+      const profiles = target.profiles && typeof target.profiles === 'object' ? target.profiles : {};
+      const current = profiles[activeId] || {};
+      profiles[activeId] = this.createProfileSnapshot({
+        ...current,
+        id: activeId,
+        favorites: target.favorites || {},
+        categories: target.categories || [],
+        preferences: target.preferences || {},
+        updatedAt: Date.now()
+      });
+      target.profiles = profiles;
+      target.activeProfileId = activeId;
+    }
+
+    applyProfileToRoot(target, profileId) {
+      const profile = target.profiles?.[profileId];
+      if (!profile) {
+        return false;
+      }
+      target.activeProfileId = profileId;
+      target.favorites = deepCopy(profile.favorites || {});
+      target.categories = deepCopy(Array.isArray(profile.categories) ? profile.categories : []);
+      target.preferences = {
+        ...deepCopy(DEFAULT_STATE.preferences),
+        ...deepCopy(profile.preferences || {})
+      };
+      return true;
+    }
+
     ensureStateIntegrity() {
+      if (!this.state.profiles || typeof this.state.profiles !== 'object') {
+        this.state.profiles = {};
+      }
+      if (typeof this.state.activeProfileId !== 'string' || !this.state.activeProfileId.trim()) {
+        this.state.activeProfileId = 'default';
+      }
       if (!Array.isArray(this.state.categories)) {
         this.state.categories = [];
       }
@@ -249,6 +301,7 @@
         normalizedFavorites[normalizedLogin] = fav;
       });
       this.state.favorites = normalizedFavorites;
+      this.syncActiveProfile(this.state);
     }
 
     startPolling() {
@@ -283,6 +336,7 @@
 
     async persistState() {
       try {
+        this.syncActiveProfile(this.state);
         await chrome.storage.local.set({ [STORAGE_KEY]: this.state });
       } catch (error) {
         const message = String(error?.message || '').toLowerCase();
@@ -305,9 +359,12 @@
   }
 
   getBackupData() {
+    this.syncActiveProfile(this.state);
     return {
-      version: 1,
+      version: 2,
       generatedAt: new Date().toISOString(),
+      activeProfileId: this.state.activeProfileId,
+      profiles: deepCopy(this.state.profiles),
       favorites: deepCopy(this.state.favorites),
       categories: deepCopy(this.state.categories),
       preferences: deepCopy(this.state.preferences)
@@ -427,10 +484,95 @@
       draft.favorites = safeFavorites;
       draft.categories = safeCategories;
       draft.preferences = { ...draft.preferences, ...safePreferences };
+      if (payload.profiles && typeof payload.profiles === 'object') {
+        draft.profiles = {};
+        Object.entries(payload.profiles).forEach(([id, profile]) => {
+          if (!id || !profile || typeof profile !== 'object') return;
+          draft.profiles[id] = this.createProfileSnapshot({ ...profile, id });
+        });
+      }
+      draft.activeProfileId = typeof payload.activeProfileId === 'string' && payload.activeProfileId
+        ? payload.activeProfileId
+        : draft.activeProfileId;
+      if (draft.profiles?.[draft.activeProfileId]) {
+        this.applyProfileToRoot(draft, draft.activeProfileId);
+      }
     });
     this.liveData = {};
     await this.refreshLiveData();
   }
+
+    getProfiles() {
+      this.syncActiveProfile(this.state);
+      return Object.values(this.state.profiles || {})
+        .map((profile) => ({
+          id: profile.id,
+          name: profile.name,
+          count: Object.keys(profile.favorites || {}).length
+        }))
+        .sort((a, b) => {
+          if (a.id === this.state.activeProfileId) return -1;
+          if (b.id === this.state.activeProfileId) return 1;
+          return a.name.localeCompare(b.name, 'fr', { sensitivity: 'base' });
+        });
+    }
+
+    async createProfile(name) {
+      const label = String(name || '').trim();
+      if (!label) return;
+      const id = `profile_${Date.now()}_${Math.random().toString(16).slice(2, 8)}`;
+      await this.updateState((draft) => {
+        this.syncActiveProfile(draft);
+        draft.profiles[id] = this.createProfileSnapshot({
+          id,
+          name: label,
+          favorites: {},
+          categories: [],
+          preferences: draft.preferences
+        });
+        this.applyProfileToRoot(draft, id);
+      });
+      this.liveData = {};
+      await this.refreshLiveData();
+    }
+
+    async switchProfile(profileId) {
+      const id = String(profileId || '').trim();
+      if (!id || id === this.state.activeProfileId || !this.state.profiles?.[id]) return;
+      await this.updateState((draft) => {
+        this.syncActiveProfile(draft);
+        this.applyProfileToRoot(draft, id);
+      });
+      this.liveData = {};
+      await this.refreshLiveData();
+    }
+
+    async renameProfile(profileId, name) {
+      const id = String(profileId || '').trim();
+      const label = String(name || '').trim();
+      if (!id || !label || !this.state.profiles?.[id]) return;
+      await this.updateState((draft) => {
+        this.syncActiveProfile(draft);
+        draft.profiles[id].name = label;
+        draft.profiles[id].updatedAt = Date.now();
+      });
+    }
+
+    async deleteProfile(profileId) {
+      const id = String(profileId || '').trim();
+      const profiles = this.state.profiles || {};
+      if (!id || !profiles[id] || Object.keys(profiles).length <= 1) return;
+      const nextId = Object.keys(profiles).find((candidate) => candidate !== id);
+      await this.updateState((draft) => {
+        this.syncActiveProfile(draft);
+        delete draft.profiles[id];
+        if (draft.activeProfileId === id && nextId) {
+          this.applyProfileToRoot(draft, nextId);
+        }
+      });
+      this.liveData = {};
+      await this.refreshLiveData();
+    }
 
     getCategoriesTree() {
       const nodes = this.state.categories.map((category) => ({
@@ -468,7 +610,7 @@
     async addFavorite(login) {
       const normalized = login?.toLowerCase();
       if (!normalized || this.state.favorites[normalized]) return;
-      const live = await fetchStreamerLiveData(normalized, this.store.getState().favorites[normalized]);
+      const live = await fetchStreamerLiveData(normalized, this.state.favorites[normalized] || {});
     const favoriteEntry = {
       login: normalized,
       displayName: live?.displayName || normalized,

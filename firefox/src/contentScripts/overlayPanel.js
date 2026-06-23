@@ -391,6 +391,12 @@
 
     extensionApi.runtime.sendMessage({ type: 'TFR_OPEN_CHANNEL_TAB', login });
 
+    if (!isStandaloneContext) {
+
+      setPanelOpen(false);
+
+    }
+
   };
 
 
@@ -834,11 +840,35 @@
 
       scheduleRefreshInterval();
 
+      document.addEventListener('pointerdown', handleOutsidePointerDown, true);
+
     } else {
 
       clearRefreshInterval();
 
+      document.removeEventListener('pointerdown', handleOutsidePointerDown, true);
+
     }
+
+  };
+
+
+
+  const handleOutsidePointerDown = (event) => {
+
+    if (!state.isOpen || isStandaloneContext) {
+
+      return;
+
+    }
+
+    if (state.panelEl?.contains(event.target)) {
+
+      return;
+
+    }
+
+    setPanelOpen(false);
 
   };
 
@@ -941,7 +971,6 @@
   }
 
 })();
-
 
 
 

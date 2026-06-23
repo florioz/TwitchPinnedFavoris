@@ -7,5 +7,10 @@
     "check": "node scripts/check.js",
     "mobile:serve": "node scripts/serve-mobile.js",
     "sync:firefox": "node scripts/sync-firefox.js"
+  },
+  "devDependencies": {
+    "@capacitor/android": "^8.4.0",
+    "@capacitor/cli": "^8.4.0",
+    "@capacitor/core": "^8.4.0"
   }
 }

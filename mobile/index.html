@@ -15,8 +15,20 @@
           <p>Twitch Favorites</p>
           <h1>Mobile</h1>
         </div>
-        <button id="refreshButton" class="tfm-button tfm-button--primary" type="button">Actualiser</button>
+        <button id="refreshButton" class="tfm-button tfm-button--primary" type="button">Actualiser les lives</button>
       </header>
+
+      <section id="updateBanner" class="tfm-update" hidden>
+        <div>
+          <p>Nouvelle mise à jour</p>
+          <h2 id="updateTitle">Version disponible</h2>
+          <small id="updateDescription"></small>
+        </div>
+        <div class="tfm-update__actions">
+          <a id="updateLink" class="tfm-button tfm-button--primary" href="https://github.com/florioz/TwitchPinnedFavoris" target="_blank" rel="noopener noreferrer">Ouvrir</a>
+          <button id="updateDismissButton" class="tfm-button tfm-button--ghost" type="button">Masquer</button>
+        </div>
+      </section>
 
       <nav class="tfm-tabs" aria-label="Navigation">
         <button class="tfm-tab is-active" type="button" data-view="favorites">
@@ -28,6 +40,19 @@
           <span>Planning par jour</span>
         </button>
       </nav>
+
+      <section class="tfm-drive" aria-label="Synchronisation Google Drive">
+        <div>
+          <p>Google Drive</p>
+          <h2>Sync profils</h2>
+          <small id="driveStatus">Configure le Client ID Google pour activer la sync.</small>
+        </div>
+        <div class="tfm-drive__actions">
+          <button id="drivePullButton" class="tfm-button tfm-button--ghost" type="button">Récupérer</button>
+          <button id="drivePushButton" class="tfm-button tfm-button--ghost" type="button">Envoyer</button>
+          <button id="driveSignOutButton" class="tfm-button tfm-button--ghost" type="button">Déconnecter</button>
+        </div>
+      </section>
 
       <section id="setupCard" class="tfm-setup" hidden>
         <h2>Importer tes favoris</h2>

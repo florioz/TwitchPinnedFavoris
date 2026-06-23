@@ -19,6 +19,9 @@ class FavoritesOverlay {
     this.sortMode = this.store.getState().preferences?.sortMode || 'viewersDesc';
     this.backupInput = null;
     this.isImportingBackup = false;
+    this.isDriveSyncing = false;
+    this.driveStatus = null;
+    this.driveMessage = '';
     this.draggedLogin = null;
     this.draggedCategoryStartX = 0;
     this.selectedFavorites = new Set();
@@ -86,6 +89,7 @@ class FavoritesOverlay {
     this.sortMode = state.preferences?.sortMode || 'viewersDesc';
     this.render();
     if (didOpen) {
+      this.refreshDriveStatus();
       this.openListeners.forEach((callback) => {
         try {
           callback();
@@ -128,6 +132,43 @@ class FavoritesOverlay {
     this.root = null;
   }
 
+  sendBackgroundMessage(payload) {
+    return new Promise((resolve) => {
+      const api = globalThis.chrome ?? globalThis.browser;
+      if (!api?.runtime?.sendMessage) {
+        resolve(null);
+        return;
+      }
+      try {
+        api.runtime.sendMessage(payload, (response) => {
+          const error = api.runtime?.lastError;
+          if (error) {
+            resolve({ ok: false, message: error.message || 'Extension message failed' });
+            return;
+          }
+          resolve(response);
+        });
+      } catch (error) {
+        resolve({ ok: false, message: error?.message || 'Extension message failed' });
+      }
+    });
+  }
+
+  async refreshDriveStatus() {
+    const response = await this.sendBackgroundMessage({ type: 'TFR_DRIVE_SYNC_STATUS' });
+    if (response?.ok) {
+      this.driveStatus = response.status;
+      if (!response.status?.configured) {
+        this.driveMessage = t('drive.notConfigured');
+      } else if (!this.driveMessage) {
+        this.driveMessage = response.status?.connectedAt ? t('drive.connected') : t('drive.readyToConnect');
+      }
+      if (this.isOpen) {
+        this.render();
+      }
+    }
+  }
+
   onOpen(callback) {
     this.openListeners.add(callback);
     return () => this.openListeners.delete(callback);
@@ -151,6 +192,8 @@ class FavoritesOverlay {
     const previousScrollTop = content.scrollTop;
     const previousScrollLeft = content.scrollLeft;
     content.innerHTML = '';
+
+    content.appendChild(this.renderProfileControls(state));
 
     const controls = document.createElement('div');
     controls.className = 'tfr-manager-controls';
@@ -183,6 +226,7 @@ class FavoritesOverlay {
     controls.appendChild(searchInput);
     controls.appendChild(sortSelect);
     controls.appendChild(this.renderBackupControls());
+    controls.appendChild(this.renderDriveControls());
     content.appendChild(controls);
 
     const recentSettings = this.renderRecentLiveSettings(state);
@@ -215,6 +259,79 @@ class FavoritesOverlay {
         content.scrollLeft = previousScrollLeft;
       }
     });
+  }
+
+  renderProfileControls(state) {
+    const profiles = this.store.getProfiles ? this.store.getProfiles() : [];
+    const activeId = state.activeProfileId || profiles[0]?.id || 'default';
+    const wrapper = document.createElement('section');
+    wrapper.className = 'tfr-profile-controls';
+
+    const label = document.createElement('label');
+    label.className = 'tfr-profile-controls__select';
+    const labelText = document.createElement('span');
+    labelText.textContent = t('profiles.label');
+    label.appendChild(labelText);
+
+    const select = document.createElement('select');
+    profiles.forEach((profile) => {
+      const option = document.createElement('option');
+      option.value = profile.id;
+      option.textContent = `${profile.name} (${profile.count})`;
+      select.appendChild(option);
+    });
+    select.value = activeId;
+    select.addEventListener('change', async (event) => {
+      await this.store.switchProfile?.(event.target.value);
+      this.render();
+    });
+    label.appendChild(select);
+    wrapper.appendChild(label);
+
+    const actions = document.createElement('div');
+    actions.className = 'tfr-profile-controls__actions';
+
+    const newButton = document.createElement('button');
+    newButton.type = 'button';
+    newButton.className = 'tfr-button';
+    newButton.textContent = t('profiles.new');
+    newButton.addEventListener('click', async () => {
+      const name = window.prompt(t('profiles.promptNew'), t('profiles.defaultName'));
+      if (!name?.trim()) return;
+      await this.store.createProfile?.(name.trim());
+      this.render();
+    });
+    actions.appendChild(newButton);
+
+    const renameButton = document.createElement('button');
+    renameButton.type = 'button';
+    renameButton.className = 'tfr-button tfr-button--ghost';
+    renameButton.textContent = t('profiles.rename');
+    renameButton.addEventListener('click', async () => {
+      const current = profiles.find((profile) => profile.id === activeId);
+      const name = window.prompt(t('profiles.promptRename'), current?.name || '');
+      if (!name?.trim()) return;
+      await this.store.renameProfile?.(activeId, name.trim());
+      this.render();
+    });
+    actions.appendChild(renameButton);
+
+    const deleteButton = document.createElement('button');
+    deleteButton.type = 'button';
+    deleteButton.className = 'tfr-button tfr-button--danger';
+    deleteButton.textContent = t('profiles.delete');
+    deleteButton.disabled = profiles.length <= 1;
+    deleteButton.addEventListener('click', async () => {
+      const current = profiles.find((profile) => profile.id === activeId);
+      const confirmed = window.confirm(t('profiles.confirmDelete', { name: current?.name || activeId }));
+      if (!confirmed) return;
+      await this.store.deleteProfile?.(activeId);
+      this.render();
+    });
+    actions.appendChild(deleteButton);
+
+    wrapper.appendChild(actions);
+    return wrapper;
   }
 
   renderRecentLiveSettings(state) {
@@ -1060,6 +1177,144 @@ class FavoritesOverlay {
     wrapper.appendChild(importFileInput);
     this.backupInput = importFileInput;
     return wrapper;
+  }
+
+  renderDriveControls() {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'tfr-drive-controls';
+    const isConfigured = this.driveStatus?.configured !== false;
+    const isConnected = Boolean(this.driveStatus?.connectedAt);
+
+    const title = document.createElement('span');
+    title.className = 'tfr-drive-controls__title';
+    title.textContent = t('drive.title');
+    wrapper.appendChild(title);
+
+    const connectButton = document.createElement('button');
+    connectButton.type = 'button';
+    connectButton.className = 'tfr-button';
+    connectButton.textContent = this.isDriveSyncing ? t('drive.syncing') : (isConnected ? t('drive.reconnect') : t('drive.connect'));
+    connectButton.disabled = this.isDriveSyncing || !isConfigured;
+    connectButton.addEventListener('click', () => this.connectGoogleDrive());
+    wrapper.appendChild(connectButton);
+
+    const pushButton = document.createElement('button');
+    pushButton.type = 'button';
+    pushButton.className = 'tfr-button tfr-button--ghost';
+    pushButton.textContent = this.isDriveSyncing ? t('drive.syncing') : t('drive.push');
+    pushButton.disabled = this.isDriveSyncing || !isConfigured || !isConnected;
+    pushButton.addEventListener('click', () => this.pushBackupToDrive());
+    wrapper.appendChild(pushButton);
+
+    const pullButton = document.createElement('button');
+    pullButton.type = 'button';
+    pullButton.className = 'tfr-button tfr-button--ghost';
+    pullButton.textContent = t('drive.pull');
+    pullButton.disabled = this.isDriveSyncing || !isConfigured || !isConnected;
+    pullButton.addEventListener('click', () => this.pullBackupFromDrive());
+    wrapper.appendChild(pullButton);
+
+    const signOutButton = document.createElement('button');
+    signOutButton.type = 'button';
+    signOutButton.className = 'tfr-button tfr-button--ghost';
+    signOutButton.textContent = t('drive.signOut');
+    signOutButton.disabled = this.isDriveSyncing || !isConfigured || !isConnected;
+    signOutButton.addEventListener('click', () => this.signOutDrive());
+    wrapper.appendChild(signOutButton);
+
+    if (!isConfigured) {
+      const wizard = document.createElement('div');
+      wizard.className = 'tfr-drive-wizard';
+      wizard.innerHTML = `
+        <strong>${t('drive.setupTitle')}</strong>
+        <ol>
+          <li>${t('drive.setupStep1')}</li>
+          <li>${t('drive.setupStep2')}</li>
+          <li>${t('drive.setupStep3')}</li>
+        </ol>
+      `;
+      wrapper.appendChild(wizard);
+    }
+
+    if (this.driveMessage) {
+      const message = document.createElement('small');
+      message.className = 'tfr-drive-controls__message';
+      message.textContent = this.driveMessage;
+      wrapper.appendChild(message);
+    }
+
+    return wrapper;
+  }
+
+  async connectGoogleDrive() {
+    this.isDriveSyncing = true;
+    this.driveMessage = t('drive.connecting');
+    this.render();
+    const response = await this.sendBackgroundMessage({ type: 'TFR_DRIVE_CONNECT' });
+    this.isDriveSyncing = false;
+    if (response?.ok) {
+      this.driveStatus = response.syncState || this.driveStatus;
+      this.driveMessage = t('drive.connected');
+    } else {
+      this.driveStatus = response?.syncState || this.driveStatus;
+      this.driveMessage = t('drive.failed', { message: response?.message || 'erreur inconnue' });
+    }
+    this.render();
+  }
+
+  async pushBackupToDrive() {
+    this.isDriveSyncing = true;
+    this.driveMessage = t('drive.syncing');
+    this.render();
+    const response = await this.sendBackgroundMessage({
+      type: 'TFR_DRIVE_PUSH',
+      backup: this.store.getBackupData()
+    });
+    this.isDriveSyncing = false;
+    if (response?.ok) {
+      this.driveStatus = response.syncState || this.driveStatus;
+      this.driveMessage = t('drive.pushSuccess');
+    } else {
+      this.driveMessage = t('drive.failed', { message: response?.message || 'erreur inconnue' });
+    }
+    this.render();
+  }
+
+  async pullBackupFromDrive() {
+    const confirmed = window.confirm(t('drive.confirmPull'));
+    if (!confirmed) return;
+    this.isDriveSyncing = true;
+    this.driveMessage = t('drive.syncing');
+    this.render();
+    const response = await this.sendBackgroundMessage({ type: 'TFR_DRIVE_PULL' });
+    if (response?.ok && response.payload) {
+      try {
+        await this.store.restoreFromBackup(response.payload);
+        this.driveStatus = response.syncState || this.driveStatus;
+        this.driveMessage = t('drive.pullSuccess');
+      } catch (error) {
+        this.driveMessage = t('drive.failed', { message: error?.message || 'backup invalide' });
+      }
+    } else {
+      this.driveMessage = t('drive.failed', { message: response?.message || 'erreur inconnue' });
+    }
+    this.isDriveSyncing = false;
+    this.render();
+  }
+
+  async signOutDrive() {
+    this.isDriveSyncing = true;
+    this.driveMessage = t('drive.syncing');
+    this.render();
+    const response = await this.sendBackgroundMessage({ type: 'TFR_DRIVE_SIGN_OUT' });
+    this.isDriveSyncing = false;
+    if (response?.ok) {
+      this.driveStatus = response.syncState || { ...this.driveStatus, connectedAt: null };
+      this.driveMessage = t('drive.readyToConnect');
+    } else {
+      this.driveMessage = t('drive.failed', { message: response?.message || 'erreur inconnue' });
+    }
+    this.render();
   }
 
   async handleExportBackup() {

@@ -1,5 +1,16 @@
 (() => {
   const STORAGE_KEY = 'tfm_state';
+  const UPDATE_STATE_KEY = 'tfm_update_state';
+  const MOBILE_APP_VERSION = '0.4.0';
+  const UPDATE_REPO_API_URL = 'https://api.github.com/repos/florioz/TwitchPinnedFavoris/releases/latest';
+  const UPDATE_REPO_URL = 'https://github.com/florioz/TwitchPinnedFavoris';
+  const UPDATE_CHECK_INTERVAL_MS = 12 * 60 * 60 * 1000;
+  const GOOGLE_DRIVE_CLIENT_ID = '000000000000-replacewithgoogleoauthclientid.apps.googleusercontent.com';
+  const GOOGLE_DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.appdata';
+  const GOOGLE_DEVICE_CODE_ENDPOINT = 'https://oauth2.googleapis.com/device/code';
+  const GOOGLE_TOKEN_ENDPOINT = 'https://oauth2.googleapis.com/token';
+  const DRIVE_BACKUP_FILE_NAME = 'twitch-favorites-sidebar-profiles.json';
+  const DRIVE_APPDATA_SPACE = 'appDataFolder';
   const TWITCH_GRAPHQL_ENDPOINT = 'https://gql.twitch.tv/gql';
   const TWITCH_CLIENT_ID = 'kimne78kx3ncx6brgo4mv6wki5h1ko';
   const DEFAULT_AVATAR = 'https://static-cdn.jtvnw.net/jtv_user_pictures/404_user_70x70.png';
@@ -85,6 +96,8 @@
   const state = {
     favorites: {},
     categories: [],
+    profiles: {},
+    activeProfileId: 'default',
     liveByLogin: new Map(),
     videosByLogin: new Map(),
     clipsByVideoId: new Map(),
@@ -103,7 +116,9 @@
     isLiveLoading: false,
     clipsLoadingVideoId: '',
     clipsError: '',
-    lastVodErrors: []
+    lastVodErrors: [],
+    googleDriveToken: null,
+    isDriveSyncing: false
   };
 
   const elements = {
@@ -113,6 +128,15 @@
     importStatus: document.getElementById('importStatus'),
     clearDataButton: document.getElementById('clearDataButton'),
     refreshButton: document.getElementById('refreshButton'),
+    updateBanner: document.getElementById('updateBanner'),
+    updateTitle: document.getElementById('updateTitle'),
+    updateDescription: document.getElementById('updateDescription'),
+    updateLink: document.getElementById('updateLink'),
+    updateDismissButton: document.getElementById('updateDismissButton'),
+    driveStatus: document.getElementById('driveStatus'),
+    drivePullButton: document.getElementById('drivePullButton'),
+    drivePushButton: document.getElementById('drivePushButton'),
+    driveSignOutButton: document.getElementById('driveSignOutButton'),
     searchInput: document.getElementById('searchInput'),
     groupSelect: document.getElementById('groupSelect'),
     liveOnlyInput: document.getElementById('liveOnlyInput'),
@@ -186,27 +210,338 @@
     })[char]);
   }
 
+  function normalizeVersion(version) {
+    return String(version || '').trim().replace(/^v/i, '');
+  }
+
+  function parseVersion(version) {
+    const cleaned = normalizeVersion(version);
+    if (!cleaned) return [0];
+    return cleaned.split('.').map((part) => {
+      const match = String(part).match(/\d+/);
+      return match ? Number(match[0]) : 0;
+    });
+  }
+
+  function isVersionNewer(remote, local) {
+    const remoteParts = parseVersion(remote);
+    const localParts = parseVersion(local);
+    const length = Math.max(remoteParts.length, localParts.length);
+    for (let index = 0; index < length; index += 1) {
+      const remoteValue = remoteParts[index] ?? 0;
+      const localValue = localParts[index] ?? 0;
+      if (remoteValue > localValue) return true;
+      if (remoteValue < localValue) return false;
+    }
+    return false;
+  }
+
+  function getUpdateState() {
+    try {
+      const value = JSON.parse(localStorage.getItem(UPDATE_STATE_KEY) || '{}');
+      return value && typeof value === 'object' ? value : {};
+    } catch {
+      return {};
+    }
+  }
+
+  function setUpdateState(patch) {
+    const next = { ...getUpdateState(), ...patch };
+    localStorage.setItem(UPDATE_STATE_KEY, JSON.stringify(next));
+    return next;
+  }
+
+  function canShowUpdate(version, updateState = getUpdateState(), now = Date.now()) {
+    const normalized = normalizeVersion(version);
+    if (!normalized || !isVersionNewer(normalized, MOBILE_APP_VERSION)) return false;
+    if (updateState.dismissedVersion === normalized) return false;
+    if (updateState.snoozeUntil && now < updateState.snoozeUntil) return false;
+    return true;
+  }
+
+  function showUpdateBanner(version, url, notes) {
+    if (!elements.updateBanner) return;
+    elements.updateTitle.textContent = `Version ${version} disponible`;
+    const summary = String(notes || '')
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .find(Boolean);
+    elements.updateDescription.textContent = summary || 'Télécharge la dernière version depuis GitHub.';
+    elements.updateLink.href = url || UPDATE_REPO_URL;
+    elements.updateBanner.hidden = false;
+  }
+
+  function hideUpdateBanner() {
+    if (elements.updateBanner) {
+      elements.updateBanner.hidden = true;
+    }
+  }
+
+  async function checkForUpdates(force = false) {
+    const now = Date.now();
+    const updateState = getUpdateState();
+    if (updateState.latestVersion && canShowUpdate(updateState.latestVersion, updateState, now)) {
+      showUpdateBanner(updateState.latestVersion, updateState.releaseUrl, updateState.releaseNotes);
+    }
+    if (!force && updateState.lastCheck && now - updateState.lastCheck < UPDATE_CHECK_INTERVAL_MS) {
+      return;
+    }
+    try {
+      const response = await fetch(UPDATE_REPO_API_URL, {
+        headers: { Accept: 'application/vnd.github+json' },
+        cache: 'no-cache'
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const payload = await response.json();
+      const remoteVersion = normalizeVersion(payload?.tag_name || payload?.name);
+      const nextState = setUpdateState({
+        lastCheck: now,
+        latestVersion: remoteVersion,
+        releaseUrl: payload?.html_url || UPDATE_REPO_URL,
+        releaseNotes: (payload?.body || '').trim(),
+        dismissedVersion: updateState.latestVersion !== remoteVersion ? null : updateState.dismissedVersion,
+        snoozeUntil: updateState.latestVersion !== remoteVersion ? null : updateState.snoozeUntil
+      });
+      if (canShowUpdate(remoteVersion, nextState, now)) {
+        showUpdateBanner(remoteVersion, nextState.releaseUrl, nextState.releaseNotes);
+      } else {
+        hideUpdateBanner();
+      }
+    } catch (error) {
+      console.warn('[TFM] update check failed', error);
+    }
+  }
+
   function readLocalState() {
     try {
       const stored = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
       state.favorites = stored.favorites && typeof stored.favorites === 'object' ? stored.favorites : {};
       state.categories = Array.isArray(stored.categories) ? stored.categories : [];
+      state.profiles = stored.profiles && typeof stored.profiles === 'object' ? stored.profiles : {};
+      state.activeProfileId = typeof stored.activeProfileId === 'string' && stored.activeProfileId ? stored.activeProfileId : 'default';
+      state.googleDriveToken = stored.googleDriveToken || null;
     } catch {
       state.favorites = {};
       state.categories = [];
+      state.profiles = {};
+      state.activeProfileId = 'default';
+      state.googleDriveToken = null;
     }
   }
 
   function persistLocalState() {
+    syncActiveProfile();
     localStorage.setItem(STORAGE_KEY, JSON.stringify({
       favorites: state.favorites,
-      categories: state.categories
+      categories: state.categories,
+      profiles: state.profiles,
+      activeProfileId: state.activeProfileId,
+      googleDriveToken: state.googleDriveToken || null
     }));
   }
 
   function setImportStatus(message, isError = false) {
     elements.importStatus.textContent = message || '';
     elements.importStatus.classList.toggle('is-error', Boolean(isError));
+  }
+
+  function isDriveConfigured() {
+    return Boolean(GOOGLE_DRIVE_CLIENT_ID && !GOOGLE_DRIVE_CLIENT_ID.includes('replacewithgoogleoauthclientid'));
+  }
+
+  function setDriveStatus(message, isError = false) {
+    if (!elements.driveStatus) return;
+    elements.driveStatus.textContent = message || '';
+    elements.driveStatus.classList.toggle('is-error', Boolean(isError));
+  }
+
+  function setDriveButtonsDisabled(disabled) {
+    [elements.drivePullButton, elements.drivePushButton, elements.driveSignOutButton].forEach((button) => {
+      if (button) button.disabled = Boolean(disabled);
+    });
+  }
+
+  async function requestDriveDeviceCode() {
+    const body = new URLSearchParams({
+      client_id: GOOGLE_DRIVE_CLIENT_ID,
+      scope: GOOGLE_DRIVE_SCOPE
+    });
+    const response = await fetch(GOOGLE_DEVICE_CODE_ENDPOINT, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body
+    });
+    if (!response.ok) throw new Error(`Google OAuth ${response.status}`);
+    return response.json();
+  }
+
+  async function pollDriveToken(deviceCode, intervalSeconds = 5, expiresIn = 900) {
+    const startedAt = Date.now();
+    const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+    while (Date.now() - startedAt < expiresIn * 1000) {
+      await wait(Math.max(1, intervalSeconds) * 1000);
+      const response = await fetch(GOOGLE_TOKEN_ENDPOINT, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          client_id: GOOGLE_DRIVE_CLIENT_ID,
+          device_code: deviceCode,
+          grant_type: 'urn:ietf:params:oauth:grant-type:device_code'
+        })
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (response.ok && payload.access_token) {
+        return {
+          accessToken: payload.access_token,
+          refreshToken: payload.refresh_token || '',
+          expiresAt: Date.now() + (Number(payload.expires_in) || 3600) * 1000
+        };
+      }
+      if (payload.error === 'authorization_pending') continue;
+      if (payload.error === 'slow_down') {
+        intervalSeconds += 2;
+        continue;
+      }
+      throw new Error(payload.error_description || payload.error || 'Google OAuth refused');
+    }
+    throw new Error('Connexion Google expirée.');
+  }
+
+  async function refreshDriveTokenIfNeeded() {
+    const token = state.googleDriveToken;
+    if (!token?.refreshToken || Date.now() < Number(token.expiresAt || 0) - 60_000) {
+      return token;
+    }
+    const response = await fetch(GOOGLE_TOKEN_ENDPOINT, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        client_id: GOOGLE_DRIVE_CLIENT_ID,
+        refresh_token: token.refreshToken,
+        grant_type: 'refresh_token'
+      })
+    });
+    const payload = await response.json();
+    if (!response.ok || !payload.access_token) {
+      state.googleDriveToken = null;
+      persistLocalState();
+      throw new Error(payload.error_description || payload.error || 'Session Google expirée.');
+    }
+    state.googleDriveToken = {
+      ...token,
+      accessToken: payload.access_token,
+      expiresAt: Date.now() + (Number(payload.expires_in) || 3600) * 1000
+    };
+    persistLocalState();
+    return state.googleDriveToken;
+  }
+
+  async function ensureDriveToken() {
+    if (!isDriveConfigured()) {
+      throw new Error('Client ID Google non configuré.');
+    }
+    const existing = await refreshDriveTokenIfNeeded();
+    if (existing?.accessToken) return existing.accessToken;
+    const device = await requestDriveDeviceCode();
+    setDriveStatus(`Ouvre ${device.verification_url || device.verification_uri} et entre le code ${device.user_code}`);
+    const token = await pollDriveToken(device.device_code, device.interval, device.expires_in);
+    state.googleDriveToken = token;
+    persistLocalState();
+    return token.accessToken;
+  }
+
+  async function driveFetch(url, options = {}) {
+    const accessToken = await ensureDriveToken();
+    const response = await fetch(url, {
+      ...options,
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        ...(options.headers || {})
+      }
+    });
+    if (!response.ok) {
+      const message = await response.text().catch(() => '');
+      throw new Error(`Drive ${response.status}${message ? `: ${message.slice(0, 120)}` : ''}`);
+    }
+    return response;
+  }
+
+  async function findDriveBackupFile() {
+    const query = encodeURIComponent(`name='${DRIVE_BACKUP_FILE_NAME}' and '${DRIVE_APPDATA_SPACE}' in parents and trashed=false`);
+    const response = await driveFetch(`https://www.googleapis.com/drive/v3/files?spaces=${DRIVE_APPDATA_SPACE}&q=${query}&fields=files(id,name,modifiedTime)`);
+    const payload = await response.json();
+    return Array.isArray(payload.files) && payload.files.length ? payload.files[0] : null;
+  }
+
+  function createDriveMultipartBody(metadata, jsonPayload) {
+    const boundary = `tfm_drive_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+    const body = [
+      `--${boundary}`,
+      'Content-Type: application/json; charset=UTF-8',
+      '',
+      JSON.stringify(metadata),
+      `--${boundary}`,
+      'Content-Type: application/json; charset=UTF-8',
+      '',
+      JSON.stringify(jsonPayload),
+      `--${boundary}--`
+    ].join('\r\n');
+    return { boundary, body };
+  }
+
+  async function pushBackupToDrive() {
+    state.isDriveSyncing = true;
+    setDriveButtonsDisabled(true);
+    setDriveStatus('Envoi vers Google Drive...');
+    try {
+      const existing = await findDriveBackupFile();
+      const metadata = existing
+        ? { name: DRIVE_BACKUP_FILE_NAME }
+        : { name: DRIVE_BACKUP_FILE_NAME, parents: [DRIVE_APPDATA_SPACE] };
+      const { boundary, body } = createDriveMultipartBody(metadata, getBackupData());
+      const url = existing
+        ? `https://www.googleapis.com/upload/drive/v3/files/${existing.id}?uploadType=multipart`
+        : 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart';
+      await driveFetch(url, {
+        method: existing ? 'PATCH' : 'POST',
+        headers: { 'Content-Type': `multipart/related; boundary=${boundary}` },
+        body
+      });
+      setDriveStatus('Profils envoyés sur Google Drive.');
+    } catch (error) {
+      setDriveStatus(`Sync Drive impossible : ${error?.message || 'erreur inconnue'}`, true);
+    } finally {
+      state.isDriveSyncing = false;
+      setDriveButtonsDisabled(false);
+    }
+  }
+
+  async function pullBackupFromDrive() {
+    const confirmed = window.confirm('Récupérer depuis Drive remplacera les profils locaux. Continuer ?');
+    if (!confirmed) return;
+    state.isDriveSyncing = true;
+    setDriveButtonsDisabled(true);
+    setDriveStatus('Récupération depuis Google Drive...');
+    try {
+      const file = await findDriveBackupFile();
+      if (!file?.id) throw new Error('Aucun backup Drive trouvé.');
+      const response = await driveFetch(`https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`);
+      normalizeBackup(await response.json());
+      setDriveStatus('Profils récupérés depuis Google Drive.');
+      render();
+      refreshLiveData();
+    } catch (error) {
+      setDriveStatus(`Sync Drive impossible : ${error?.message || 'erreur inconnue'}`, true);
+    } finally {
+      state.isDriveSyncing = false;
+      setDriveButtonsDisabled(false);
+    }
+  }
+
+  function signOutDrive() {
+    state.googleDriveToken = null;
+    persistLocalState();
+    setDriveStatus(isDriveConfigured() ? 'Compte Google déconnecté.' : 'Configure le Client ID Google pour activer la sync.');
   }
 
   function loadDemoData() {
@@ -258,8 +593,20 @@
   }
 
   function normalizeBackup(payload = {}) {
-    const favorites = payload.favorites && typeof payload.favorites === 'object' ? payload.favorites : {};
-    const categories = Array.isArray(payload.categories) ? payload.categories : [];
+    const profileId = typeof payload.activeProfileId === 'string' && payload.activeProfileId ? payload.activeProfileId : 'default';
+    const profile = payload.profiles?.[profileId] && typeof payload.profiles[profileId] === 'object' ? payload.profiles[profileId] : null;
+    const favorites = profile?.favorites && typeof profile.favorites === 'object'
+      ? profile.favorites
+      : payload.favorites && typeof payload.favorites === 'object'
+      ? payload.favorites
+      : {};
+    const categories = Array.isArray(profile?.categories)
+      ? profile.categories
+      : Array.isArray(payload.categories)
+      ? payload.categories
+      : [];
+    state.profiles = payload.profiles && typeof payload.profiles === 'object' ? payload.profiles : {};
+    state.activeProfileId = profileId;
     state.favorites = Object.fromEntries(
       Object.entries(favorites)
         .map(([login, favorite]) => {
@@ -287,6 +634,32 @@
     state.selectedVodCategoryId = 'all';
     state.collapsedCategoryIds.clear();
     persistLocalState();
+  }
+
+  function syncActiveProfile() {
+    const id = state.activeProfileId || 'default';
+    const current = state.profiles[id] || {};
+    state.profiles[id] = {
+      ...current,
+      id,
+      name: current.name || 'Mobile',
+      favorites: state.favorites,
+      categories: state.categories,
+      updatedAt: Date.now()
+    };
+  }
+
+  function getBackupData() {
+    syncActiveProfile();
+    return {
+      version: 2,
+      generatedAt: new Date().toISOString(),
+      activeProfileId: state.activeProfileId,
+      profiles: state.profiles,
+      favorites: state.favorites,
+      categories: state.categories,
+      preferences: {}
+    };
   }
 
   function getCategoryTree() {
@@ -606,14 +979,17 @@
   async function selectVideo(videoId) {
     const context = findVideoContext(videoId);
     if (!context) return;
+    if (state.selectedVideoId === videoId) {
+      closeVodDetail();
+      return;
+    }
     state.selectedVideoId = videoId;
     state.clipsError = '';
     renderVods();
-    renderVodDetail();
-    elements.vodDetail.scrollIntoView({ block: 'nearest' });
+    elements.vodList.querySelector('.tfm-vod-detail')?.scrollIntoView({ block: 'nearest' });
     if (state.clipsByVideoId.has(videoId)) return;
     state.clipsLoadingVideoId = videoId;
-    renderVodDetail();
+    renderVods();
     try {
       const clips = await fetchVideoClips(context.channel, context.video);
       state.clipsByVideoId.set(videoId, clips);
@@ -624,7 +1000,7 @@
       if (state.clipsLoadingVideoId === videoId) {
         state.clipsLoadingVideoId = '';
       }
-      renderVodDetail();
+      renderVods();
     }
   }
 
@@ -632,13 +1008,19 @@
     state.selectedVideoId = '';
     state.clipsError = '';
     renderVods();
-    renderVodDetail();
   }
 
   function renderFilters() {
     const hasFavorites = Object.keys(state.favorites).length > 0;
     elements.setupCard.hidden = hasFavorites;
     elements.clearDataButton.hidden = !hasFavorites;
+    if (!isDriveConfigured()) {
+      setDriveStatus('Configure le Client ID Google pour activer la sync.', true);
+      setDriveButtonsDisabled(true);
+    } else if (!state.isDriveSyncing && !elements.driveStatus.textContent) {
+      setDriveStatus(state.googleDriveToken?.accessToken ? 'Google Drive prêt.' : 'Connexion Google requise au premier usage.');
+      setDriveButtonsDisabled(false);
+    }
     const selected = state.selectedCategoryId;
     const selectedVod = state.selectedVodCategoryId;
     const groupOptions = document.createDocumentFragment();
@@ -672,6 +1054,10 @@
   }
 
   function renderFavorites() {
+    elements.refreshButton.disabled = state.isLiveLoading;
+    if (state.activeView === 'favorites') {
+      elements.refreshButton.textContent = state.isLiveLoading ? 'Actualisation...' : 'Actualiser les lives';
+    }
     const favorites = getVisibleFavorites();
     if (!favorites.length) {
       elements.favoritesList.innerHTML = '<p class="tfm-empty">Aucun streamer a afficher.</p>';
@@ -738,8 +1124,10 @@
 
   function renderVods() {
     const videos = getVisibleVideos();
-    elements.refreshButton.disabled = state.isLoading;
-    elements.refreshButton.textContent = state.isLoading ? 'Chargement...' : 'Actualiser';
+    if (state.activeView === 'vods') {
+      elements.refreshButton.disabled = state.isLoading;
+      elements.refreshButton.textContent = state.isLoading ? 'Chargement...' : 'Actualiser les VODs';
+    }
     if (state.isLoading) {
       elements.vodSummary.textContent = 'Chargement des VODs Twitch...';
     } else {
@@ -747,51 +1135,63 @@
       elements.vodSummary.textContent = `${videos.length} VOD${videos.length > 1 ? 's' : ''}${errorText}`;
     }
     elements.vodList.innerHTML = videos.length
-      ? videos.map(renderVod).join('')
+      ? videos.map((entry) => {
+        const detail = state.selectedVideoId === entry.video.id ? renderVodDetail(entry.channel, entry.video) : '';
+        return `${renderVod(entry)}${detail}`;
+      }).join('')
       : '<p class="tfm-empty">Aucune VOD pour ce jour et ce groupe.</p>';
-    renderVodDetail();
+    elements.vodDetail.hidden = true;
+    elements.vodDetail.innerHTML = '';
   }
 
   function renderVod({ channel, video }) {
     const startedAt = new Date(video.createdAt);
+    const endedAt = new Date(startedAt.getTime() + Math.max(0, Number(video.lengthSeconds) || 0) * 1000);
+    const startTime = startedAt.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+    const endTime = endedAt.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
     const selectedClass = state.selectedVideoId === video.id ? ' is-selected' : '';
     return `
       <article class="tfm-vod${selectedClass}" role="button" tabindex="0" data-video-id="${escapeHtml(video.id)}">
+        <span class="tfm-vod-time tfm-vod-time--start">
+          <small>D&eacute;but</small>
+          <strong>${escapeHtml(startTime)}</strong>
+        </span>
         <div class="tfm-vod-media">
           <img class="tfm-vod-thumb" src="${escapeHtml(video.thumbnailUrl || channel.avatarUrl || DEFAULT_AVATAR)}" alt="" />
           <img class="tfm-vod-avatar" src="${escapeHtml(channel.avatarUrl || DEFAULT_AVATAR)}" alt="" />
         </div>
-        <span>
+        <span class="tfm-vod-time tfm-vod-time--duration">
+          <small>Dur&eacute;e</small>
+          <strong>${escapeHtml(formatDuration(video.lengthSeconds))}</strong>
+        </span>
+        <span class="tfm-vod-body">
           <strong>${escapeHtml(video.title)}</strong>
-          <small>${escapeHtml(channel.displayName)} - ${startedAt.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })} - ${escapeHtml(formatDuration(video.lengthSeconds))}</small>
+          <small>${escapeHtml(channel.displayName)}</small>
           <small>${Number(video.viewCount || 0).toLocaleString('fr-FR')} vues${video.game ? ` - ${escapeHtml(video.game)}` : ''}</small>
+        </span>
+        <span class="tfm-vod-time tfm-vod-time--end">
+          <small>Fin</small>
+          <strong>${escapeHtml(endTime)}</strong>
         </span>
       </article>
     `;
   }
 
-  function renderVodDetail() {
-    const context = findVideoContext(state.selectedVideoId);
-    if (!context) {
-      elements.vodDetail.hidden = true;
-      elements.vodDetail.innerHTML = '';
-      return;
-    }
-    const { channel, video } = context;
+  function renderVodDetail(channel, video) {
     const clips = state.clipsByVideoId.get(video.id) || [];
     const isLoading = state.clipsLoadingVideoId === video.id;
     const duration = Math.max(1, Number(video.lengthSeconds) || 1);
     const topClips = [...clips].sort((a, b) => b.viewCount - a.viewCount || a.offsetSeconds - b.offsetSeconds).slice(0, 12);
     const markerClips = topClips.slice().sort((a, b) => a.offsetSeconds - b.offsetSeconds);
-    elements.vodDetail.hidden = false;
-    elements.vodDetail.innerHTML = `
+    return `
+      <section class="tfm-vod-detail" data-video-id="${escapeHtml(video.id)}">
       <header class="tfm-detail-header">
         <div>
           <p>Analyse VOD</p>
           <h3>${escapeHtml(video.title)}</h3>
           <span>${escapeHtml(channel.displayName)} - ${escapeHtml(formatDuration(video.lengthSeconds))}</span>
         </div>
-        <button id="closeVodDetailButton" class="tfm-icon-button" type="button" aria-label="Fermer">x</button>
+        <button class="tfm-icon-button" type="button" data-close-vod-detail aria-label="Fermer">x</button>
       </header>
       <div class="tfm-detail-actions">
         <a class="tfm-button tfm-button--primary" href="${escapeHtml(video.url)}" target="_blank" rel="noopener noreferrer">Ouvrir Twitch</a>
@@ -825,8 +1225,8 @@
           : ''}
         ${!isLoading && !topClips.length ? '<p class="tfm-empty">Aucun temps fort associe trouve pour cette VOD.</p>' : ''}
       </div>
+      </section>
     `;
-    elements.vodDetail.querySelector('#closeVodDetailButton')?.addEventListener('click', closeVodDetail);
   }
 
   function setView(view) {
@@ -834,7 +1234,11 @@
     elements.tabs.forEach((tab) => tab.classList.toggle('is-active', tab.dataset.view === view));
     elements.favoritesView.hidden = view !== 'favorites';
     elements.vodsView.hidden = view !== 'vods';
-    elements.refreshButton.hidden = view !== 'vods';
+    elements.refreshButton.hidden = false;
+    elements.refreshButton.disabled = view === 'vods' ? state.isLoading : state.isLiveLoading;
+    elements.refreshButton.textContent = view === 'vods'
+      ? (state.isLoading ? 'Chargement...' : 'Actualiser les VODs')
+      : (state.isLiveLoading ? 'Actualisation...' : 'Actualiser les lives');
     if (view === 'vods' && !state.videosByLogin.size) {
       refreshVods();
     }
@@ -900,6 +1304,10 @@
       renderVods();
     });
     elements.vodList.addEventListener('click', (event) => {
+      if (event.target.closest('[data-close-vod-detail]')) {
+        closeVodDetail();
+        return;
+      }
       const card = event.target.closest('.tfm-vod');
       if (!card) return;
       selectVideo(card.dataset.videoId);
@@ -911,13 +1319,32 @@
       event.preventDefault();
       selectVideo(card.dataset.videoId);
     });
-    elements.refreshButton.addEventListener('click', refreshVods);
+    elements.refreshButton.addEventListener('click', () => {
+      if (state.activeView === 'vods') {
+        refreshVods();
+        return;
+      }
+      refreshLiveData();
+    });
+    elements.updateDismissButton?.addEventListener('click', () => {
+      const updateState = getUpdateState();
+      if (updateState.latestVersion) {
+        setUpdateState({
+          dismissedVersion: normalizeVersion(updateState.latestVersion),
+          snoozeUntil: null
+        });
+      }
+      hideUpdateBanner();
+    });
     elements.demoButton.addEventListener('click', () => {
       loadDemoData();
       render();
       refreshLiveData();
     });
     elements.clearDataButton.addEventListener('click', clearData);
+    elements.drivePullButton?.addEventListener('click', pullBackupFromDrive);
+    elements.drivePushButton?.addEventListener('click', pushBackupToDrive);
+    elements.driveSignOutButton?.addEventListener('click', signOutDrive);
     elements.previousDayButton.addEventListener('click', () => {
       state.selectedDay = clampDay(state.selectedDay - DAY_MS);
       state.selectedVideoId = '';
@@ -959,4 +1386,5 @@
   render();
   setView(state.activeView);
   refreshLiveData();
+  checkForUpdates(false);
 })();

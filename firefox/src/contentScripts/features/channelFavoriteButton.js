@@ -84,6 +84,11 @@
         return primary;
       }
       const containerSelectors = [
+        '[data-a-target="channel-header-right"]',
+        '[data-a-target="channel-header-user-actions"]',
+        '[data-a-target="channel-root__right-column"]',
+        '[data-a-target="follow-button"]',
+        '[data-test-selector="follow-button"]',
         '[data-test-selector="player-overlay-channel-status"]',
         '[data-test-selector="channel-info-bar"]',
         '[data-test-selector="player-overlay-follow-button"]',
@@ -97,6 +102,14 @@
           return candidate;
         }
       }
+      const channelHeading = document.querySelector('main h1, h1');
+      const headingActions = channelHeading?.closest('[class*="channel"]')?.querySelector('button');
+      if (headingActions && !headingActions.closest('nav')) {
+        return headingActions;
+      }
+      if (channelHeading?.parentElement && !channelHeading.closest('nav')) {
+        return channelHeading;
+      }
       return null;
     }
 
@@ -105,6 +118,8 @@
       const button = document.createElement('button');
       button.type = 'button';
       button.className = 'tfr-inline-button';
+      button.setAttribute('aria-label', 'Ajouter ou retirer ce streamer des favoris Twitch');
+      button.title = 'Ajouter ou retirer ce streamer des favoris Twitch';
       button.style.marginLeft = '8px';
       button.style.marginTop = '0';
       button.style.alignSelf = 'center';

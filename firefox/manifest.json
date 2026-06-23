@@ -13,8 +13,7 @@
     "alarms",
     "tabs",
     "scripting",
-    "sidePanel",
-    "windows"
+    "sidePanel"
   ],
   "host_permissions": [
     "https://gql.twitch.tv/*",

@@ -14,16 +14,23 @@
     "tabs",
     "scripting",
     "sidePanel",
-    "windows"
+    "identity"
   ],
   "host_permissions": [
     "https://gql.twitch.tv/*",
     "https://www.twitch.tv/*",
     "https://twitch.tv/*",
     "https://api.github.com/*",
+    "https://www.googleapis.com/*",
     "https://*/*",
     "http://*/*"
   ],
+  "oauth2": {
+    "client_id": "000000000000-replacewithgoogleoauthclientid.apps.googleusercontent.com",
+    "scopes": [
+      "https://www.googleapis.com/auth/drive.appdata"
+    ]
+  },
   "content_scripts": [
     {
       "matches": [

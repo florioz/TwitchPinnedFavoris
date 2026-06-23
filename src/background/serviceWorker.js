@@ -4,6 +4,8 @@ const actionApi = extensionApi.action ?? extensionApi.browserAction ?? null;
 const STORAGE_KEY = 'tfr_state';
 const LIVE_CACHE_KEY = 'tfr_live_cache';
 const DEFAULT_STATE = {
+  activeProfileId: 'default',
+  profiles: {},
   favorites: {},
   categories: [],
   preferences: {
@@ -20,6 +22,9 @@ const DEFAULT_STATE = {
 const DEFAULT_AVATAR = 'https://static-cdn.jtvnw.net/jtv_user_pictures/404_user_70x70.png';
 const TWITCH_GRAPHQL_ENDPOINT = 'https://gql.twitch.tv/gql';
 const TWITCH_CLIENT_ID = 'kimne78kx3ncx6brgo4mv6wki5h1ko';
+const DRIVE_BACKUP_FILE_NAME = 'twitch-favorites-sidebar-profiles.json';
+const DRIVE_APPDATA_SPACE = 'appDataFolder';
+const DRIVE_SYNC_STATE_KEY = 'tfr_drive_sync_state';
 const STREAM_STATE_QUERY = `
   query ($login: String!) {
     user(login: $login) {
@@ -41,21 +46,25 @@ const STREAM_STATE_QUERY = `
 `;
 
 const POLL_ALARM = 'tfr_live_poll';
+const UPDATE_ALARM = 'tfr_update_check';
 const POLL_INTERVAL_MINUTES = 2;
 const LIVE_CACHE_TTL = 60 * 1000;
 const MAX_NOTIFICATIONS = 2;
 const BADGE_COLOR = '#9147ff';
+const UPDATE_BADGE_COLOR = '#ef4444';
+const UPDATE_STORAGE_KEY = 'tfr_update_state';
+const UPDATE_CHECK_INTERVAL_MS = 12 * 60 * 60 * 1000;
+const UPDATE_REPO_API_URL = 'https://api.github.com/repos/florioz/TwitchPinnedFavoris/releases/latest';
+const UPDATE_REPO_URL = 'https://github.com/florioz/TwitchPinnedFavoris';
 
 const overlayTabs = new Set();
-let standaloneWindowId = null;
 const SIDE_PANEL_PATH = 'panel/sidepanel.html';
-const STANDALONE_PANEL_PATH = 'panel/standalone.html';
-const POPUP_PANEL_PATH = 'panel/popup.html';
-const popupTabs = new Set();
 
 let liveCache = null;
 let liveCacheTimestamp = 0;
 let refreshPromise = null;
+let liveBadgeCount = 0;
+let updateBadgeAvailable = false;
 
 const sendMessageToTab = (tabId, payload) =>
   new Promise((resolve) => {
@@ -105,104 +114,26 @@ const openSidePanel = async (tabId) => {
   }
 };
 
-const isRestrictedUrl = (url = '') => {
-  if (!url) return true;
-  const normalized = url.toLowerCase();
-  return (
-    normalized.startsWith('chrome://') ||
-    normalized.startsWith('edge://') ||
-    normalized.startsWith('about:') ||
-    normalized.startsWith('chrome-extension://') ||
-    normalized.startsWith('https://chrome.google.com/webstore')
-  );
-};
-
-const enablePopupForTab = async (tabId) => {
-  if (!extensionApi.action?.setPopup) {
+const openInjectedPanel = async (tabId) => {
+  if (!Number.isInteger(tabId)) {
     return false;
   }
-  try {
-    await extensionApi.action.setPopup({ tabId, popup: POPUP_PANEL_PATH });
-    popupTabs.add(tabId);
-    return true;
-  } catch (error) {
-    console.error('[TFR] unable to set popup', error);
-    popupTabs.delete(tabId);
-    return false;
-  }
-};
-
-const disablePopupForTab = async (tabId) => {
-  if (!popupTabs.has(tabId) || !extensionApi.action?.setPopup) {
-    return;
-  }
-  try {
-    await extensionApi.action.setPopup({ tabId, popup: '' });
-  } catch (error) {
-    console.warn('[TFR] unable to clear popup', error);
-  }
-  popupTabs.delete(tabId);
-};
-
-const openPopupPanel = async (tabId) => {
-  const enabled = await enablePopupForTab(tabId);
-  if (!enabled) {
-    return false;
-  }
-  if (extensionApi.action?.openPopup) {
-    try {
-      await extensionApi.action.openPopup();
-      return true;
-    } catch (error) {
-      console.warn('[TFR] action.openPopup failed', error);
-    }
-  }
-  return false;
-};
-
-const openStandalonePanel = async () => {
-  if (!extensionApi?.runtime?.getURL) {
-    return;
-  }
-  const panelUrl = extensionApi.runtime.getURL(STANDALONE_PANEL_PATH);
-  try {
-    if (standaloneWindowId && extensionApi.windows?.update) {
-      await extensionApi.windows.update(standaloneWindowId, { focused: true });
-      return;
-    }
-    if (extensionApi.windows?.create) {
-      const created = await extensionApi.windows.create({
-        url: panelUrl,
-        type: 'popup',
-        width: 320,
-        height: 640
-      });
-      standaloneWindowId = created?.id || null;
-      return;
-    }
-  } catch (error) {
-    console.error('[TFR] standalone panel failed', error);
-    standaloneWindowId = null;
-  }
-  if (extensionApi.tabs?.create) {
-    extensionApi.tabs.create({ url: panelUrl });
-  }
+  const result = await sendMessageToTab(tabId, { type: 'TFR_TOGGLE_PANEL' });
+  return Boolean(result?.ok);
 };
 
 const openPrimaryPanel = async (tabId) => {
   if (!Number.isInteger(tabId)) {
-    await openStandalonePanel();
     return;
   }
-  const popupOpened = await openPopupPanel(tabId);
-  if (popupOpened) {
+  const injectedOpened = await openInjectedPanel(tabId);
+  if (injectedOpened) {
     return;
   }
   const sidePanelOpened = tabId ? await openSidePanel(tabId) : false;
   if (sidePanelOpened) {
     return;
   }
-  await openStandalonePanel();
 };
 
 const broadcastOverlayState = (snapshot) => {
@@ -230,6 +161,167 @@ const cloneData = (value) => {
     console.warn('[TFR] failed to clone data', error);
     return {};
   }
+};
+
+const isDriveConfigured = () => {
+  const manifest = extensionApi.runtime?.getManifest?.() || {};
+  const clientId = manifest.oauth2?.client_id || '';
+  return Boolean(extensionApi.identity?.getAuthToken && clientId && !clientId.includes('replacewithgoogleoauthclientid'));
+};
+
+const getGoogleToken = (interactive = false) =>
+  new Promise((resolve, reject) => {
+    if (!isDriveConfigured()) {
+      reject(new Error('Google Drive sync is not configured. Replace oauth2.client_id in manifest.json.'));
+      return;
+    }
+    extensionApi.identity.getAuthToken({ interactive }, (result) => {
+      const error = extensionApi.runtime?.lastError;
+      if (error) {
+        reject(new Error(error.message || 'Google authentication failed'));
+        return;
+      }
+      const token = typeof result === 'string' ? result : result?.token;
+      if (!token) {
+        reject(new Error('Google authentication returned no token'));
+        return;
+      }
+      resolve(token);
+    });
+  });
+
+const revokeGoogleToken = async () => {
+  if (!extensionApi.identity?.getAuthToken || !extensionApi.identity?.removeCachedAuthToken) {
+    return false;
+  }
+  const token = await getGoogleToken(false).catch(() => null);
+  if (!token) {
+    return false;
+  }
+  await new Promise((resolve) => {
+    extensionApi.identity.removeCachedAuthToken({ token }, resolve);
+  });
+  await fetch(`https://accounts.google.com/o/oauth2/revoke?token=${encodeURIComponent(token)}`).catch(() => null);
+  return true;
+};
+
+const driveFetch = async (token, url, options = {}) => {
+  const response = await fetch(url, {
+    ...options,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      ...(options.headers || {})
+    }
+  });
+  if (!response.ok) {
+    const message = await response.text().catch(() => '');
+    throw new Error(`Google Drive ${response.status}${message ? `: ${message.slice(0, 180)}` : ''}`);
+  }
+  return response;
+};
+
+const findDriveBackupFile = async (token) => {
+  const query = encodeURIComponent(`name='${DRIVE_BACKUP_FILE_NAME}' and '${DRIVE_APPDATA_SPACE}' in parents and trashed=false`);
+  const url = `https://www.googleapis.com/drive/v3/files?spaces=${DRIVE_APPDATA_SPACE}&q=${query}&fields=files(id,name,modifiedTime,size)`;
+  const response = await driveFetch(token, url);
+  const payload = await response.json();
+  return Array.isArray(payload.files) && payload.files.length ? payload.files[0] : null;
+};
+
+const createDriveMultipartBody = (metadata, jsonPayload) => {
+  const boundary = `tfr_drive_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+  const body = [
+    `--${boundary}`,
+    'Content-Type: application/json; charset=UTF-8',
+    '',
+    JSON.stringify(metadata),
+    `--${boundary}`,
+    'Content-Type: application/json; charset=UTF-8',
+    '',
+    JSON.stringify(jsonPayload),
+    `--${boundary}--`
+  ].join('\r\n');
+  return { boundary, body };
+};
+
+const saveDriveSyncState = async (patch = {}) => {
+  const previous = await extensionApi.storage.local.get(DRIVE_SYNC_STATE_KEY);
+  const current = previous?.[DRIVE_SYNC_STATE_KEY] && typeof previous[DRIVE_SYNC_STATE_KEY] === 'object'
+    ? previous[DRIVE_SYNC_STATE_KEY]
+    : {};
+  const next = { ...current, ...patch, updatedAt: Date.now() };
+  await extensionApi.storage.local.set({ [DRIVE_SYNC_STATE_KEY]: next });
+  return next;
+};
+
+const getDriveSyncStatus = async () => {
+  const stored = await extensionApi.storage.local.get(DRIVE_SYNC_STATE_KEY);
+  return {
+    configured: isDriveConfigured(),
+    ...(stored?.[DRIVE_SYNC_STATE_KEY] || {})
+  };
+};
+
+const connectGoogleDrive = async () => {
+  const token = await getGoogleToken(true);
+  const syncState = await saveDriveSyncState({
+    connectedAt: Date.now(),
+    lastError: ''
+  });
+  return {
+    ok: true,
+    tokenAvailable: Boolean(token),
+    syncState
+  };
+};
+
+const pushBackupToDrive = async (backupPayload) => {
+  const token = await getGoogleToken(true);
+  const existing = await findDriveBackupFile(token);
+  const payload = {
+    ...backupPayload,
+    driveSyncedAt: new Date().toISOString()
+  };
+  const metadata = existing
+    ? { name: DRIVE_BACKUP_FILE_NAME }
+    : { name: DRIVE_BACKUP_FILE_NAME, parents: [DRIVE_APPDATA_SPACE] };
+  const { boundary, body } = createDriveMultipartBody(metadata, payload);
+  const url = existing
+    ? `https://www.googleapis.com/upload/drive/v3/files/${existing.id}?uploadType=multipart`
+    : 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart';
+  const response = await driveFetch(token, url, {
+    method: existing ? 'PATCH' : 'POST',
+    headers: {
+      'Content-Type': `multipart/related; boundary=${boundary}`
+    },
+    body
+  });
+  const file = await response.json();
+  const syncState = await saveDriveSyncState({
+    connectedAt: Date.now(),
+    lastPushAt: Date.now(),
+    fileId: file.id || existing?.id || null,
+    lastError: ''
+  });
+  return { ok: true, file, syncState };
+};
+
+const pullBackupFromDrive = async () => {
+  const token = await getGoogleToken(true);
+  const file = await findDriveBackupFile(token);
+  if (!file?.id) {
+    throw new Error('No Drive backup found yet.');
+  }
+  const response = await driveFetch(token, `https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`);
+  const payload = await response.json();
+  const syncState = await saveDriveSyncState({
+    connectedAt: Date.now(),
+    lastPullAt: Date.now(),
+    fileId: file.id,
+    remoteModifiedTime: file.modifiedTime || '',
+    lastError: ''
+  });
+  return { ok: true, payload, file, syncState };
 };
 
 const shouldDisplayFavorite = (favoriteEntry, liveEntry) => {
@@ -354,15 +446,118 @@ const seedDefaultStateIfNeeded = async () => {
   }
 };
 
-const updateBadge = async (count) => {
+const normalizeVersion = (version) =>
+  String(version || '')
+    .trim()
+    .replace(/^v/i, '');
+
+const parseVersion = (version) => {
+  const cleaned = normalizeVersion(version);
+  if (!cleaned) return [0];
+  return cleaned.split('.').map((part) => {
+    const match = String(part).match(/\d+/);
+    return match ? Number(match[0]) : 0;
+  });
+};
+
+const isVersionNewer = (remote, local) => {
+  const remoteParts = parseVersion(remote);
+  const localParts = parseVersion(local);
+  const length = Math.max(remoteParts.length, localParts.length);
+  for (let index = 0; index < length; index += 1) {
+    const remoteValue = remoteParts[index] ?? 0;
+    const localValue = localParts[index] ?? 0;
+    if (remoteValue > localValue) return true;
+    if (remoteValue < localValue) return false;
+  }
+  return false;
+};
+
+const canShowUpdateBadge = (state = {}, now = Date.now()) => {
+  const currentVersion = extensionApi.runtime?.getManifest?.().version || '0.0.0';
+  const latestVersion = normalizeVersion(state.latestVersion);
+  if (!latestVersion || !isVersionNewer(latestVersion, currentVersion)) {
+    return false;
+  }
+  if (state.dismissedVersion === latestVersion) {
+    return false;
+  }
+  if (state.snoozeUntil && now < state.snoozeUntil) {
+    return false;
+  }
+  return true;
+};
+
+const refreshBadgeFromUpdateState = async () => {
+  const stored = await extensionApi.storage.local.get(UPDATE_STORAGE_KEY).catch(() => ({}));
+  const updateState = stored?.[UPDATE_STORAGE_KEY] || {};
+  updateBadgeAvailable = canShowUpdateBadge(updateState);
+  await updateBadge(liveBadgeCount);
+};
+
+const checkForExtensionUpdate = async (force = false) => {
+  const now = Date.now();
+  const stored = await extensionApi.storage.local.get(UPDATE_STORAGE_KEY).catch(() => ({}));
+  const state = stored?.[UPDATE_STORAGE_KEY] && typeof stored[UPDATE_STORAGE_KEY] === 'object'
+    ? stored[UPDATE_STORAGE_KEY]
+    : {};
+  if (!force && state.lastCheck && now - state.lastCheck < UPDATE_CHECK_INTERVAL_MS) {
+    updateBadgeAvailable = canShowUpdateBadge(state, now);
+    await updateBadge(liveBadgeCount);
+    return state;
+  }
+  try {
+    const response = await fetch(UPDATE_REPO_API_URL, {
+      headers: { Accept: 'application/vnd.github+json' },
+      cache: 'no-cache'
+    });
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    const payload = await response.json();
+    const remoteVersion = normalizeVersion(payload?.tag_name || payload?.name);
+    const nextState = {
+      ...state,
+      lastCheck: now,
+      latestVersion: remoteVersion,
+      releaseUrl: payload?.html_url || UPDATE_REPO_URL,
+      releaseNotes: (payload?.body || '').trim()
+    };
+    if (state.latestVersion !== remoteVersion) {
+      nextState.dismissedVersion = null;
+      nextState.snoozeUntil = null;
+    }
+    await extensionApi.storage.local.set({ [UPDATE_STORAGE_KEY]: nextState });
+    updateBadgeAvailable = canShowUpdateBadge(nextState, now);
+    await updateBadge(liveBadgeCount);
+    return nextState;
+  } catch (error) {
+    console.warn('[TFR] background update check failed', error);
+    updateBadgeAvailable = canShowUpdateBadge(state, now);
+    await updateBadge(liveBadgeCount);
+    return state;
+  }
+};
+
+const updateBadge = async (count = liveBadgeCount) => {
   if (!actionApi?.setBadgeText) {
     return;
   }
   try {
+    liveBadgeCount = Number(count) || 0;
+    if (updateBadgeAvailable) {
+      if (actionApi.setBadgeBackgroundColor) {
+        await actionApi.setBadgeBackgroundColor({ color: UPDATE_BADGE_COLOR });
+      }
+      await actionApi.setBadgeText({ text: '!' });
+      await actionApi.setTitle?.({ title: 'Nouvelle mise a jour disponible' });
+      return;
+    }
     if (actionApi.setBadgeBackgroundColor) {
       await actionApi.setBadgeBackgroundColor({ color: BADGE_COLOR });
     }
-    await actionApi.setBadgeText({ text: count > 0 ? String(Math.min(count, 99)) : '' });
+    await actionApi.setBadgeText({ text: liveBadgeCount > 0 ? String(Math.min(liveBadgeCount, 99)) : '' });
+    await actionApi.setTitle?.({ title: 'Afficher les favoris Twitch' });
   } catch (error) {
     console.warn('[TFR] unable to update badge text', error);
   }
@@ -476,18 +671,21 @@ const ensureLiveSnapshot = async (forceRefresh = false) => {
 
 const scheduleAlarm = () => {
   extensionApi.alarms.create(POLL_ALARM, { periodInMinutes: POLL_INTERVAL_MINUTES });
+  extensionApi.alarms.create(UPDATE_ALARM, { periodInMinutes: Math.max(60, UPDATE_CHECK_INTERVAL_MS / 60_000) });
 };
 
 extensionApi.runtime.onInstalled.addListener(async () => {
   await seedDefaultStateIfNeeded();
   scheduleAlarm();
   setSidePanelBehavior();
+  await checkForExtensionUpdate(true);
   await evaluateLiveStatus('install');
 });
 
 extensionApi.runtime.onStartup.addListener(async () => {
   scheduleAlarm();
   setSidePanelBehavior();
+  await checkForExtensionUpdate(false);
   await evaluateLiveStatus('startup');
 });
 
@@ -500,45 +698,23 @@ if (actionApi?.onClicked) {
 if (extensionApi.tabs?.onRemoved) {
   extensionApi.tabs.onRemoved.addListener((tabId) => {
     overlayTabs.delete(tabId);
-    popupTabs.delete(tabId);
-  });
-}
-
-if (extensionApi.tabs?.onUpdated) {
-  extensionApi.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-    if (!popupTabs.has(tabId)) {
-      return;
-    }
-    if (!changeInfo.url && changeInfo.status !== 'complete') {
-      return;
-    }
-    const url = changeInfo.url || tab?.url || '';
-    if (!url) {
-      return;
-    }
-    if (!isRestrictedUrl(url)) {
-      disablePopupForTab(tabId);
-    }
-  });
-}
-
-if (extensionApi.windows?.onRemoved) {
-  extensionApi.windows.onRemoved.addListener((windowId) => {
-    if (windowId === standaloneWindowId) {
-      standaloneWindowId = null;
-    }
   });
 }
 
 extensionApi.alarms.onAlarm.addListener((alarm) => {
   if (alarm?.name === POLL_ALARM) {
     evaluateLiveStatus('alarm');
+  } else if (alarm?.name === UPDATE_ALARM) {
+    checkForExtensionUpdate(false);
   }
 });
 
 extensionApi.storage.onChanged.addListener((changes, areaName) => {
   if (areaName === 'local' && Object.prototype.hasOwnProperty.call(changes, STORAGE_KEY)) {
     evaluateLiveStatus('favorites-change');
+  }
+  if (areaName === 'local' && Object.prototype.hasOwnProperty.call(changes, UPDATE_STORAGE_KEY)) {
+    refreshBadgeFromUpdateState();
   }
 });
 
@@ -585,6 +761,48 @@ extensionApi.runtime.onMessage.addListener((message, sender, sendResponse) => {
       extensionApi.tabs.create({ url });
     }
     sendResponse({ ok: Boolean(url) });
+    return true;
+  } else if (message?.type === 'TFR_DRIVE_SYNC_STATUS') {
+    getDriveSyncStatus()
+      .then((status) => sendResponse({ ok: true, status }))
+      .catch((error) => sendResponse({ ok: false, message: error?.message || 'Drive status failed' }));
+    return true;
+  } else if (message?.type === 'TFR_DRIVE_CONNECT') {
+    connectGoogleDrive()
+      .then((result) => sendResponse(result))
+      .catch(async (error) => {
+        const syncState = await saveDriveSyncState({ lastError: error?.message || 'Google connection failed' }).catch(() => ({}));
+        sendResponse({ ok: false, message: error?.message || 'Google connection failed', syncState });
+      });
+    return true;
+  } else if (message?.type === 'TFR_DRIVE_PUSH') {
+    pushBackupToDrive(message.backup)
+      .then((result) => sendResponse(result))
+      .catch(async (error) => {
+        const syncState = await saveDriveSyncState({ lastError: error?.message || 'Drive push failed' }).catch(() => ({}));
+        sendResponse({ ok: false, message: error?.message || 'Drive push failed', syncState });
+      });
+    return true;
+  } else if (message?.type === 'TFR_DRIVE_PULL') {
+    pullBackupFromDrive()
+      .then((result) => sendResponse(result))
+      .catch(async (error) => {
+        const syncState = await saveDriveSyncState({ lastError: error?.message || 'Drive pull failed' }).catch(() => ({}));
+        sendResponse({ ok: false, message: error?.message || 'Drive pull failed', syncState });
+      });
+    return true;
+  } else if (message?.type === 'TFR_DRIVE_SIGN_OUT') {
+    revokeGoogleToken()
+      .then(async (revoked) => {
+        const syncState = await saveDriveSyncState({ connectedAt: null, lastError: '' }).catch(() => ({}));
+        sendResponse({ ok: true, revoked, syncState });
+      })
+      .catch((error) => sendResponse({ ok: false, message: error?.message || 'Google sign out failed' }));
+    return true;
+  } else if (message?.type === 'TFR_CHECK_EXTENSION_UPDATE') {
+    checkForExtensionUpdate(Boolean(message.force))
+      .then((state) => sendResponse({ ok: true, state, badgeAvailable: updateBadgeAvailable }))
+      .catch((error) => sendResponse({ ok: false, message: error?.message || 'Update check failed' }));
     return true;
   }
   return false;
