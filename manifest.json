@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Twitch Favorites Sidebar",
   "description": "Pin favorite Twitch streamers with live viewer counts, smart categories, and quick management tools.",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "icons": {
     "16": "assets/icon16.png",
     "48": "assets/icon48.png",
@@ -26,7 +26,7 @@
     "http://*/*"
   ],
   "oauth2": {
-    "client_id": "000000000000-replacewithgoogleoauthclientid.apps.googleusercontent.com",
+    "client_id": "242719267292-93m70p6erqagao3ctngd98pi02vg7rcf.apps.googleusercontent.com",
     "scopes": [
       "https://www.googleapis.com/auth/drive.appdata"
     ]

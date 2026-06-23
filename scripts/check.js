@@ -11,6 +11,8 @@ const files = [
   'panel/vods.js',
   'mobile/app.js',
   'scripts/serve-mobile.js',
+  'scripts/configure-mobile-oauth.js',
+  'scripts/configure-web-oauth.js',
   'firefox/src/background/serviceWorker.js',
   'firefox/src/contentScripts/main.js',
   'firefox/src/contentScripts/overlayPanel.js',

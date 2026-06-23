@@ -1,7 +1,7 @@
 (() => {
   const STORAGE_KEY = 'tfm_state';
   const UPDATE_STATE_KEY = 'tfm_update_state';
-  const MOBILE_APP_VERSION = '0.4.0';
+  const MOBILE_APP_VERSION = '0.5.0';
   const UPDATE_REPO_API_URL = 'https://api.github.com/repos/florioz/TwitchPinnedFavoris/releases/latest';
   const UPDATE_REPO_URL = 'https://github.com/florioz/TwitchPinnedFavoris';
   const UPDATE_CHECK_INTERVAL_MS = 12 * 60 * 60 * 1000;
@@ -438,7 +438,7 @@
 
   async function ensureDriveToken() {
     if (!isDriveConfigured()) {
-      throw new Error('Client ID Google non configuré.');
+      throw new Error('Client ID Google TV/Limited Input non configuré.');
     }
     const existing = await refreshDriveTokenIfNeeded();
     if (existing?.accessToken) return existing.accessToken;
@@ -541,7 +541,7 @@
   function signOutDrive() {
     state.googleDriveToken = null;
     persistLocalState();
-    setDriveStatus(isDriveConfigured() ? 'Compte Google déconnecté.' : 'Configure le Client ID Google pour activer la sync.');
+    setDriveStatus(isDriveConfigured() ? 'Compte Google déconnecté.' : 'Configure un Client ID Google TV/Limited Input pour activer la sync.');
   }
 
   function loadDemoData() {
@@ -1015,7 +1015,7 @@
     elements.setupCard.hidden = hasFavorites;
     elements.clearDataButton.hidden = !hasFavorites;
     if (!isDriveConfigured()) {
-      setDriveStatus('Configure le Client ID Google pour activer la sync.', true);
+      setDriveStatus('Configure un Client ID Google TV/Limited Input pour activer la sync.', true);
       setDriveButtonsDisabled(true);
     } else if (!state.isDriveSyncing && !elements.driveStatus.textContent) {
       setDriveStatus(state.googleDriveToken?.accessToken ? 'Google Drive prêt.' : 'Connexion Google requise au premier usage.');

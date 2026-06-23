@@ -2,6 +2,7 @@ const { cpSync, existsSync, mkdirSync, rmSync } = require('node:fs');
 const { join } = require('node:path');
 
 const root = join(__dirname, '..');
+
 const pairs = [
   ['assets', 'firefox/assets'],
   ['panel', 'firefox/panel'],
@@ -22,3 +23,6 @@ for (const [sourceRelative, targetRelative] of pairs) {
   cpSync(source, target, { recursive: true });
   console.log(`Synced ${sourceRelative} -> ${targetRelative}`);
 }
+
+cpSync(join(root, 'manifest.json'), join(root, 'firefox/manifest.json'));
+console.log('Synced manifest.json -> firefox/manifest.json');

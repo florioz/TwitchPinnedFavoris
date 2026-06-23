@@ -1235,6 +1235,17 @@ class FavoritesOverlay {
       `;
       wrapper.appendChild(wizard);
     }
+    if (this.driveStatus?.webAuthRedirectUri) {
+      const redirectHint = document.createElement('div');
+      redirectHint.className = 'tfr-drive-wizard';
+      const label = document.createElement('strong');
+      label.textContent = 'URI de redirection Brave';
+      const value = document.createElement('code');
+      value.textContent = this.driveStatus.webAuthRedirectUri;
+      redirectHint.appendChild(label);
+      redirectHint.appendChild(value);
+      wrapper.appendChild(redirectHint);
+    }
 
     if (this.driveMessage) {
       const message = document.createElement('small');

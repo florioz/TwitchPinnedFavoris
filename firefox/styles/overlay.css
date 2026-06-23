@@ -360,6 +360,19 @@
   padding-left: 18px;
 }
 
+.tfr-drive-wizard code {
+  display: block;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  padding: 6px 8px;
+  border: 1px solid rgba(145, 71, 255, 0.26);
+  border-radius: 6px;
+  background: rgba(8, 5, 16, 0.62);
+  color: #f5d178;
+  font-family: Consolas, 'Liberation Mono', monospace;
+  font-size: 11px;
+}
+
 .tfr-recent-live-settings {
   display: flex;
   flex-wrap: wrap;

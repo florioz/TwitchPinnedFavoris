@@ -25,6 +25,10 @@ const TWITCH_CLIENT_ID = 'kimne78kx3ncx6brgo4mv6wki5h1ko';
 const DRIVE_BACKUP_FILE_NAME = 'twitch-favorites-sidebar-profiles.json';
 const DRIVE_APPDATA_SPACE = 'appDataFolder';
 const DRIVE_SYNC_STATE_KEY = 'tfr_drive_sync_state';
+const WEB_AUTH_DRIVE_TOKEN_KEY = 'tfr_web_auth_drive_token';
+const DRIVE_AUTH_MODE_KEY = 'tfr_drive_auth_mode';
+const WEB_AUTH_CLIENT_ID = '242719267292-idbv4ualavd40nl8rsq4ea2pj0cii1r1.apps.googleusercontent.com';
+const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.appdata';
 const STREAM_STATE_QUERY = `
   query ($login: String!) {
     user(login: $login) {
@@ -169,6 +173,17 @@ const isDriveConfigured = () => {
   return Boolean(extensionApi.identity?.getAuthToken && clientId && !clientId.includes('replacewithgoogleoauthclientid'));
 };
 
+const isWebAuthFlowAvailable = () => Boolean(extensionApi.identity?.launchWebAuthFlow && extensionApi.identity?.getRedirectURL);
+
+const getWebAuthClientId = () => WEB_AUTH_CLIENT_ID.trim();
+
+const getWebAuthRedirectUri = () => {
+  if (!extensionApi.identity?.getRedirectURL) {
+    return '';
+  }
+  return extensionApi.identity.getRedirectURL();
+};
+
 const getGoogleToken = (interactive = false) =>
   new Promise((resolve, reject) => {
     if (!isDriveConfigured()) {
@@ -190,19 +205,134 @@ const getGoogleToken = (interactive = false) =>
     });
   });
 
-const revokeGoogleToken = async () => {
-  if (!extensionApi.identity?.getAuthToken || !extensionApi.identity?.removeCachedAuthToken) {
-    return false;
+const getStoredWebAuthDriveToken = async () => {
+  const stored = await extensionApi.storage.local.get(WEB_AUTH_DRIVE_TOKEN_KEY);
+  const token = stored?.[WEB_AUTH_DRIVE_TOKEN_KEY];
+  if (!token?.accessToken || Date.now() >= Number(token.expiresAt || 0) - 60_000) {
+    return null;
   }
-  const token = await getGoogleToken(false).catch(() => null);
-  if (!token) {
-    return false;
+  return token;
+};
+
+const saveWebAuthDriveToken = async (token) => {
+  await extensionApi.storage.local.set({ [WEB_AUTH_DRIVE_TOKEN_KEY]: token });
+  return token;
+};
+
+const clearWebAuthDriveToken = async () => {
+  await extensionApi.storage.local.remove(WEB_AUTH_DRIVE_TOKEN_KEY);
+};
+
+const getDriveAuthMode = async () => {
+  const stored = await extensionApi.storage.local.get(DRIVE_AUTH_MODE_KEY);
+  return stored?.[DRIVE_AUTH_MODE_KEY] || '';
+};
+
+const setDriveAuthMode = async (mode) => {
+  await extensionApi.storage.local.set({ [DRIVE_AUTH_MODE_KEY]: mode });
+};
+
+const clearDriveAuthMode = async () => {
+  await extensionApi.storage.local.remove(DRIVE_AUTH_MODE_KEY);
+};
+
+const parseHashParams = (url) => {
+  const hash = new URL(url).hash.replace(/^#/, '');
+  return new URLSearchParams(hash);
+};
+
+const getWebAuthDriveToken = async (interactive = false) => {
+  const stored = await getStoredWebAuthDriveToken();
+  if (stored?.accessToken) {
+    await setDriveAuthMode('web');
+    return stored.accessToken;
   }
-  await new Promise((resolve) => {
-    extensionApi.identity.removeCachedAuthToken({ token }, resolve);
+  if (!interactive) {
+    throw new Error('Google Drive token expired. Reconnect Google.');
+  }
+  if (!extensionApi.identity?.launchWebAuthFlow || !extensionApi.identity?.getRedirectURL) {
+    throw new Error('Browser OAuth flow is not available.');
+  }
+  const clientId = getWebAuthClientId();
+  if (!clientId) {
+    throw new Error('Brave OAuth fallback is not configured. Create a Web application OAuth Client ID and set WEB_AUTH_CLIENT_ID in src/background/serviceWorker.js.');
+  }
+  const redirectUri = getWebAuthRedirectUri();
+  console.info('[TFR] Google web auth redirect URI', redirectUri);
+  const authUrl = new URL('https://accounts.google.com/o/oauth2/v2/auth');
+  authUrl.searchParams.set('client_id', clientId);
+  authUrl.searchParams.set('response_type', 'token');
+  authUrl.searchParams.set('redirect_uri', redirectUri);
+  authUrl.searchParams.set('scope', DRIVE_SCOPE);
+  authUrl.searchParams.set('prompt', 'select_account consent');
+  authUrl.searchParams.set('include_granted_scopes', 'true');
+
+  const redirectUrl = await new Promise((resolve, reject) => {
+    extensionApi.identity.launchWebAuthFlow({ url: authUrl.toString(), interactive: true }, (resultUrl) => {
+      const error = extensionApi.runtime?.lastError;
+      if (error) {
+        reject(new Error(`${error.message || 'Google web auth failed'} Redirect URI: ${redirectUri}`));
+        return;
+      }
+      if (!resultUrl) {
+        reject(new Error('Google web auth returned no redirect URL'));
+        return;
+      }
+      resolve(resultUrl);
+    });
   });
-  await fetch(`https://accounts.google.com/o/oauth2/revoke?token=${encodeURIComponent(token)}`).catch(() => null);
-  return true;
+  const params = parseHashParams(redirectUrl);
+  const accessToken = params.get('access_token');
+  if (!accessToken) {
+    throw new Error(params.get('error_description') || params.get('error') || 'Google web auth returned no token');
+  }
+  const expiresIn = Number(params.get('expires_in')) || 3600;
+  await saveWebAuthDriveToken({
+    accessToken,
+    expiresAt: Date.now() + expiresIn * 1000
+  });
+  await setDriveAuthMode('web');
+  return accessToken;
+};
+
+const getDriveToken = async (interactive = false) => {
+  const authMode = await getDriveAuthMode();
+  if (authMode === 'web') {
+    return getWebAuthDriveToken(interactive);
+  }
+
+  const webToken = await getStoredWebAuthDriveToken();
+  if (webToken?.accessToken) {
+    await setDriveAuthMode('web');
+    return webToken.accessToken;
+  }
+
+  try {
+    const token = await getGoogleToken(interactive);
+    await setDriveAuthMode('chrome');
+    return token;
+  } catch (error) {
+    if (!interactive) {
+      throw error;
+    }
+    console.warn('[TFR] chrome.identity.getAuthToken failed, falling back to launchWebAuthFlow', error);
+    return getWebAuthDriveToken(true);
+  }
+};
+
+const revokeGoogleToken = async () => {
+  let revoked = false;
+  const token = await getGoogleToken(false).catch(() => null);
+  if (token && extensionApi.identity?.removeCachedAuthToken) {
+    await new Promise((resolve) => {
+      extensionApi.identity.removeCachedAuthToken({ token }, resolve);
+    });
+    await fetch(`https://accounts.google.com/o/oauth2/revoke?token=${encodeURIComponent(token)}`).catch(() => null);
+    revoked = true;
+  }
+  await clearWebAuthDriveToken();
+  await clearDriveAuthMode();
+  return revoked;
 };
 
 const driveFetch = async (token, url, options = {}) => {
@@ -256,14 +386,20 @@ const saveDriveSyncState = async (patch = {}) => {
 
 const getDriveSyncStatus = async () => {
   const stored = await extensionApi.storage.local.get(DRIVE_SYNC_STATE_KEY);
+  const chromeIdentityConfigured = isDriveConfigured();
+  const webAuthAvailable = isWebAuthFlowAvailable() && Boolean(getWebAuthClientId());
   return {
-    configured: isDriveConfigured(),
+    configured: chromeIdentityConfigured || webAuthAvailable,
+    chromeIdentityConfigured,
+    webAuthAvailable,
+    webAuthRedirectUri: getWebAuthRedirectUri(),
+    authMode: await getDriveAuthMode(),
     ...(stored?.[DRIVE_SYNC_STATE_KEY] || {})
   };
 };
 
 const connectGoogleDrive = async () => {
-  const token = await getGoogleToken(true);
+  const token = await getDriveToken(true);
   const syncState = await saveDriveSyncState({
     connectedAt: Date.now(),
     lastError: ''
@@ -276,7 +412,7 @@ const connectGoogleDrive = async () => {
 };
 
 const pushBackupToDrive = async (backupPayload) => {
-  const token = await getGoogleToken(true);
+  const token = await getDriveToken(true);
   const existing = await findDriveBackupFile(token);
   const payload = {
     ...backupPayload,
@@ -307,7 +443,7 @@ const pushBackupToDrive = async (backupPayload) => {
 };
 
 const pullBackupFromDrive = async () => {
-  const token = await getGoogleToken(true);
+  const token = await getDriveToken(true);
   const file = await findDriveBackupFile(token);
   if (!file?.id) {
     throw new Error('No Drive backup found yet.');
