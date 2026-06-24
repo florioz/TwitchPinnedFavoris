@@ -323,6 +323,7 @@
   font-weight: 800;
   text-transform: uppercase;
   letter-spacing: 0.04em;
+  user-select: none;
 }
 
 .tfr-drive-controls__message {
@@ -371,6 +372,10 @@
   color: #f5d178;
   font-family: Consolas, 'Liberation Mono', monospace;
   font-size: 11px;
+}
+
+.tfr-drive-wizard--debug {
+  border-color: rgba(216, 181, 109, 0.42);
 }
 
 .tfr-recent-live-settings {
@@ -1396,10 +1401,10 @@
 }
 
 .tfr-viewer-history__item {
-  display: grid;
-  grid-template-columns: 42px auto minmax(0, 1fr);
+  display: flex;
   align-items: baseline;
-  column-gap: 5px;
+  flex-wrap: wrap;
+  gap: 2px 5px;
   padding: 3px 9px;
   font-size: 12px;
   line-height: 1.35;
@@ -1421,11 +1426,37 @@
   white-space: nowrap;
 }
 
+.tfr-viewer-history__badges {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+
+.tfr-viewer-history__badge {
+  width: 18px;
+  height: 18px;
+  object-fit: contain;
+  border-radius: 2px;
+  flex: 0 0 auto;
+}
+
 .tfr-viewer-history__message {
   min-width: 0;
   color: #f7f7f8;
   word-break: break-word;
   white-space: normal;
+  flex: 1 1 120px;
+}
+
+.tfr-viewer-history__emote {
+  display: inline-block;
+  width: auto;
+  height: 28px;
+  max-width: 96px;
+  object-fit: contain;
+  vertical-align: middle;
+  margin: -4px 1px;
 }
 
 .tfr-viewer-history__empty {
@@ -1467,6 +1498,13 @@
   padding: 11px 13px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   background: rgba(145, 71, 255, 0.14);
+  cursor: move;
+  user-select: none;
+  touch-action: none;
+}
+
+.tfr-mod-history-panel.is-dragging {
+  transition: none;
 }
 
 .tfr-mod-history-panel__title {
@@ -1488,6 +1526,7 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  cursor: pointer;
 }
 
 .tfr-mod-history-panel__close:hover,

@@ -5,6 +5,131 @@
     formatModerationTimestamp,
     MAX_TIMEOUT_SECONDS
   }) => {
+  const SEVENTV_USER_ENDPOINT = 'https://7tv.io/v3/users/twitch/';
+  const SEVENTV_GLOBAL_ENDPOINT = 'https://7tv.io/v3/emote-sets/global';
+  const TWITCH_GQL_ENDPOINT = 'https://gql.twitch.tv/gql';
+  const TWITCH_CLIENT_ID = 'kimne78kx3ncx6brgo4mv6wki5h1ko';
+
+  const getCurrentChannelLogin = () => {
+    const pathMatch = window.location.pathname.match(/^\/([^/?#]+)/);
+    const candidate = pathMatch?.[1] || '';
+    const blocked = new Set(['directory', 'p', 'jobs', 'downloads', 'friends', 'messages', 'settings', 'subscriptions']);
+    const normalized = candidate.toLowerCase();
+    return normalized && !blocked.has(normalized) ? normalized : '';
+  };
+
+  class ThirdPartyEmoteResolver {
+    constructor() {
+      this.channelLogin = '';
+      this.channelId = '';
+      this.emotes = new Map();
+      this.loadingPromise = null;
+      this.lastAttempt = 0;
+    }
+
+    async ensureLoaded() {
+      const login = getCurrentChannelLogin();
+      if (!login && this.emotes.size) return;
+      if (this.channelLogin === login && this.emotes.size) return;
+      if (this.loadingPromise) return this.loadingPromise;
+      const now = Date.now();
+      if (this.channelLogin === login && now - this.lastAttempt < 60_000) return;
+      this.channelLogin = login;
+      this.lastAttempt = now;
+      this.loadingPromise = this.load(login).finally(() => {
+        this.loadingPromise = null;
+      });
+      return this.loadingPromise;
+    }
+
+    async load(login) {
+      const next = await this.fetchSevenTvEmotes(SEVENTV_GLOBAL_ENDPOINT);
+      const channelId = login ? await this.fetchTwitchUserId(login) : '';
+      if (channelId) {
+        this.channelId = channelId;
+        const channelEmotes = await this.fetchSevenTvEmotes(`${SEVENTV_USER_ENDPOINT}${encodeURIComponent(channelId)}`, true);
+        channelEmotes.forEach((emote, name) => next.set(name, emote));
+      }
+      this.emotes = next;
+    }
+
+    async fetchSevenTvEmotes(url, nested = false) {
+      const response = await fetch(url, { credentials: 'omit' });
+      if (!response.ok) return new Map();
+      const payload = await response.json().catch(() => null);
+      const emotes = nested ? payload?.emote_set?.emotes : payload?.emotes;
+      const result = new Map();
+      if (Array.isArray(emotes)) {
+        emotes.forEach((entry) => {
+          const name = entry?.name || entry?.data?.name;
+          const id = entry?.id || entry?.data?.id;
+          if (!name || !id) return;
+          result.set(name, {
+            name,
+            url: `https://cdn.7tv.app/emote/${id}/2x.webp`
+          });
+        });
+      }
+      return result;
+    }
+
+    async fetchTwitchUserId(login) {
+      const response = await fetch(TWITCH_GQL_ENDPOINT, {
+        method: 'POST',
+        headers: {
+          'Client-ID': TWITCH_CLIENT_ID,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          operationName: 'TfrChatUserId',
+          query: 'query TfrChatUserId($login: String!) { user(login: $login) { id } }',
+          variables: { login }
+        })
+      });
+      if (!response.ok) return '';
+      const payload = await response.json().catch(() => null);
+      return payload?.data?.user?.id || '';
+    }
+
+    enrichParts(parts) {
+      if (!this.emotes.size || !Array.isArray(parts)) {
+        return Array.isArray(parts) ? parts : [];
+      }
+      const result = [];
+      parts.forEach((part) => {
+        if (!part || part.type !== 'text' || !part.text) {
+          result.push(part);
+          return;
+        }
+        String(part.text).split(/(\s+)/).forEach((token) => {
+          if (!token) return;
+          const tokenMatch = token.match(/^([^A-Za-z0-9_]*)([A-Za-z0-9_][A-Za-z0-9_\-]*)([^A-Za-z0-9_]*)$/);
+          const candidate = tokenMatch?.[2] || token;
+          const emote = this.emotes.get(candidate);
+          if (emote) {
+            if (tokenMatch?.[1]) {
+              result.push({ type: 'text', text: tokenMatch[1] });
+            }
+            result.push({ type: 'emote', name: candidate, url: emote.url, provider: '7tv' });
+            if (tokenMatch?.[3]) {
+              result.push({ type: 'text', text: tokenMatch[3] });
+            }
+            return;
+          }
+          const previous = result[result.length - 1];
+          if (previous?.type === 'text') {
+            previous.text += token;
+          } else {
+            result.push({ type: 'text', text: token });
+          }
+        });
+      });
+      return result;
+    }
+  }
+
+  const thirdPartyEmotes = new ThirdPartyEmoteResolver();
+
   class ChatHistoryTracker {
     constructor() {
       this.history = new Map();
@@ -22,6 +147,7 @@
     }
 
     init() {
+      thirdPartyEmotes.ensureLoaded().catch((error) => console.warn('[TFR] 7TV emotes unavailable', error));
       this.observeChat(true);
       if (!this.containerCheckTimer) {
         this.containerCheckTimer = setInterval(() => {
@@ -143,21 +269,26 @@
     }
 
     captureMessage(messageElement) {
-      if (!messageElement || messageElement.dataset?.tfrChatTracked === 'true') {
+      const rootElement = this.getMessageRoot(messageElement);
+      if (!rootElement || rootElement.dataset?.tfrChatTracked === 'true' || messageElement?.dataset?.tfrChatTracked === 'true') {
         return;
       }
-      const login = this.extractLogin(messageElement);
-      const text = this.extractMessageText(messageElement);
+      const login = this.extractLogin(rootElement);
+      const text = this.extractMessageText(rootElement);
       const normalized = this.normalizeLogin(login);
       if (!normalized || !text) {
         return;
       }
-      const displayName = this.extractDisplayName(messageElement) || login;
-      const timestamp = this.extractTimestamp(messageElement) || Date.now();
+      const displayName = this.extractDisplayName(rootElement) || login;
+      const timestamp = this.extractTimestamp(rootElement) || Date.now();
+      const fragments = thirdPartyEmotes.enrichParts(this.extractMessageFragments(rootElement, text));
       const entry = {
         login: normalized,
         displayName,
         text,
+        fragments,
+        badges: this.extractBadges(rootElement),
+        color: this.extractUserColor(rootElement),
         timestamp
       };
       const existing = this.history.get(normalized) || [];
@@ -166,6 +297,7 @@
       ));
       if (duplicate) {
         messageElement.dataset.tfrChatTracked = 'true';
+        rootElement.dataset.tfrChatTracked = 'true';
         return;
       }
       existing.push(entry);
@@ -177,7 +309,32 @@
       }
       this.history.set(normalized, existing);
       messageElement.dataset.tfrChatTracked = 'true';
+      rootElement.dataset.tfrChatTracked = 'true';
       this.emit(normalized);
+      thirdPartyEmotes.ensureLoaded()
+        .then(() => {
+          const updated = thirdPartyEmotes.enrichParts(entry.fragments);
+          if (JSON.stringify(updated) !== JSON.stringify(entry.fragments)) {
+            entry.fragments = updated;
+            this.emit(normalized);
+          }
+        })
+        .catch(() => {});
+    }
+
+    getMessageRoot(messageElement) {
+      if (!(messageElement instanceof HTMLElement)) {
+        return null;
+      }
+      return (
+        messageElement.closest('[data-a-target="chat-line-message"]') ||
+        messageElement.closest('[data-test-selector="chat-line-message"]') ||
+        messageElement.closest('[data-a-target="chat-line-user-notice"]') ||
+        messageElement.closest('[data-test-selector="chat-line-user-notice"]') ||
+        messageElement.closest('.chat-line__message') ||
+        messageElement.closest('.seventv-message') ||
+        messageElement
+      );
     }
 
     extractLogin(messageElement) {
@@ -337,6 +494,132 @@
       });
       return clone.textContent?.replace(/\s+/g, ' ').trim() || '';
     }
+
+    getMessageContainer(messageElement) {
+      return (
+        messageElement.querySelector('[data-a-target="chat-message-text"]') ||
+        messageElement.querySelector('[data-test-selector="chat-line-message-body"]') ||
+        messageElement.querySelector('[data-a-target="chat-line-message-body"]') ||
+        messageElement.querySelector('.text-fragment')?.parentElement ||
+        messageElement
+      );
+    }
+
+    extractMessageFragments(messageElement, fallbackText = '') {
+      const textContainer = this.getMessageContainer(messageElement);
+      const skipSelectors = [
+        '[data-a-target="chat-message-timestamp"]',
+        '[data-test-selector="chat-message-timestamp"]',
+        '[data-a-target="chat-message-username"]',
+        '[data-test-selector="chat-message-username"]',
+        '[data-a-target="chat-author-link"]',
+        '[data-a-target="chat-badge"]',
+        '[data-test-selector="chat-badge"]',
+        '.chat-line__timestamp',
+        '.chat-author__display-name',
+        '.chat-line__username',
+        '.chat-badge',
+        '.reply-line',
+        '[data-a-target="chat-line-reply"]'
+      ];
+      const parts = [];
+      const pushText = (value) => {
+        if (!value) return;
+        const text = String(value).replace(/\s+/g, ' ');
+        if (!text.trim()) return;
+        const previous = parts[parts.length - 1];
+        if (previous?.type === 'text') {
+          previous.text += text;
+        } else {
+          parts.push({ type: 'text', text });
+        }
+      };
+      const walk = (node) => {
+        if (!node) return;
+        if (node.nodeType === Node.TEXT_NODE) {
+          pushText(node.textContent);
+          return;
+        }
+        if (node.nodeType !== Node.ELEMENT_NODE) return;
+        const element = node;
+        if (skipSelectors.some((selector) => element.matches?.(selector))) return;
+        const dataset = element.dataset || {};
+        const dataTarget = (dataset.aTarget || '').toLowerCase();
+        const isImageEmote =
+          element.tagName === 'IMG' ||
+          element.classList?.contains('chat-image__emoji') ||
+          element.classList?.contains('emoji') ||
+          /emote/.test(dataTarget) ||
+          dataset.emoteId ||
+          dataset.emoteName;
+        if (isImageEmote) {
+          const url = element.currentSrc || element.src || element.getAttribute('src') || '';
+          const name =
+            element.getAttribute('alt') ||
+            element.getAttribute('aria-label') ||
+            element.getAttribute('title') ||
+            dataset.emoteName ||
+            dataset.name ||
+            '';
+          if (url) {
+            parts.push({ type: 'emote', name: name.trim() || 'emote', url, provider: /7tv|seventv/i.test(url) ? '7tv' : 'twitch' });
+          } else {
+            pushText(name || element.textContent);
+          }
+          return;
+        }
+        if (element.childNodes?.length) {
+          element.childNodes.forEach((child) => walk(child));
+        } else {
+          pushText(element.getAttribute('aria-label') || element.getAttribute('title') || element.textContent);
+        }
+      };
+      walk(textContainer);
+      const normalized = parts
+        .map((part) => part.type === 'text' ? { ...part, text: part.text.replace(/\s+/g, ' ') } : part)
+        .filter((part) => part.type !== 'text' || part.text.trim());
+      return normalized.length ? normalized : [{ type: 'text', text: fallbackText }];
+    }
+
+    extractBadges(messageElement) {
+      const badgeSelectors = [
+        '[data-a-target="chat-badge"]',
+        '[data-test-selector="chat-badge"]',
+        '.chat-badge'
+      ];
+      const badges = [];
+      badgeSelectors.forEach((selector) => {
+        messageElement.querySelectorAll(selector).forEach((badge) => {
+          const img = badge.tagName === 'IMG' ? badge : badge.querySelector('img');
+          const url = img?.currentSrc || img?.src || img?.getAttribute?.('src') || '';
+          const label =
+            img?.getAttribute?.('alt') ||
+            badge.getAttribute?.('aria-label') ||
+            badge.getAttribute?.('title') ||
+            img?.getAttribute?.('title') ||
+            '';
+          if (!url && !label) return;
+          if (badges.some((entry) => entry.url === url && entry.label === label)) return;
+          badges.push({ url, label: label.trim() });
+        });
+      });
+      return badges.slice(0, 24);
+    }
+
+    extractUserColor(messageElement) {
+      const usernameNode =
+        messageElement.querySelector('[data-a-target="chat-message-username"]') ||
+        messageElement.querySelector('[data-test-selector="chat-message-username"]') ||
+        messageElement.querySelector('[data-a-target="chat-author-link"]') ||
+        messageElement.querySelector('.chat-author__display-name') ||
+        messageElement.querySelector('.chat-line__username');
+      if (!(usernameNode instanceof HTMLElement)) return '';
+      const inline = usernameNode.style?.color || usernameNode.getAttribute('style')?.match(/color\s*:\s*([^;]+)/i)?.[1] || '';
+      if (inline) return inline.trim();
+      const computed = window.getComputedStyle(usernameNode).color;
+      return computed && computed !== 'rgb(255, 255, 255)' ? computed : '';
+    }
+
     extractTimestamp(messageElement) {
       const dataset = messageElement.dataset || {};
       const numericCandidates = [
@@ -1525,9 +1808,13 @@
       this.mountFrame = null;
       this.seenActionIds = new Set();
       this.hasUnread = false;
+      this.dragState = null;
+      this.userPosition = null;
       this.handleDocumentClick = this.handleDocumentClick.bind(this);
       this.handleKeydown = this.handleKeydown.bind(this);
       this.handleResize = this.handleResize.bind(this);
+      this.handlePanelDragMove = this.handlePanelDragMove.bind(this);
+      this.handlePanelDragEnd = this.handlePanelDragEnd.bind(this);
     }
 
     init() {
@@ -1560,6 +1847,10 @@
       this.latestActions = [];
       this.seenActionIds.clear();
       this.hasUnread = false;
+      this.dragState = null;
+      this.userPosition = null;
+      document.removeEventListener('mousemove', this.handlePanelDragMove, true);
+      document.removeEventListener('mouseup', this.handlePanelDragEnd, true);
     }
 
     observeControls() {
@@ -1711,6 +2002,7 @@
 
       const header = document.createElement('div');
       header.className = 'tfr-mod-history-panel__header';
+      header.addEventListener('mousedown', (event) => this.startPanelDrag(event));
 
       const title = document.createElement('span');
       title.className = 'tfr-mod-history-panel__title';
@@ -1784,6 +2076,9 @@
       document.removeEventListener('mousedown', this.handleDocumentClick, true);
       document.removeEventListener('keydown', this.handleKeydown, true);
       window.removeEventListener('resize', this.handleResize);
+      document.removeEventListener('mousemove', this.handlePanelDragMove, true);
+      document.removeEventListener('mouseup', this.handlePanelDragEnd, true);
+      this.dragState = null;
       this.updateButtonState();
     }
 
@@ -1934,6 +2229,7 @@
 
     handleResize() {
       if (this.isOpen) {
+        this.clampUserPosition();
         this.positionPanel();
       }
     }
@@ -1946,6 +2242,13 @@
       const panel = this.panel;
       const maxHeight = Math.min(620, Math.floor(window.innerHeight * 0.82), window.innerHeight - 24);
       panel.style.maxHeight = `${Math.max(220, maxHeight)}px`;
+      if (this.userPosition) {
+        this.clampUserPosition();
+        panel.style.top = `${Math.round(this.userPosition.top)}px`;
+        panel.style.left = `${Math.round(this.userPosition.left)}px`;
+        panel.style.visibility = '';
+        return;
+      }
       panel.style.visibility = 'hidden';
       const panelRect = panel.getBoundingClientRect();
       let top = rect.top - panelRect.height - 8;
@@ -1966,6 +2269,53 @@
       panel.style.top = `${Math.round(top)}px`;
       panel.style.left = `${Math.round(left)}px`;
       panel.style.visibility = '';
+    }
+
+    startPanelDrag(event) {
+      if (event.button !== 0 || event.target.closest('.tfr-mod-history-panel__close')) {
+        return;
+      }
+      const panel = this.panel;
+      if (!panel) return;
+      const rect = panel.getBoundingClientRect();
+      this.dragState = {
+        startX: event.clientX,
+        startY: event.clientY,
+        left: rect.left,
+        top: rect.top
+      };
+      panel.classList.add('is-dragging');
+      event.preventDefault();
+      document.addEventListener('mousemove', this.handlePanelDragMove, true);
+      document.addEventListener('mouseup', this.handlePanelDragEnd, true);
+    }
+
+    handlePanelDragMove(event) {
+      if (!this.dragState || !this.panel) return;
+      const nextLeft = this.dragState.left + event.clientX - this.dragState.startX;
+      const nextTop = this.dragState.top + event.clientY - this.dragState.startY;
+      this.userPosition = { left: nextLeft, top: nextTop };
+      this.clampUserPosition();
+      this.panel.style.left = `${Math.round(this.userPosition.left)}px`;
+      this.panel.style.top = `${Math.round(this.userPosition.top)}px`;
+    }
+
+    handlePanelDragEnd() {
+      if (this.panel) {
+        this.panel.classList.remove('is-dragging');
+      }
+      this.dragState = null;
+      document.removeEventListener('mousemove', this.handlePanelDragMove, true);
+      document.removeEventListener('mouseup', this.handlePanelDragEnd, true);
+    }
+
+    clampUserPosition() {
+      if (!this.userPosition || !this.panel) return;
+      const rect = this.panel.getBoundingClientRect();
+      const width = rect.width || 390;
+      const height = rect.height || 220;
+      this.userPosition.left = Math.min(Math.max(8, this.userPosition.left), Math.max(8, window.innerWidth - width - 8));
+      this.userPosition.top = Math.min(Math.max(8, this.userPosition.top), Math.max(8, window.innerHeight - height - 8));
     }
   }
 
@@ -2291,10 +2641,27 @@
         const author = document.createElement('strong');
         author.className = 'tfr-viewer-history__author';
         author.textContent = entry.displayName || entry.login || '';
+        if (entry.color) {
+          author.style.color = entry.color;
+        }
         const message = document.createElement('span');
         message.className = 'tfr-viewer-history__message';
-        message.textContent = entry.text;
+        this.renderMessageParts(message, entry);
         item.appendChild(time);
+        if (Array.isArray(entry.badges) && entry.badges.length) {
+          const badges = document.createElement('span');
+          badges.className = 'tfr-viewer-history__badges';
+          entry.badges.forEach((badge) => {
+            if (!badge?.url) return;
+            const img = document.createElement('img');
+            img.className = 'tfr-viewer-history__badge';
+            img.src = badge.url;
+            img.alt = badge.label || '';
+            img.title = badge.label || '';
+            badges.appendChild(img);
+          });
+          item.appendChild(badges);
+        }
         item.appendChild(author);
         item.appendChild(message);
         list.appendChild(item);
@@ -2309,6 +2676,27 @@
         this.rendering = false;
       });
     }
+
+    renderMessageParts(container, entry) {
+      const parts = Array.isArray(entry.fragments) && entry.fragments.length
+        ? entry.fragments
+        : [{ type: 'text', text: entry.text || '' }];
+      parts.forEach((part) => {
+        if (!part) return;
+        if (part.type === 'emote' && part.url) {
+          const img = document.createElement('img');
+          img.className = 'tfr-viewer-history__emote';
+          img.src = part.url;
+          img.alt = part.name || '';
+          img.title = part.name || '';
+          img.loading = 'lazy';
+          container.appendChild(img);
+          return;
+        }
+        container.appendChild(document.createTextNode(part.text || ''));
+      });
+    }
+
     removeNativeRecentMessages(host) {
       if (!(host instanceof HTMLElement)) {
         return;

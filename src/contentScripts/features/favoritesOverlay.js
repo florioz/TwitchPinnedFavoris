@@ -22,6 +22,7 @@ class FavoritesOverlay {
     this.isDriveSyncing = false;
     this.driveStatus = null;
     this.driveMessage = '';
+    this.driveDebugVisible = false;
     this.draggedLogin = null;
     this.draggedCategoryStartX = 0;
     this.selectedFavorites = new Set();
@@ -1188,6 +1189,15 @@ class FavoritesOverlay {
     const title = document.createElement('span');
     title.className = 'tfr-drive-controls__title';
     title.textContent = t('drive.title');
+    title.title = 'Ctrl + Alt + clic pour afficher les informations de debug Drive';
+    title.addEventListener('click', (event) => {
+      if (!event.ctrlKey || !event.altKey) {
+        return;
+      }
+      event.preventDefault();
+      this.driveDebugVisible = !this.driveDebugVisible;
+      this.render();
+    });
     wrapper.appendChild(title);
 
     const connectButton = document.createElement('button');
@@ -1235,11 +1245,11 @@ class FavoritesOverlay {
       `;
       wrapper.appendChild(wizard);
     }
-    if (this.driveStatus?.webAuthRedirectUri) {
+    if (this.driveDebugVisible && this.driveStatus?.webAuthRedirectUri) {
       const redirectHint = document.createElement('div');
-      redirectHint.className = 'tfr-drive-wizard';
+      redirectHint.className = 'tfr-drive-wizard tfr-drive-wizard--debug';
       const label = document.createElement('strong');
-      label.textContent = 'URI de redirection Brave';
+      label.textContent = 'Debug Drive';
       const value = document.createElement('code');
       value.textContent = this.driveStatus.webAuthRedirectUri;
       redirectHint.appendChild(label);
