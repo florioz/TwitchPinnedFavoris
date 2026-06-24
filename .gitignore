@@ -7,6 +7,7 @@ yarn-error.log*
 pnpm-debug.log*
 
 temp_*.js
+mobile/oauth-config.js
 
 .DS_Store
 Thumbs.db

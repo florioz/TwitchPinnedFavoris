@@ -55,12 +55,14 @@ L'app mobile utilise le flux Google `device code`. Le Client ID Web de Brave ne 
 Dans Google Cloud :
 
 1. Cree un OAuth Client ID de type `TVs and Limited Input devices`.
-2. Copie le Client ID.
+2. Copie le Client ID et le Client secret de ce client OAuth.
 3. Configure l'app mobile :
 
 ```powershell
-npm run configure:mobile-oauth -- "TON_CLIENT_ID_TV.apps.googleusercontent.com"
+npm run configure:mobile-oauth -- "TON_CLIENT_ID_TV.apps.googleusercontent.com" "TON_CLIENT_SECRET_TV"
 ```
+
+Le secret est requis par Google pendant l'echange du code appareil. Dans une APK il n'est pas vraiment prive, donc il sert surtout a satisfaire la configuration OAuth de Google, pas a proteger une cle sensible.
 
 Si tu utilises le Client ID Web de Brave dans l'app mobile, Google renvoie :
 

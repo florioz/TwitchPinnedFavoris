@@ -76,7 +76,13 @@
             <p>Bibliotheque</p>
             <h2>Groupes et streamers</h2>
           </div>
-          <button id="clearDataButton" class="tfm-button tfm-button--ghost" type="button" hidden>Vider</button>
+          <div class="tfm-view-actions">
+            <label class="tfm-profile-picker">
+              <span>Profil</span>
+              <select id="profileSelect"></select>
+            </label>
+            <button id="clearDataButton" class="tfm-button tfm-button--ghost" type="button" hidden>Vider</button>
+          </div>
         </div>
         <section class="tfm-toolbar tfm-toolbar--groups" aria-label="Filtres des groupes">
           <label>
@@ -136,6 +142,7 @@
       </section>
     </main>
 
+    <script src="./oauth-config.js"></script>
     <script src="./app.js"></script>
   </body>
 </html>

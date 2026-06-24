@@ -2,7 +2,7 @@ const { readFileSync, writeFileSync } = require('node:fs');
 const { join } = require('node:path');
 
 const root = join(__dirname, '..');
-const target = join(root, 'mobile/app.js');
+const target = join(root, 'mobile/oauth-config.js');
 
 const readStdin = async () =>
   new Promise((resolve) => {
@@ -23,20 +23,31 @@ const extractClientId = (input) => {
   return match[0];
 };
 
+const extractClientSecret = (input, clientId) => {
+  const value = String(input || '').replace(clientId, ' ').trim();
+  const parts = value.split(/\s+/).filter(Boolean);
+  const secret = parts[0] || '';
+  if (!secret) {
+    throw new Error('Client secret OAuth mobile introuvable. Passe le Client ID puis le secret du client TV/Limited Input.');
+  }
+  return secret;
+};
+
 (async () => {
   try {
     const input = process.argv.slice(2).join(' ') || await readStdin();
     const clientId = extractClientId(input);
-    const source = readFileSync(target, 'utf8');
-    const updated = source.replace(
-      /const GOOGLE_DRIVE_CLIENT_ID = ['"][^'"]*['"];/,
-      `const GOOGLE_DRIVE_CLIENT_ID = '${clientId}';`
-    );
-    if (updated === source) {
-      throw new Error('Impossible de trouver GOOGLE_DRIVE_CLIENT_ID dans mobile/app.js.');
-    }
-    writeFileSync(target, updated, 'utf8');
-    console.log('Client ID OAuth mobile configure dans mobile/app.js.');
+    const clientSecret = extractClientSecret(input, clientId);
+    const escapedSecret = clientSecret.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+    const escapedClientId = clientId.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+    writeFileSync(target, [
+      'window.TFM_MOBILE_OAUTH = {',
+      `  clientId: '${escapedClientId}',`,
+      `  clientSecret: '${escapedSecret}'`,
+      '};',
+      ''
+    ].join('\n'), 'utf8');
+    console.log('Client ID et secret OAuth mobile configures dans mobile/oauth-config.js.');
     console.log('Utilise un client Google Cloud de type TVs and Limited Input devices.');
   } catch (error) {
     console.error(error?.message || error);

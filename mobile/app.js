@@ -1,11 +1,13 @@
 (() => {
   const STORAGE_KEY = 'tfm_state';
   const UPDATE_STATE_KEY = 'tfm_update_state';
-  const MOBILE_APP_VERSION = '0.5.1';
+  const MOBILE_APP_VERSION = '0.5.2';
   const UPDATE_REPO_API_URL = 'https://api.github.com/repos/florioz/TwitchPinnedFavoris/releases/latest';
   const UPDATE_REPO_URL = 'https://github.com/florioz/TwitchPinnedFavoris';
   const UPDATE_CHECK_INTERVAL_MS = 12 * 60 * 60 * 1000;
-  const GOOGLE_DRIVE_CLIENT_ID = '242719267292-ipbtfslceb01qjr4hap7ke5vq00j1r6s.apps.googleusercontent.com';
+  const MOBILE_OAUTH_CONFIG = window.TFM_MOBILE_OAUTH || {};
+  const GOOGLE_DRIVE_CLIENT_ID = MOBILE_OAUTH_CONFIG.clientId || 'replacewithgoogleoauthclientid';
+  const GOOGLE_DRIVE_CLIENT_SECRET = MOBILE_OAUTH_CONFIG.clientSecret || 'replacewithgoogleoauthclientsecret';
   const GOOGLE_DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.file';
   const GOOGLE_DEVICE_CODE_ENDPOINT = 'https://oauth2.googleapis.com/device/code';
   const GOOGLE_TOKEN_ENDPOINT = 'https://oauth2.googleapis.com/token';
@@ -137,6 +139,7 @@
     drivePullButton: document.getElementById('drivePullButton'),
     drivePushButton: document.getElementById('drivePushButton'),
     driveSignOutButton: document.getElementById('driveSignOutButton'),
+    profileSelect: document.getElementById('profileSelect'),
     searchInput: document.getElementById('searchInput'),
     groupSelect: document.getElementById('groupSelect'),
     liveOnlyInput: document.getElementById('liveOnlyInput'),
@@ -346,7 +349,12 @@
   }
 
   function isDriveConfigured() {
-    return Boolean(GOOGLE_DRIVE_CLIENT_ID && !GOOGLE_DRIVE_CLIENT_ID.includes('replacewithgoogleoauthclientid'));
+    return Boolean(
+      GOOGLE_DRIVE_CLIENT_ID
+      && !GOOGLE_DRIVE_CLIENT_ID.includes('replacewithgoogleoauthclientid')
+      && GOOGLE_DRIVE_CLIENT_SECRET
+      && !GOOGLE_DRIVE_CLIENT_SECRET.includes('replacewithgoogleoauthclientsecret')
+    );
   }
 
   function setDriveStatus(message, isError = false) {
@@ -385,6 +393,7 @@
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: new URLSearchParams({
           client_id: GOOGLE_DRIVE_CLIENT_ID,
+          client_secret: GOOGLE_DRIVE_CLIENT_SECRET,
           device_code: deviceCode,
           grant_type: 'urn:ietf:params:oauth:grant-type:device_code'
         })
@@ -417,6 +426,7 @@
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({
         client_id: GOOGLE_DRIVE_CLIENT_ID,
+        client_secret: GOOGLE_DRIVE_CLIENT_SECRET,
         refresh_token: token.refreshToken,
         grant_type: 'refresh_token'
       })
@@ -438,7 +448,7 @@
 
   async function ensureDriveToken() {
     if (!isDriveConfigured()) {
-      throw new Error('Client ID Google TV/Limited Input non configuré.');
+      throw new Error('Client ID et secret Google TV/Limited Input non configures.');
     }
     const existing = await refreshDriveTokenIfNeeded();
     if (existing?.accessToken) return existing.accessToken;
@@ -539,7 +549,7 @@
   function signOutDrive() {
     state.googleDriveToken = null;
     persistLocalState();
-    setDriveStatus(isDriveConfigured() ? 'Compte Google déconnecté.' : 'Configure un Client ID Google TV/Limited Input pour activer la sync.');
+    setDriveStatus(isDriveConfigured() ? 'Compte Google deconnecte.' : 'Configure un Client ID et un secret Google TV/Limited Input pour activer la sync.');
   }
 
   function loadDemoData() {
@@ -578,6 +588,8 @@
   function clearData() {
     state.favorites = {};
     state.categories = [];
+    state.profiles = {};
+    state.activeProfileId = 'default';
     state.liveByLogin.clear();
     state.videosByLogin.clear();
     state.clipsByVideoId.clear();
@@ -590,22 +602,9 @@
     render();
   }
 
-  function normalizeBackup(payload = {}) {
-    const profileId = typeof payload.activeProfileId === 'string' && payload.activeProfileId ? payload.activeProfileId : 'default';
-    const profile = payload.profiles?.[profileId] && typeof payload.profiles[profileId] === 'object' ? payload.profiles[profileId] : null;
-    const favorites = profile?.favorites && typeof profile.favorites === 'object'
-      ? profile.favorites
-      : payload.favorites && typeof payload.favorites === 'object'
-      ? payload.favorites
-      : {};
-    const categories = Array.isArray(profile?.categories)
-      ? profile.categories
-      : Array.isArray(payload.categories)
-      ? payload.categories
-      : [];
-    state.profiles = payload.profiles && typeof payload.profiles === 'object' ? payload.profiles : {};
-    state.activeProfileId = profileId;
-    state.favorites = Object.fromEntries(
+  function normalizeFavoriteMap(favorites = {}) {
+    if (!favorites || typeof favorites !== 'object') return {};
+    return Object.fromEntries(
       Object.entries(favorites)
         .map(([login, favorite]) => {
           const normalized = String(favorite?.login || login || '').toLowerCase();
@@ -620,7 +619,11 @@
         })
         .filter(Boolean)
     );
-    state.categories = categories
+  }
+
+  function normalizeCategoryList(categories = []) {
+    if (!Array.isArray(categories)) return [];
+    return categories
       .filter((category) => category && typeof category.id === 'string')
       .map((category, index) => ({
         id: category.id,
@@ -628,23 +631,90 @@
         parentId: typeof category.parentId === 'string' && category.parentId.trim() ? category.parentId : null,
         sortOrder: Number.isFinite(category.sortOrder) ? category.sortOrder : index * 1000
       }));
+  }
+
+  function normalizeProfile(profile = {}, id = 'default', fallbackName = 'Mobile') {
+    return {
+      ...profile,
+      id,
+      name: typeof profile.name === 'string' && profile.name.trim() ? profile.name.trim() : fallbackName,
+      favorites: normalizeFavoriteMap(profile.favorites),
+      categories: normalizeCategoryList(profile.categories),
+      updatedAt: Number(profile.updatedAt) || Date.now()
+    };
+  }
+
+  function resetProfileViewState() {
     state.selectedCategoryId = 'all';
     state.selectedVodCategoryId = 'all';
+    state.selectedVideoId = '';
+    state.clipsError = '';
+    state.lastVodErrors = [];
+    state.liveByLogin.clear();
+    state.videosByLogin.clear();
+    state.clipsByVideoId.clear();
     state.collapsedCategoryIds.clear();
+  }
+
+  function setActiveProfileData(profileId) {
+    const profile = state.profiles[profileId] || state.profiles.default || normalizeProfile({}, 'default');
+    state.activeProfileId = profile.id || profileId || 'default';
+    state.favorites = normalizeFavoriteMap(profile.favorites);
+    state.categories = normalizeCategoryList(profile.categories);
+  }
+
+  function normalizeBackup(payload = {}) {
+    const rawProfiles = payload.profiles && typeof payload.profiles === 'object' ? payload.profiles : {};
+    const nextProfiles = {};
+    Object.entries(rawProfiles).forEach(([id, profile]) => {
+      if (!profile || typeof profile !== 'object') return;
+      const normalizedId = typeof profile.id === 'string' && profile.id ? profile.id : id;
+      nextProfiles[normalizedId] = normalizeProfile(profile, normalizedId, normalizedId === 'default' ? 'Mobile' : normalizedId);
+    });
+
+    if (!Object.keys(nextProfiles).length) {
+      nextProfiles.default = normalizeProfile({
+        id: 'default',
+        name: 'Mobile',
+        favorites: payload.favorites,
+        categories: payload.categories
+      }, 'default');
+    }
+
+    const requestedProfileId = typeof payload.activeProfileId === 'string' && nextProfiles[payload.activeProfileId]
+      ? payload.activeProfileId
+      : Object.keys(nextProfiles)[0] || 'default';
+
+    state.profiles = nextProfiles;
+    setActiveProfileData(requestedProfileId);
+    resetProfileViewState();
     persistLocalState();
   }
 
   function syncActiveProfile() {
     const id = state.activeProfileId || 'default';
     const current = state.profiles[id] || {};
-    state.profiles[id] = {
+    state.profiles[id] = normalizeProfile({
       ...current,
       id,
       name: current.name || 'Mobile',
       favorites: state.favorites,
       categories: state.categories,
       updatedAt: Date.now()
-    };
+    }, id);
+  }
+
+  function applyProfile(profileId) {
+    if (!profileId || !state.profiles[profileId]) return;
+    syncActiveProfile();
+    setActiveProfileData(profileId);
+    resetProfileViewState();
+    persistLocalState();
+    render();
+    refreshLiveData();
+    if (state.activeView === 'vods') {
+      refreshVods();
+    }
   }
 
   function getBackupData() {
@@ -1013,7 +1083,7 @@
     elements.setupCard.hidden = hasFavorites;
     elements.clearDataButton.hidden = !hasFavorites;
     if (!isDriveConfigured()) {
-      setDriveStatus('Configure un Client ID Google TV/Limited Input pour activer la sync.', true);
+      setDriveStatus('Configure un Client ID et un secret Google TV/Limited Input pour activer la sync.', true);
       setDriveButtonsDisabled(true);
     } else if (!state.isDriveSyncing && !elements.driveStatus.textContent) {
       setDriveStatus(state.googleDriveToken?.accessToken ? 'Google Drive prêt.' : 'Connexion Google requise au premier usage.');
@@ -1049,6 +1119,19 @@
     elements.dayInput.value = formatDateValue(state.selectedDay);
     elements.previousDayButton.disabled = state.selectedDay <= oldest;
     elements.nextDayButton.disabled = state.selectedDay >= today;
+
+    const profiles = Object.values(state.profiles)
+      .filter((profile) => profile && profile.id)
+      .sort((a, b) => String(a.name || a.id).localeCompare(String(b.name || b.id), 'fr'));
+    if (elements.profileSelect) {
+      elements.profileSelect.innerHTML = profiles.length
+        ? profiles.map((profile) => `<option value="${escapeHtml(profile.id)}">${escapeHtml(profile.name || profile.id)}</option>`).join('')
+        : '<option value="default">Mobile</option>';
+      elements.profileSelect.value = profiles.some((profile) => profile.id === state.activeProfileId)
+        ? state.activeProfileId
+        : (profiles[0]?.id || 'default');
+      elements.profileSelect.disabled = profiles.length <= 1;
+    }
   }
 
   function renderFavorites() {
@@ -1250,6 +1333,9 @@
 
   function bindEvents() {
     elements.tabs.forEach((tab) => tab.addEventListener('click', () => setView(tab.dataset.view)));
+    elements.profileSelect?.addEventListener('change', (event) => {
+      applyProfile(event.target.value || 'default');
+    });
     elements.searchInput.addEventListener('input', (event) => {
       state.searchTerm = event.target.value || '';
       renderFavorites();
@@ -1380,6 +1466,7 @@
   }
 
   readLocalState();
+  syncActiveProfile();
   bindEvents();
   render();
   setView(state.activeView);
