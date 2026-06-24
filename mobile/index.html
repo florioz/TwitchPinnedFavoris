@@ -65,7 +65,6 @@
             <input id="backupInput" type="file" accept="application/json,.json" />
             Choisir un backup JSON
           </label>
-          <button id="demoButton" class="tfm-button" type="button">Mode demo</button>
         </div>
         <p id="importStatus" class="tfm-status" aria-live="polite"></p>
       </section>
@@ -81,6 +80,9 @@
               <span>Profil</span>
               <select id="profileSelect"></select>
             </label>
+            <button id="createProfileButton" class="tfm-button tfm-button--ghost" type="button">Nouveau</button>
+            <button id="renameProfileButton" class="tfm-button tfm-button--ghost" type="button">Renommer</button>
+            <button id="deleteProfileButton" class="tfm-button tfm-button--ghost" type="button">Supprimer</button>
             <button id="clearDataButton" class="tfm-button tfm-button--ghost" type="button" hidden>Vider</button>
           </div>
         </div>

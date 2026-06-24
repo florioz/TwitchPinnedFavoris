@@ -1,7 +1,7 @@
 (() => {
   const STORAGE_KEY = 'tfm_state';
   const UPDATE_STATE_KEY = 'tfm_update_state';
-  const MOBILE_APP_VERSION = '0.5.2';
+  const MOBILE_APP_VERSION = '0.5.3';
   const UPDATE_REPO_API_URL = 'https://api.github.com/repos/florioz/TwitchPinnedFavoris/releases/latest';
   const UPDATE_REPO_URL = 'https://github.com/florioz/TwitchPinnedFavoris';
   const UPDATE_CHECK_INTERVAL_MS = 12 * 60 * 60 * 1000;
@@ -126,7 +126,6 @@
   const elements = {
     setupCard: document.getElementById('setupCard'),
     backupInput: document.getElementById('backupInput'),
-    demoButton: document.getElementById('demoButton'),
     importStatus: document.getElementById('importStatus'),
     clearDataButton: document.getElementById('clearDataButton'),
     refreshButton: document.getElementById('refreshButton'),
@@ -140,6 +139,9 @@
     drivePushButton: document.getElementById('drivePushButton'),
     driveSignOutButton: document.getElementById('driveSignOutButton'),
     profileSelect: document.getElementById('profileSelect'),
+    createProfileButton: document.getElementById('createProfileButton'),
+    renameProfileButton: document.getElementById('renameProfileButton'),
+    deleteProfileButton: document.getElementById('deleteProfileButton'),
     searchInput: document.getElementById('searchInput'),
     groupSelect: document.getElementById('groupSelect'),
     liveOnlyInput: document.getElementById('liveOnlyInput'),
@@ -552,39 +554,6 @@
     setDriveStatus(isDriveConfigured() ? 'Compte Google deconnecte.' : 'Configure un Client ID et un secret Google TV/Limited Input pour activer la sync.');
   }
 
-  function loadDemoData() {
-    normalizeBackup({
-      categories: [
-        { id: 'demo_fr', name: 'Streamers FR', sortOrder: 1000 },
-        { id: 'demo_rp', name: 'RP / GTA', sortOrder: 2000 }
-      ],
-      favorites: {
-        zerator: {
-          login: 'zerator',
-          displayName: 'ZeratoR',
-          avatarUrl: DEFAULT_AVATAR,
-          categories: ['demo_fr']
-        },
-        ponce: {
-          login: 'ponce',
-          displayName: 'Ponce',
-          avatarUrl: DEFAULT_AVATAR,
-          categories: ['demo_fr']
-        },
-        jl_tomy: {
-          login: 'jl_tomy',
-          displayName: 'JLTomy',
-          avatarUrl: DEFAULT_AVATAR,
-          categories: ['demo_rp']
-        }
-      }
-    });
-    state.videosByLogin.clear();
-    state.clipsByVideoId.clear();
-    state.selectedVideoId = '';
-    setImportStatus('Mode demo charge. Tu peux tester les groupes et les VODs.');
-  }
-
   function clearData() {
     state.favorites = {};
     state.categories = [];
@@ -642,6 +611,23 @@
       categories: normalizeCategoryList(profile.categories),
       updatedAt: Number(profile.updatedAt) || Date.now()
     };
+  }
+
+  function slugProfileId(name) {
+    const base = String(name || 'profil')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '_')
+      .replace(/^_+|_+$/g, '')
+      .slice(0, 36) || 'profil';
+    let id = base;
+    let index = 2;
+    while (state.profiles[id]) {
+      id = `${base}_${index}`;
+      index += 1;
+    }
+    return id;
   }
 
   function resetProfileViewState() {
@@ -708,6 +694,64 @@
     if (!profileId || !state.profiles[profileId]) return;
     syncActiveProfile();
     setActiveProfileData(profileId);
+    resetProfileViewState();
+    persistLocalState();
+    render();
+    refreshLiveData();
+    if (state.activeView === 'vods') {
+      refreshVods();
+    }
+  }
+
+  function createProfile() {
+    const name = window.prompt('Nom du nouveau profil', 'Nouveau profil');
+    if (!name || !name.trim()) return;
+    syncActiveProfile();
+    const id = slugProfileId(name);
+    state.profiles[id] = normalizeProfile({
+      id,
+      name: name.trim(),
+      favorites: {},
+      categories: []
+    }, id, name.trim());
+    setActiveProfileData(id);
+    resetProfileViewState();
+    persistLocalState();
+    setImportStatus(`Profil "${name.trim()}" cree. Importe un backup ou recupere tes donnees Drive.`);
+    render();
+  }
+
+  function renameActiveProfile() {
+    const id = state.activeProfileId || 'default';
+    const current = state.profiles[id] || normalizeProfile({}, id);
+    const name = window.prompt('Nouveau nom du profil', current.name || 'Mobile');
+    if (!name || !name.trim()) return;
+    state.profiles[id] = normalizeProfile({
+      ...current,
+      name: name.trim(),
+      favorites: state.favorites,
+      categories: state.categories,
+      updatedAt: Date.now()
+    }, id, name.trim());
+    persistLocalState();
+    renderFilters();
+  }
+
+  function deleteActiveProfile() {
+    const profiles = Object.values(state.profiles).filter((profile) => profile && profile.id);
+    if (profiles.length <= 1) {
+      window.alert('Impossible de supprimer le dernier profil.');
+      return;
+    }
+    const id = state.activeProfileId || 'default';
+    const current = state.profiles[id] || {};
+    const confirmed = window.confirm(`Supprimer le profil "${current.name || id}" ?`);
+    if (!confirmed) return;
+    delete state.profiles[id];
+    const next = Object.values(state.profiles)
+      .filter((profile) => profile && profile.id)
+      .sort((a, b) => String(a.name || a.id).localeCompare(String(b.name || b.id), 'fr'))[0];
+    setActiveProfileData(next?.id || 'default');
     resetProfileViewState();
     persistLocalState();
     render();
@@ -1132,6 +1176,12 @@
         : (profiles[0]?.id || 'default');
       elements.profileSelect.disabled = profiles.length <= 1;
     }
+    if (elements.renameProfileButton) {
+      elements.renameProfileButton.disabled = !profiles.length;
+    }
+    if (elements.deleteProfileButton) {
+      elements.deleteProfileButton.disabled = profiles.length <= 1;
+    }
   }
 
   function renderFavorites() {
@@ -1336,6 +1386,9 @@
     elements.profileSelect?.addEventListener('change', (event) => {
       applyProfile(event.target.value || 'default');
     });
+    elements.createProfileButton?.addEventListener('click', createProfile);
+    elements.renameProfileButton?.addEventListener('click', renameActiveProfile);
+    elements.deleteProfileButton?.addEventListener('click', deleteActiveProfile);
     elements.searchInput.addEventListener('input', (event) => {
       state.searchTerm = event.target.value || '';
       renderFavorites();
@@ -1419,11 +1472,6 @@
         });
       }
       hideUpdateBanner();
-    });
-    elements.demoButton.addEventListener('click', () => {
-      loadDemoData();
-      render();
-      refreshLiveData();
     });
     elements.clearDataButton.addEventListener('click', clearData);
     elements.drivePullButton?.addEventListener('click', pullBackupFromDrive);
