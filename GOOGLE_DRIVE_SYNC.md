@@ -1,6 +1,6 @@
 # Google Drive Sync
 
-La synchronisation Drive stocke un fichier JSON dans `appDataFolder`, un espace cache de Google Drive reserve a l'application.
+La synchronisation Drive stocke un fichier JSON cree par l'application dans Google Drive.
 
 Le fichier synchronise est le meme pour l'extension et l'app mobile :
 
@@ -11,8 +11,11 @@ twitch-favorites-sidebar-profiles.json
 Scope utilise :
 
 ```text
-https://www.googleapis.com/auth/drive.appdata
+https://www.googleapis.com/auth/drive.file
 ```
+
+Ce scope est utilise parce que le flux OAuth mobile `device code` refuse `drive.appdata`.
+L'extension garde une lecture de secours de l'ancien `appDataFolder` pour recuperer les anciens backups, mais les nouveaux envois creent/mettent a jour le fichier Drive standard.
 
 ## Extension Chrome
 
@@ -47,7 +50,7 @@ npm run sync:firefox
 
 ## App mobile
 
-L'app mobile utilise le flux Google `device code`. Le Client ID Web de Brave ne fonctionne pas pour ce flux.
+L'app mobile utilise le flux Google `device code`. Le Client ID Web de Brave ne fonctionne pas pour ce flux, et le scope `drive.appdata` est refuse par Google sur ce type d'authentification.
 
 Dans Google Cloud :
 
@@ -63,4 +66,10 @@ Si tu utilises le Client ID Web de Brave dans l'app mobile, Google renvoie :
 
 ```text
 invalid_client: Only clients of type 'TVs and Limited Input devices' can use the OAuth 2.0 flow for TV and Limited-Input Device Applications.
+```
+
+Si tu utilises le scope `drive.appdata` avec le device flow, Google renvoie :
+
+```text
+invalid_scope: Invalid device flow scope: https://www.googleapis.com/auth/drive.appdata
 ```

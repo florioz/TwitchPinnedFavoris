@@ -1,16 +1,16 @@
 (() => {
   const STORAGE_KEY = 'tfm_state';
   const UPDATE_STATE_KEY = 'tfm_update_state';
-  const MOBILE_APP_VERSION = '0.5.0';
+  const MOBILE_APP_VERSION = '0.5.1';
   const UPDATE_REPO_API_URL = 'https://api.github.com/repos/florioz/TwitchPinnedFavoris/releases/latest';
   const UPDATE_REPO_URL = 'https://github.com/florioz/TwitchPinnedFavoris';
   const UPDATE_CHECK_INTERVAL_MS = 12 * 60 * 60 * 1000;
-  const GOOGLE_DRIVE_CLIENT_ID = '000000000000-replacewithgoogleoauthclientid.apps.googleusercontent.com';
-  const GOOGLE_DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.appdata';
+  const GOOGLE_DRIVE_CLIENT_ID = '242719267292-ipbtfslceb01qjr4hap7ke5vq00j1r6s.apps.googleusercontent.com';
+  const GOOGLE_DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.file';
   const GOOGLE_DEVICE_CODE_ENDPOINT = 'https://oauth2.googleapis.com/device/code';
   const GOOGLE_TOKEN_ENDPOINT = 'https://oauth2.googleapis.com/token';
   const DRIVE_BACKUP_FILE_NAME = 'twitch-favorites-sidebar-profiles.json';
-  const DRIVE_APPDATA_SPACE = 'appDataFolder';
+  const DRIVE_FILE_SPACE = 'drive';
   const TWITCH_GRAPHQL_ENDPOINT = 'https://gql.twitch.tv/gql';
   const TWITCH_CLIENT_ID = 'kimne78kx3ncx6brgo4mv6wki5h1ko';
   const DEFAULT_AVATAR = 'https://static-cdn.jtvnw.net/jtv_user_pictures/404_user_70x70.png';
@@ -467,8 +467,8 @@
   }
 
   async function findDriveBackupFile() {
-    const query = encodeURIComponent(`name='${DRIVE_BACKUP_FILE_NAME}' and '${DRIVE_APPDATA_SPACE}' in parents and trashed=false`);
-    const response = await driveFetch(`https://www.googleapis.com/drive/v3/files?spaces=${DRIVE_APPDATA_SPACE}&q=${query}&fields=files(id,name,modifiedTime)`);
+    const query = encodeURIComponent(`name='${DRIVE_BACKUP_FILE_NAME}' and trashed=false`);
+    const response = await driveFetch(`https://www.googleapis.com/drive/v3/files?spaces=${DRIVE_FILE_SPACE}&q=${query}&fields=files(id,name,modifiedTime)`);
     const payload = await response.json();
     return Array.isArray(payload.files) && payload.files.length ? payload.files[0] : null;
   }
@@ -495,9 +495,7 @@
     setDriveStatus('Envoi vers Google Drive...');
     try {
       const existing = await findDriveBackupFile();
-      const metadata = existing
-        ? { name: DRIVE_BACKUP_FILE_NAME }
-        : { name: DRIVE_BACKUP_FILE_NAME, parents: [DRIVE_APPDATA_SPACE] };
+      const metadata = { name: DRIVE_BACKUP_FILE_NAME };
       const { boundary, body } = createDriveMultipartBody(metadata, getBackupData());
       const url = existing
         ? `https://www.googleapis.com/upload/drive/v3/files/${existing.id}?uploadType=multipart`

@@ -23,12 +23,13 @@ const DEFAULT_AVATAR = 'https://static-cdn.jtvnw.net/jtv_user_pictures/404_user_
 const TWITCH_GRAPHQL_ENDPOINT = 'https://gql.twitch.tv/gql';
 const TWITCH_CLIENT_ID = 'kimne78kx3ncx6brgo4mv6wki5h1ko';
 const DRIVE_BACKUP_FILE_NAME = 'twitch-favorites-sidebar-profiles.json';
-const DRIVE_APPDATA_SPACE = 'appDataFolder';
+const DRIVE_FILE_SPACE = 'drive';
+const DRIVE_LEGACY_APPDATA_SPACE = 'appDataFolder';
 const DRIVE_SYNC_STATE_KEY = 'tfr_drive_sync_state';
 const WEB_AUTH_DRIVE_TOKEN_KEY = 'tfr_web_auth_drive_token';
 const DRIVE_AUTH_MODE_KEY = 'tfr_drive_auth_mode';
 const WEB_AUTH_CLIENT_ID = '242719267292-idbv4ualavd40nl8rsq4ea2pj0cii1r1.apps.googleusercontent.com';
-const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.appdata';
+const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.file';
 const STREAM_STATE_QUERY = `
   query ($login: String!) {
     user(login: $login) {
@@ -350,12 +351,23 @@ const driveFetch = async (token, url, options = {}) => {
   return response;
 };
 
-const findDriveBackupFile = async (token) => {
-  const query = encodeURIComponent(`name='${DRIVE_BACKUP_FILE_NAME}' and '${DRIVE_APPDATA_SPACE}' in parents and trashed=false`);
-  const url = `https://www.googleapis.com/drive/v3/files?spaces=${DRIVE_APPDATA_SPACE}&q=${query}&fields=files(id,name,modifiedTime,size)`;
+const findDriveBackupFileInSpace = async (token, space = DRIVE_FILE_SPACE) => {
+  const query = encodeURIComponent(`name='${DRIVE_BACKUP_FILE_NAME}' and trashed=false`);
+  const url = `https://www.googleapis.com/drive/v3/files?spaces=${space}&q=${query}&fields=files(id,name,modifiedTime,size)`;
   const response = await driveFetch(token, url);
   const payload = await response.json();
   return Array.isArray(payload.files) && payload.files.length ? payload.files[0] : null;
+};
+
+const findDriveBackupFile = async (token) => findDriveBackupFileInSpace(token, DRIVE_FILE_SPACE);
+
+const findLegacyAppDataBackupFile = async (token) => {
+  try {
+    return await findDriveBackupFileInSpace(token, DRIVE_LEGACY_APPDATA_SPACE);
+  } catch (error) {
+    console.warn('[TFR] legacy Drive appData lookup skipped', error);
+    return null;
+  }
 };
 
 const createDriveMultipartBody = (metadata, jsonPayload) => {
@@ -418,9 +430,7 @@ const pushBackupToDrive = async (backupPayload) => {
     ...backupPayload,
     driveSyncedAt: new Date().toISOString()
   };
-  const metadata = existing
-    ? { name: DRIVE_BACKUP_FILE_NAME }
-    : { name: DRIVE_BACKUP_FILE_NAME, parents: [DRIVE_APPDATA_SPACE] };
+  const metadata = { name: DRIVE_BACKUP_FILE_NAME };
   const { boundary, body } = createDriveMultipartBody(metadata, payload);
   const url = existing
     ? `https://www.googleapis.com/upload/drive/v3/files/${existing.id}?uploadType=multipart`
@@ -444,7 +454,7 @@ const pushBackupToDrive = async (backupPayload) => {
 
 const pullBackupFromDrive = async () => {
   const token = await getDriveToken(true);
-  const file = await findDriveBackupFile(token);
+  const file = await findDriveBackupFile(token) || await findLegacyAppDataBackupFile(token);
   if (!file?.id) {
     throw new Error('No Drive backup found yet.');
   }
