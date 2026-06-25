@@ -584,23 +584,51 @@
     extractBadges(messageElement) {
       const badgeSelectors = [
         '[data-a-target="chat-badge"]',
+        '[data-a-target*="badge" i]',
         '[data-test-selector="chat-badge"]',
-        '.chat-badge'
+        '[data-test-selector*="badge" i]',
+        '.chat-badge',
+        '[class*="badge" i]',
+        'img[src*="badge" i]',
+        'img[src*="badges" i]'
       ];
       const badges = [];
+      const readBackgroundUrl = (element) => {
+        if (!(element instanceof HTMLElement)) {
+          return '';
+        }
+        const inline = element.style?.backgroundImage || '';
+        const computed = inline || window.getComputedStyle(element).backgroundImage || '';
+        const match = computed.match(/url\(["']?([^"')]+)["']?\)/i);
+        return match?.[1] || '';
+      };
+      const pushBadge = (badge) => {
+        if (!(badge instanceof HTMLElement)) return;
+        const img = badge.tagName === 'IMG' ? badge : badge.querySelector('img');
+        const url =
+          img?.currentSrc ||
+          img?.src ||
+          img?.getAttribute?.('src') ||
+          readBackgroundUrl(badge) ||
+          '';
+        const label =
+          img?.getAttribute?.('alt') ||
+          img?.getAttribute?.('aria-label') ||
+          badge.getAttribute?.('aria-label') ||
+          badge.getAttribute?.('title') ||
+          img?.getAttribute?.('title') ||
+          badge.dataset?.badge ||
+          badge.dataset?.badgeName ||
+          badge.dataset?.badgeId ||
+          '';
+        if (!url && !label) return;
+        if (url && /emote|emoji/i.test(url) && !/badge/i.test(url)) return;
+        if (badges.some((entry) => entry.url === url && entry.label === label)) return;
+        badges.push({ url, label: String(label || '').trim() });
+      };
       badgeSelectors.forEach((selector) => {
         messageElement.querySelectorAll(selector).forEach((badge) => {
-          const img = badge.tagName === 'IMG' ? badge : badge.querySelector('img');
-          const url = img?.currentSrc || img?.src || img?.getAttribute?.('src') || '';
-          const label =
-            img?.getAttribute?.('alt') ||
-            badge.getAttribute?.('aria-label') ||
-            badge.getAttribute?.('title') ||
-            img?.getAttribute?.('title') ||
-            '';
-          if (!url && !label) return;
-          if (badges.some((entry) => entry.url === url && entry.label === label)) return;
-          badges.push({ url, label: label.trim() });
+          pushBadge(badge);
         });
       });
       return badges.slice(0, 24);
@@ -902,6 +930,7 @@
         isPermanent: Boolean(action.isPermanent),
         moderator: action.moderator || null,
         timestamp: action.timestamp,
+        detectedAt: Date.now(),
         rawMessage: action.rawMessage,
         lastMessage: lastMessage?.text || null,
         offenseMessage: offenseMessage,
@@ -914,25 +943,14 @@
       if (!entry || !entry.id) {
         return;
       }
-      const key = `${entry.type || 'unknown'}:${entry.login || ''}`;
+      const key = this.getActionCacheKey(entry);
       const cached = this.recentActionCache.get(key);
-      const nowTs = Number(entry.timestamp) || Date.now();
+      const nowTs = Number(entry.detectedAt) || Date.now();
       if (cached) {
-        const age = Math.abs(nowTs - cached.timestamp);
+        const age = Math.abs(nowTs - cached.detectedAt);
         if (age < 60000) {
-          const target = cached.entry;
-          let updated = false;
-          if (
-            Number.isFinite(entry.duration) &&
-            (!Number.isFinite(target.duration) || entry.duration > target.duration)
-          ) {
-            target.duration = entry.duration;
-            updated = true;
-          }
-          if (!target.offenseMessage && entry.offenseMessage) {
-            target.offenseMessage = entry.offenseMessage;
-            updated = true;
-          }
+          const updated = this.mergeModerationEntries(cached.entry, entry);
+          cached.detectedAt = nowTs;
           if (updated) {
             this.emit();
           }
@@ -947,7 +965,7 @@
       }
       this.actionKeys.add(entry.id);
       this.actions.push(entry);
-      this.recentActionCache.set(key, { timestamp: nowTs, entry });
+      this.recentActionCache.set(key, { detectedAt: nowTs, entry });
       if (this.actions.length > this.maxActions) {
         const removed = this.actions.splice(0, this.actions.length - this.maxActions);
         removed.forEach((item) => {
@@ -957,6 +975,62 @@
         });
       }
       this.emit();
+    }
+
+    getActionCacheKey(entry) {
+      const type = entry?.type || 'unknown';
+      const login = entry?.login || '';
+      if (type === 'timeout') {
+        const duration = Number.isFinite(entry.duration) ? Math.round(entry.duration) : 'unknown';
+        return `${type}:${login}:${duration}`;
+      }
+      if (type === 'ban') {
+        return `${type}:${login}:${entry?.isPermanent ? 'permanent' : 'temporary'}`;
+      }
+      return `${type}:${login}`;
+    }
+
+    mergeModerationEntries(target, source) {
+      if (!target || !source) {
+        return false;
+      }
+      let updated = false;
+      if (
+        Number.isFinite(source.duration) &&
+        (!Number.isFinite(target.duration) || source.duration > target.duration)
+      ) {
+        target.duration = source.duration;
+        updated = true;
+      }
+      if (source.isPermanent && !target.isPermanent) {
+        target.isPermanent = true;
+        updated = true;
+      }
+      const sourceMessageTime = Number(source.timestamp) || 0;
+      const targetMessageTime = Number(target.timestamp) || 0;
+      const sourceHasNewerMessage = sourceMessageTime >= targetMessageTime;
+      if (sourceHasNewerMessage) {
+        const fields = ['timestamp', 'rawMessage', 'lastMessage', 'offenseMessage', 'lastMessageTimestamp'];
+        fields.forEach((field) => {
+          if (source[field] && target[field] !== source[field]) {
+            target[field] = source[field];
+            updated = true;
+          }
+        });
+      } else if (!target.offenseMessage && source.offenseMessage) {
+        target.offenseMessage = source.offenseMessage;
+        updated = true;
+      }
+      if (source.displayName && target.displayName !== source.displayName) {
+        target.displayName = source.displayName;
+        updated = true;
+      }
+      if (source.moderator && target.moderator !== source.moderator) {
+        target.moderator = source.moderator;
+        updated = true;
+      }
+      target.detectedAt = Number(source.detectedAt) || Date.now();
+      return updated;
     }
 
     extractAction(element, rawText) {
@@ -1272,13 +1346,15 @@
         return null;
       }
 
+      const nearbyDurationSources = this.collectNearbyModerationHints(element);
       const durationSources = [
         analysisText,
         elementInnerText,
         element.getAttribute?.('aria-label'),
         element.getAttribute?.('title'),
         element.getAttribute?.('data-duration-label'),
-        ...datasetTextHints
+        ...datasetTextHints,
+        ...nearbyDurationSources
       ].filter((value) => typeof value === 'string' && value.trim());
       const contextualDurationCandidates = durationSources
         .map((value) => this.extractTimeoutDurationFromText(value))
@@ -1321,6 +1397,38 @@
         rawMessage: rawText,
         message
       };
+    }
+
+    collectNearbyModerationHints(element) {
+      const hints = [];
+      const seen = new Set();
+      const hasModerationContext = (value) => (
+        /timeout|timed\s*out|tempo|temporaire|silence|mute|ban\s+temporaire|duration|dur[eé]e|pour|pendant|for/i.test(value)
+      );
+      const push = (value) => {
+        if (typeof value !== 'string') return;
+        const trimmed = value.replace(/\s+/g, ' ').trim();
+        if (!trimmed || trimmed.length > 1600 || !hasModerationContext(trimmed) || seen.has(trimmed)) {
+          return;
+        }
+        seen.add(trimmed);
+        hints.push(trimmed);
+      };
+      const collect = (node) => {
+        if (!(node instanceof HTMLElement)) return;
+        push(node.innerText || node.textContent || '');
+        push(node.getAttribute?.('aria-label') || '');
+        push(node.getAttribute?.('title') || '');
+        Object.values(node.dataset || {}).forEach((value) => push(value));
+      };
+      let current = element instanceof HTMLElement ? element : null;
+      for (let depth = 0; current && depth < 4; depth += 1) {
+        collect(current);
+        collect(current.previousElementSibling);
+        collect(current.nextElementSibling);
+        current = current.parentElement;
+      }
+      return hints;
     }
 
     detectDeletionAction(element, simplifiedText) {
@@ -2098,7 +2206,7 @@
       }
       const list = document.createElement('ul');
       list.className = 'tfr-mod-history-list';
-      const entries = actions.slice().reverse();
+      const entries = actions.slice();
       entries.forEach((entry) => {
         const info = this.getEntryInfo(entry);
         const item = document.createElement('li');
@@ -2152,6 +2260,9 @@
         list.appendChild(item);
       });
       content.appendChild(list);
+      requestAnimationFrame(() => {
+        content.scrollTop = content.scrollHeight;
+      });
     }
     getEntryInfo(entry) {
       const durationValue = Number(entry?.duration);
@@ -2162,12 +2273,14 @@
         if (entry.isPermanent) {
           actionLabel = t('moderation.history.action.banPermanent');
         } else if (durationLabel) {
-          actionLabel = durationLabel;
+          actionLabel = t('moderation.history.action.timeout', { duration: durationLabel });
         } else {
-          actionLabel = t('moderation.history.action.ban');
+          actionLabel = t('moderation.history.action.timeoutUnknown');
         }
       } else if (entry.type === 'timeout') {
-        actionLabel = durationLabel || t('moderation.history.action.timeoutShort');
+        actionLabel = durationLabel
+          ? t('moderation.history.action.timeout', { duration: durationLabel })
+          : t('moderation.history.action.timeoutUnknown');
       } else {
         actionLabel = t('moderation.history.action.deletion');
       }
@@ -2622,7 +2735,7 @@
       }
       const list = document.createElement('ul');
       list.className = 'tfr-viewer-history__list';
-      const entries = history.slice(-this.maxDisplayed).reverse();
+      const entries = history.slice(-this.maxDisplayed);
       entries.forEach((entry) => {
         const item = document.createElement('li');
         item.className = 'tfr-viewer-history__item';
@@ -2671,7 +2784,7 @@
         if (previousList && previousScrollTop > 0) {
           list.scrollTop = previousScrollTop;
         } else {
-          list.scrollTop = 0;
+          list.scrollTop = list.scrollHeight;
         }
         this.rendering = false;
       });

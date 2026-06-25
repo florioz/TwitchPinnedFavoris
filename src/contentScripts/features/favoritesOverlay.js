@@ -38,6 +38,19 @@ class FavoritesOverlay {
         this.close();
       }
     };
+    this.handleOverlayKeyboardEvent = (event) => {
+      if (!this.isOpen || !this.root?.contains(event.target)) {
+        return;
+      }
+      event.stopPropagation();
+      if (typeof event.stopImmediatePropagation === 'function') {
+        event.stopImmediatePropagation();
+      }
+      if (event.type === 'keydown' && event.key === 'Escape') {
+        event.preventDefault();
+        this.close();
+      }
+    };
     document.addEventListener('keydown', this.handleEscapeKeydown);
   }
 
@@ -51,6 +64,9 @@ class FavoritesOverlay {
       if (event.target === backdrop) {
         this.close();
       }
+    });
+    ['keydown', 'keyup', 'keypress'].forEach((eventName) => {
+      backdrop.addEventListener(eventName, this.handleOverlayKeyboardEvent);
     });
     const panel = document.createElement('div');
     panel.className = 'tfr-overlay-panel';
@@ -192,6 +208,7 @@ class FavoritesOverlay {
     const content = this.root.querySelector('.tfr-overlay-content');
     const previousScrollTop = content.scrollTop;
     const previousScrollLeft = content.scrollLeft;
+    const focusSnapshot = this.captureFocusSnapshot();
     content.innerHTML = '';
 
     content.appendChild(this.renderProfileControls(state));
@@ -200,6 +217,7 @@ class FavoritesOverlay {
     controls.className = 'tfr-manager-controls';
     const searchInput = document.createElement('input');
     searchInput.type = 'search';
+    searchInput.dataset.tfrFocusKey = 'manager-search';
     searchInput.placeholder = t('search.placeholder');
     searchInput.value = this.searchTerm;
     searchInput.addEventListener('input', (event) => {
@@ -259,7 +277,58 @@ class FavoritesOverlay {
       if (content.scrollLeft !== previousScrollLeft) {
         content.scrollLeft = previousScrollLeft;
       }
+      this.restoreFocusSnapshot(focusSnapshot);
     });
+  }
+
+  captureFocusSnapshot() {
+    const active = document.activeElement;
+    if (!(active instanceof HTMLElement) || !this.root?.contains(active)) {
+      return null;
+    }
+    const focusKey = active.dataset?.tfrFocusKey || '';
+    if (!focusKey) {
+      return null;
+    }
+    const snapshot = {
+      focusKey,
+      selectionStart: null,
+      selectionEnd: null
+    };
+    if (
+      active instanceof HTMLInputElement ||
+      active instanceof HTMLTextAreaElement
+    ) {
+      snapshot.selectionStart = active.selectionStart;
+      snapshot.selectionEnd = active.selectionEnd;
+    }
+    return snapshot;
+  }
+
+  restoreFocusSnapshot(snapshot) {
+    if (!snapshot?.focusKey || !this.root?.isConnected) {
+      return;
+    }
+    const escapedFocusKey =
+      typeof CSS !== 'undefined' && typeof CSS.escape === 'function'
+        ? CSS.escape(snapshot.focusKey)
+        : String(snapshot.focusKey).replace(/["\\]/g, '\\$&');
+    const next = this.root.querySelector(`[data-tfr-focus-key="${escapedFocusKey}"]`);
+    if (!(next instanceof HTMLElement)) {
+      return;
+    }
+    try {
+      next.focus({ preventScroll: true });
+      if (
+        (next instanceof HTMLInputElement || next instanceof HTMLTextAreaElement) &&
+        Number.isFinite(snapshot.selectionStart) &&
+        Number.isFinite(snapshot.selectionEnd)
+      ) {
+        next.setSelectionRange(snapshot.selectionStart, snapshot.selectionEnd);
+      }
+    } catch {
+      next.focus();
+    }
   }
 
   renderProfileControls(state) {
@@ -2162,6 +2231,7 @@ class FavoritesOverlay {
     const filterInput = document.createElement('input');
     filterInput.type = 'text';
     filterInput.className = 'tfr-category-filter__input';
+    filterInput.dataset.tfrFocusKey = `category-filter-${favorite.login}`;
     filterInput.placeholder = t('details.filter.placeholder');
     filterInput.value = '';
     filterInput.autocomplete = 'off';
