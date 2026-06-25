@@ -101,6 +101,11 @@ const setSidePanelBehavior = () => {
   }
 };
 
+const isSidePanelGestureError = (error) => {
+  const message = String(error?.message || error || '').toLowerCase();
+  return message.includes('user gesture') || message.includes('may only be called in response');
+};
+
 const openSidePanel = async (tabId) => {
   if (!extensionApi.sidePanel?.setOptions || !extensionApi.sidePanel?.open) {
     return false;
@@ -114,7 +119,9 @@ const openSidePanel = async (tabId) => {
     await extensionApi.sidePanel.open({ tabId });
     return true;
   } catch (error) {
-    console.error('[TFR] side panel open failed', error);
+    if (!isSidePanelGestureError(error)) {
+      console.error('[TFR] side panel open failed', error);
+    }
     return false;
   }
 };

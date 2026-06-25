@@ -1,65 +1,272 @@
 Twitch Favorites Sidebar
 ========================
 
-## About
-Twitch Favorites Sidebar recreates the Twitch left sidebar and makes it available on every website. The extension injects a floating panel (or browser popup/side panel) that stays in sync with your pinned streamers, shows who is live in real time, fires glassmorphic notifications, and keeps categories, filters, and preferences consistent across Chrome, Chromium-based browsers, and Firefox.
+Twitch Favorites Sidebar is a browser extension and companion mobile app for people who follow many Twitch streamers and want a cleaner way to organize live channels, VODs, and moderation context.
 
-## Core Features
-- **Global overlay / popup** – Open the live list from the browser action (Chrome/Chromium) or through Firefox’s side panel. A popup fallback keeps the UI accessible even on restricted pages like `chrome://newtab`.
-- **Smart categories** – Custom groups with counters, per-game filters, drag & drop sorting, automatic collapse state sync, and a configurable “Recently live” bucket.
-- **Stylized toast notifications** – Glassmorphic toasts (avatar, title, game, viewer count) aligned under the extension button so they remain visible without blocking the page.
-- **Fine-grained favorite management**  
-  ▪ Contextual button on Twitch to pin/unpin channels  
-  ▪ Per-favorite options (sort order, category filters, highlight toggle, badges)  
-  ▪ Adjustable “Recent live” timeframe to spotlight fresh streams
-- **Multi-browser support** – Manifest V3 baseline for Chrome/Edge/Opera and a dedicated Firefox build (`firefox/` folder) ready to load via `about:debugging`.
-- **Responsive UI** – Shared `styles/panelOverlay.css` (gradients, glass layers, pill buttons, themed scrollbar). Standalone popup mirrors Twitch’s visual language.
-- **Persistent preferences** – Stored via `chrome.storage`: sort mode, collapsed sections, toast duration, recent-live window, chat/mod history toggles, etc.
-- **Notifications & badge updates** – Background worker polls Twitch, updates the badge with the number of live favorites, fires optional system notifications, and refreshes automatically via alarms.
+The extension rebuilds the Twitch followed-channels sidebar with custom pinned favorites, nested groups, live filters, profile sync, VOD planning, and chat/moderation tools. The mobile app focuses on the same core library of groups, streamers, profiles, and VODs in a phone-friendly interface.
 
-## Installation
-### Chrome / Edge / Opera
-1. Download or clone this repository.  
-2. Navigate to `chrome://extensions`, enable **Developer mode**, click **Load unpacked**, and select the project root.  
-3. Pin the Twitch Favorites Sidebar icon and click it to open the panel anywhere.  
-4. (Optional) For restricted pages, a popup fallback will appear automatically.
+Current release: v0.5.4
 
-### Firefox
-1. Download or clone this repository.  
-2. Go to `about:debugging#/runtime/this-firefox`, click **Load Temporary Add-on…**, and choose `firefox/manifest.json`.  
-3. The extension now appears in the toolbar; click it to open the panel or use the Chrome-style overlay when browsing Twitch.  
-4. Reload via `about:debugging` whenever you pull new changes.
+## English
 
----
+### What It Does
 
-Twitch Favorites Sidebar
-========================
+- Pin Twitch streamers into your own favorites list, including channels you do not follow on Twitch.
+- Organize streamers into custom groups and subgroups, then reorder them quickly.
+- Show live-only favorites with viewer counts, game/category labels, and stream titles.
+- Filter favorites by Twitch category, so a streamer can appear only when they are live in specific games or RP servers.
+- Manage multiple favorite profiles, useful for different communities, projects, or shared follow lists.
+- Sync profiles through Google Drive to move your setup between computers and the mobile app.
+- Open a VOD planning page that shows available VODs by day, streamer, group, views, duration, start time, and end time.
+- Inspect a VOD with an analysis panel that groups related clips and highlights without losing your place in the list.
+- Display recent chat messages in viewer cards with message color, emotes, 7TV support, and broader badge detection.
+- Display a draggable moderation history panel for bans, temporary bans, timeouts, and deleted messages.
+- Show update indicators on the extension and mobile app when a new GitHub release is available.
 
-## À propos
-Twitch Favorites Sidebar reproduit la barre latérale gauche de Twitch et la rend disponible sur tous les sites. L’extension injecte un panneau flottant (ou popup / side panel) synchronisé avec vos streamers favoris, affiche ceux qui sont en direct, déclenche des notifications façon glassmorphism et conserve vos catégories, filtres et préférences à l’identique sur Chrome / Chromium et Firefox.
+### Browser Extension
 
-## Fonctionnalités
-- **Panneau global / popup** – Ouvrez la liste des lives depuis le bouton d’action (Chrome/Chromium) ou via le side panel Firefox. Un popup de secours s’affiche même sur les pages restreintes (`chrome://newtab`, etc.).
-- **Catégories intelligentes** – Groupes personnalisés avec compteur, filtres par jeu, tri par glisser-déposer, synchronisation de l’état replié et section “Début de live” configurable.
-- **Notifications stylisées** – Toasts glassmorphism (avatar, titre, jeu, viewers) positionnés sous l’icône de l’extension pour rester visibles sans masquer la page.
-- **Gestion précise des favoris**  
-  ▪ Bouton contextuel sur Twitch pour épingler/désépingler  
-  ▪ Options par favori (ordre de tri, filtres catégorie, mise en avant, badges)  
-  ▪ Fenêtre “Début de live” ajustable pour mettre en avant les nouveaux lives
-- **Compatibilité multi-navigateurs** – Manifest V3 commun et build Firefox dédiée (`firefox/`) prête à être chargée via `about:debugging`.
-- **Interface responsive** – `styles/panelOverlay.css` partagé (dégradés, verre, boutons pill, scrollbar stylée). Popup standalone fidèle à l’UX Twitch.
-- **Préférences persistantes** – Stockées via `chrome.storage` : mode de tri, sections repliées, durée des toasts, fenêtre “recent live”, options d’historique chat/mod, etc.
-- **Notifications & badge** – Le service worker interroge Twitch, met à jour le badge avec le nombre de lives, déclenche les notifications système optionnelles et actualise automatiquement les données.
+The extension runs on Twitch and adds:
 
-## Installation
-### Chrome / Edge / Opera
-1. Téléchargez ou clonez ce dépôt.  
-2. Ouvrez `chrome://extensions`, activez le **mode développeur**, cliquez sur **Charger l’extension non empaquetée** et sélectionnez le dossier du projet.  
-3. Épinglez l’icône de l’extension puis cliquez dessus pour afficher le panneau partout.  
-4. Sur les pages restreintes, un popup de secours se déclenche automatiquement.
+- a top navigation shortcut to the favorites manager;
+- a top navigation shortcut to the VOD planner;
+- a Twitch channel favorite button;
+- a rebuilt favorites sidebar with live status;
+- a floating live panel available outside Twitch;
+- profile import/export and Google Drive sync;
+- chat history and moderation history tools;
+- update notifications and release awareness.
 
-### Firefox
-1. Téléchargez ou clonez ce dépôt.  
-2. Allez sur `about:debugging#/runtime/this-firefox`, cliquez sur **Charger un module complémentaire temporaire…** et choisissez `firefox/manifest.json`.  
-3. L’extension est accessible depuis la barre d’outils ; cliquez pour ouvrir le panneau ou utiliser l’overlay sur Twitch.  
-4. Rechargez depuis `about:debugging` après chaque mise à jour du code.
+Chrome, Edge, Brave, Opera and other Chromium browsers use the root `manifest.json`. Firefox uses the generated `firefox/` folder.
+
+### Mobile App
+
+The mobile app provides a compact companion experience:
+
+- profile-aware favorites and groups;
+- live-only filtering;
+- collapsible groups;
+- streamer refresh controls;
+- VOD list with search, group filters, sort controls, streamer icons, and VOD details;
+- VOD highlight/clip analysis;
+- Google Drive sync using a mobile OAuth client;
+- update notification banner for new releases.
+
+The APK is built from the Capacitor project in `mobile/` and `android/`.
+
+### Release Timeline
+
+#### v0.5.4
+
+- Improved moderation history ordering to match normal chat reading: oldest at the top, newest at the bottom.
+- Reduced duplicate moderation entries when Twitch marks several older messages after one ban.
+- Improved temporary ban labels with duration when Twitch exposes it, and a clear unknown-duration label when it does not.
+- Improved chat history ordering and scroll behavior.
+- Expanded chat badge detection for Twitch/extension-modified DOM structures.
+- Improved Twitch and 7TV emote rendering in captured chat history.
+- Blocked Twitch player shortcuts while typing in the favorites manager.
+- Preserved search input focus while the favorites manager re-renders.
+- Silenced the expected Chrome side-panel user-gesture fallback error while keeping real side-panel errors visible.
+
+#### v0.5.3
+
+- Removed demo content from the mobile app.
+- Added full mobile favorite profile management: switch, create, rename, and delete profiles.
+- Cleaned live/VOD caches when changing profiles.
+
+#### v0.5.2
+
+- Improved mobile Google Drive authentication using a device-compatible OAuth flow.
+- Added mobile profile synchronization through Drive.
+
+#### v0.5.1
+
+- Improved the mobile app layout and VOD experience.
+- Added stronger separation between Groups and VODs on mobile.
+
+#### v0.5.0
+
+- Added Google Drive sync for extension profiles.
+- Added update notifications and GitHub release checks.
+- Added major mobile app foundations with groups, VODs, filters, and APK builds.
+
+#### v0.4.0
+
+- Added the VOD planning page.
+- Added VOD filters, day navigation, sorting, start/end/duration display, and VOD analysis panels.
+- Added clip/highlight extraction for VOD inspection.
+
+#### v0.3.0
+
+- Refactored the extension into clearer feature modules.
+- Improved sidebar rendering, top navigation, overlays, and state management.
+
+#### v0.2.0
+
+- Stabilized group management.
+- Added category/subcategory movement and root-level group reordering.
+- Improved drag and drop behavior for larger groups.
+
+### Installation
+
+#### Chrome / Edge / Brave / Opera
+
+1. Download the Chrome ZIP from the latest GitHub release.
+2. Extract it.
+3. Open `chrome://extensions`.
+4. Enable Developer mode.
+5. Click Load unpacked.
+6. Select the extracted folder.
+
+#### Firefox
+
+1. Download the Firefox ZIP from the latest GitHub release.
+2. Extract it.
+3. Open `about:debugging#/runtime/this-firefox`.
+4. Click Load Temporary Add-on.
+5. Select `manifest.json` inside the extracted Firefox folder.
+
+#### Android
+
+1. Download the APK from the latest GitHub release.
+2. Install it on your Android device.
+3. If Android blocks the install, allow installs from your browser or file manager.
+4. Configure Google Drive sync in the app if you want profile synchronization.
+
+## Francais
+
+### Ce Que Fait Le Projet
+
+Twitch Favorites Sidebar est une extension navigateur et une application mobile companion pour organiser proprement beaucoup de streamers Twitch, leurs groupes, leurs lives, leurs VODs et certains outils de moderation/chat.
+
+L'extension reconstruit la barre laterale des chaines suivies avec tes propres favoris epingles, des groupes, des sous-groupes, des filtres live, des profils, une synchronisation Drive, une page VODs et des outils d'historique chat/moderation. L'application mobile reprend les fonctions importantes dans une interface adaptee au telephone.
+
+### Extension Navigateur
+
+L'extension ajoute :
+
+- un bouton dans la navigation Twitch pour ouvrir la gestion des favoris ;
+- un bouton pour ouvrir la page VODs ;
+- un bouton sur les chaines Twitch pour ajouter ou retirer un streamer ;
+- une sidebar personnalisee avec les lives, viewers, jeux et titres ;
+- des groupes et sous-groupes repliables ;
+- des profils de favoris ;
+- l'import/export et la synchronisation Google Drive ;
+- une page VODs avec filtres, tri, jours precedents/suivants et analyse ;
+- un historique de chat dans les cartes viewers ;
+- un historique de moderation deplacable ;
+- des notifications de mise a jour.
+
+### Application Mobile
+
+L'application mobile permet de retrouver :
+
+- les profils de favoris ;
+- les groupes et streamers ;
+- le filtre des streamers en live ;
+- les groupes repliables ;
+- l'actualisation des lives ;
+- les VODs avec recherche, filtres, tri et icone du streamer ;
+- l'analyse des VODs avec clips et temps forts ;
+- la synchronisation Google Drive ;
+- une notification quand une nouvelle version est disponible.
+
+### Chronologie Des Versions
+
+#### v0.5.4
+
+- L'historique de moderation se lit maintenant comme l'historique du chat : anciens elements en haut, recents en bas.
+- Reduction des doublons quand Twitch marque plusieurs anciens messages apres un seul ban.
+- Meilleur affichage des bans temporaires avec duree quand Twitch la fournit, ou mention duree inconnue sinon.
+- Meilleur ordre et scroll dans l'historique du chat.
+- Detection plus large des badges chat.
+- Meilleur rendu des emotes Twitch et 7TV dans l'historique capture.
+- Desactivation des raccourcis du lecteur Twitch pendant la saisie dans la gestion des favoris.
+- Conservation du focus dans la recherche pendant le rendu du panneau.
+- Nettoyage d'une erreur console attendue liee au side panel Chrome.
+
+#### v0.5.3
+
+- Suppression des donnees de demonstration de l'application mobile.
+- Ajout de la gestion complete des profils sur mobile : changer, creer, renommer et supprimer.
+- Nettoyage des caches live/VOD au changement de profil.
+
+#### v0.5.2
+
+- Amelioration de l'authentification Google Drive mobile.
+- Synchronisation des profils mobile via Drive.
+
+#### v0.5.1
+
+- Amelioration de l'interface mobile.
+- Separation plus claire entre Groupes et VODs.
+
+#### v0.5.0
+
+- Ajout de la synchronisation Google Drive pour les profils de l'extension.
+- Ajout des notifications de mise a jour.
+- Ajout des bases de l'application mobile avec groupes, VODs, filtres et APK.
+
+#### v0.4.0
+
+- Ajout de la page Planning VODs.
+- Ajout des filtres, du tri, de la navigation par jour, des heures de debut/fin et de l'analyse VOD.
+- Ajout des clips et temps forts associes aux VODs.
+
+#### v0.3.0
+
+- Refactor de l'extension en modules plus lisibles.
+- Amelioration du rendu sidebar, navigation, overlays et gestion d'etat.
+
+#### v0.2.0
+
+- Stabilisation de la gestion des groupes.
+- Deplacement des categories, sous-categories et retour a la racine.
+- Amelioration du drag and drop pour les gros groupes.
+
+### Installation
+
+#### Chrome / Edge / Brave / Opera
+
+1. Telecharge le ZIP Chrome depuis la derniere release GitHub.
+2. Decompresse le fichier.
+3. Ouvre `chrome://extensions`.
+4. Active le mode developpeur.
+5. Clique sur Charger l'extension non empaquetee.
+6. Selectionne le dossier extrait.
+
+#### Firefox
+
+1. Telecharge le ZIP Firefox depuis la derniere release GitHub.
+2. Decompresse le fichier.
+3. Ouvre `about:debugging#/runtime/this-firefox`.
+4. Clique sur Charger un module complementaire temporaire.
+5. Selectionne le `manifest.json` du dossier Firefox extrait.
+
+#### Android
+
+1. Telecharge l'APK depuis la derniere release GitHub.
+2. Installe-le sur ton telephone Android.
+3. Si Android bloque l'installation, autorise les installations depuis ton navigateur ou gestionnaire de fichiers.
+4. Configure Google Drive dans l'application si tu veux synchroniser tes profils.
+
+## Development
+
+```bash
+npm install
+npm run check
+npm run sync:firefox
+```
+
+Mobile preview:
+
+```bash
+npm run mobile:serve
+```
+
+Android debug APK:
+
+```bash
+npx cap sync android
+cd android
+./gradlew assembleDebug
+```
