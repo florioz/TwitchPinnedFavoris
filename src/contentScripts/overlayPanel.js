@@ -124,6 +124,8 @@
     refreshTimer: null,
 
     toastDurationMs: DEFAULT_TOAST_DURATION,
+    toastEnabled: true,
+    toastPosition: 'top-right',
 
     categoryCollapse: new Map()
 
@@ -378,9 +380,27 @@
     host.appendChild(stack);
 
     state.toastStack = stack;
+    applyToastPosition();
 
     return stack;
 
+  };
+
+  const sanitizeToastPosition = (position) => {
+    const allowed = new Set([
+      'top-left',
+      'top-center',
+      'top-right',
+      'bottom-left',
+      'bottom-center',
+      'bottom-right'
+    ]);
+    return allowed.has(position) ? position : 'top-right';
+  };
+
+  const applyToastPosition = () => {
+    if (!state.toastStack) return;
+    state.toastStack.dataset.position = sanitizeToastPosition(state.toastPosition);
   };
 
 
@@ -620,6 +640,9 @@
       ? Math.max(2000, Math.min(60000, Math.round(toastSeconds * 1000)))
 
       : DEFAULT_TOAST_DURATION;
+    state.toastEnabled = preferences.toastEnabled !== false;
+    state.toastPosition = sanitizeToastPosition(preferences.toastPosition);
+    applyToastPosition();
 
     const { groups, totalLive, totalFavorites } = buildCategoryGroups(favorites, liveData, categories);
 
@@ -874,11 +897,12 @@
 
 
 
-  const displayToast = (entries = []) => {
+  const displayToast = (entries = [], options = {}) => {
 
-    if (!entries.length) return;
+    if (!entries.length || (!state.toastEnabled && !options.force)) return;
 
     ensureToastStack();
+    applyToastPosition();
 
     const duration = state.toastDurationMs || DEFAULT_TOAST_DURATION;
 
@@ -900,15 +924,22 @@
 
         </div>
 
+        <button class="tfr-toast__close" type="button" aria-label="Fermer la notification">×</button>
+
       `;
+      const closeToast = () => {
+        toast.style.animation = 'tfr-toast-out 0.2s ease forwards';
+        setTimeout(() => toast.remove(), 200);
+      };
+      toast.querySelector('.tfr-toast__close')?.addEventListener('click', closeToast);
 
       state.toastStack.prepend(toast);
 
       setTimeout(() => {
 
-        toast.style.animation = 'tfr-toast-out 0.2s ease forwards';
-
-        setTimeout(() => toast.remove(), 200);
+        if (toast.isConnected) {
+          closeToast();
+        }
 
       }, duration);
 
@@ -939,7 +970,7 @@
 
     } else if (message.type === 'TFR_OVERLAY_TOAST') {
 
-      displayToast(message.entries || []);
+      displayToast(message.entries || [], { force: Boolean(message.force) });
 
     }
 
@@ -971,11 +1002,6 @@
   }
 
 })();
-
-
-
-
-
 
 
 

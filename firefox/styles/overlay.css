@@ -451,21 +451,48 @@
   color: #f7f7f8;
 }
 
+.tfr-toast-settings__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: fit-content;
+  color: #f7f7f8;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.tfr-toast-settings__checkbox {
+  width: 16px;
+  height: 16px;
+  accent-color: #9147ff;
+}
+
 .tfr-toast-settings__controls {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-wrap: wrap;
   font-size: 13px;
   color: #e7e7f3;
 }
 
-.tfr-toast-settings__input {
+.tfr-toast-settings__input,
+.tfr-toast-settings__select {
   width: 72px;
   padding: 6px 8px;
   border-radius: 8px;
   border: 1px solid rgba(145, 71, 255, 0.35);
   background: #120c22;
   color: #f7f7f8;
+}
+
+.tfr-toast-settings__select {
+  width: min(260px, 100%);
+}
+
+.tfr-toast-settings.is-disabled .tfr-toast-settings__controls,
+.tfr-toast-settings.is-disabled .tfr-toast-settings__hint {
+  opacity: 0.58;
 }
 
 .tfr-toast-settings__hint {

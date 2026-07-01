@@ -487,6 +487,18 @@ class FavoritesOverlay {
     title.textContent = t('toast.settings.title');
     wrapper.appendChild(title);
 
+    const enabledLabel = document.createElement('label');
+    enabledLabel.className = 'tfr-toast-settings__toggle';
+    const enabledInput = document.createElement('input');
+    enabledInput.type = 'checkbox';
+    enabledInput.checked = prefs.toastEnabled !== false;
+    enabledInput.className = 'tfr-toast-settings__checkbox';
+    enabledLabel.appendChild(enabledInput);
+    const enabledText = document.createElement('span');
+    enabledText.textContent = t('toast.settings.enabled');
+    enabledLabel.appendChild(enabledText);
+    wrapper.appendChild(enabledLabel);
+
     const controls = document.createElement('div');
     controls.className = 'tfr-toast-settings__controls';
     const label = document.createElement('label');
@@ -513,10 +525,52 @@ class FavoritesOverlay {
 
     wrapper.appendChild(controls);
 
+    const positionControls = document.createElement('div');
+    positionControls.className = 'tfr-toast-settings__controls';
+    const positionLabel = document.createElement('label');
+    positionLabel.textContent = t('toast.settings.positionLabel');
+    positionControls.appendChild(positionLabel);
+    const positionSelect = document.createElement('select');
+    positionSelect.className = 'tfr-toast-settings__select';
+    const currentPosition = typeof prefs.toastPosition === 'string' ? prefs.toastPosition : 'top-right';
+    [
+      'top-left',
+      'top-center',
+      'top-right',
+      'bottom-left',
+      'bottom-center',
+      'bottom-right'
+    ].forEach((position) => {
+      const option = document.createElement('option');
+      option.value = position;
+      option.textContent = t(`toast.settings.position.${position}`);
+      positionSelect.appendChild(option);
+    });
+    positionSelect.value = currentPosition;
+    const positionSelectId = 'tfr-toast-settings-position';
+    positionSelect.id = positionSelectId;
+    positionLabel.setAttribute('for', positionSelectId);
+    positionControls.appendChild(positionSelect);
+    wrapper.appendChild(positionControls);
+
     const hint = document.createElement('p');
     hint.className = 'tfr-toast-settings__hint';
     hint.textContent = t('toast.settings.hint');
     wrapper.appendChild(hint);
+
+    const applyEnabledState = () => {
+      const enabled = enabledInput.checked;
+      input.disabled = !enabled;
+      positionSelect.disabled = !enabled;
+      wrapper.classList.toggle('is-disabled', !enabled);
+    };
+    applyEnabledState();
+
+    enabledInput.addEventListener('change', async (event) => {
+      await this.store.setToastEnabled(Boolean(event.target.checked));
+      applyEnabledState();
+      this.render();
+    });
 
     input.addEventListener('change', async (event) => {
       const value = Number(event.target.value);
@@ -527,6 +581,11 @@ class FavoritesOverlay {
       const sanitized = Math.max(2, Math.min(60, Math.round(value)));
       event.target.value = String(sanitized);
       await this.store.setToastDuration(sanitized);
+      this.render();
+    });
+
+    positionSelect.addEventListener('change', async (event) => {
+      await this.store.setToastPosition(event.target.value);
       this.render();
     });
 
@@ -1321,8 +1380,14 @@ class FavoritesOverlay {
       label.textContent = 'Debug Drive';
       const value = document.createElement('code');
       value.textContent = this.driveStatus.webAuthRedirectUri;
+      const testToastButton = document.createElement('button');
+      testToastButton.type = 'button';
+      testToastButton.className = 'tfr-button tfr-button--ghost';
+      testToastButton.textContent = t('drive.debug.testNotification');
+      testToastButton.addEventListener('click', () => this.testToastNotification());
       redirectHint.appendChild(label);
       redirectHint.appendChild(value);
+      redirectHint.appendChild(testToastButton);
       wrapper.appendChild(redirectHint);
     }
 
@@ -1334,6 +1399,14 @@ class FavoritesOverlay {
     }
 
     return wrapper;
+  }
+
+  async testToastNotification() {
+    const response = await this.sendBackgroundMessage({ type: 'TFR_TEST_OVERLAY_TOAST' });
+    this.driveMessage = response?.ok
+      ? t('drive.debug.testSent')
+      : t('drive.debug.testFailed');
+    this.render();
   }
 
   async connectGoogleDrive() {

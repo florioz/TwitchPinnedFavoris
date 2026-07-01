@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Twitch Favorites Sidebar",
   "description": "Pin favorite Twitch streamers with live viewer counts, smart categories, and quick management tools.",
-  "version": "0.5.4",
+  "version": "0.5.5",
   "icons": {
     "16": "assets/icon16.png",
     "48": "assets/icon48.png",

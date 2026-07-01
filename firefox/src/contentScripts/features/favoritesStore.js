@@ -138,6 +138,8 @@
           recentLiveThresholdMinutes: 10,
           recentLiveCollapsed: false,
           toastDurationSeconds: 6,
+          toastEnabled: true,
+          toastPosition: 'top-right',
           chatHistoryEnabled: true,
           moderationHistoryEnabled: true
         };
@@ -175,6 +177,16 @@
         const sanitized = Number.isFinite(parsed) ? Math.max(2, Math.min(60, Math.round(parsed))) : 6;
         this.state.preferences.toastDurationSeconds = sanitized;
       }
+      if (!Object.prototype.hasOwnProperty.call(this.state.preferences, 'toastEnabled')) {
+        this.state.preferences.toastEnabled = true;
+      } else {
+        this.state.preferences.toastEnabled = Boolean(this.state.preferences.toastEnabled);
+      }
+      if (!Object.prototype.hasOwnProperty.call(this.state.preferences, 'toastPosition')) {
+        this.state.preferences.toastPosition = 'top-right';
+      } else {
+        this.state.preferences.toastPosition = this.sanitizeToastPosition(this.state.preferences.toastPosition);
+      }
       if (!Object.prototype.hasOwnProperty.call(this.state.preferences, 'chatHistoryEnabled')) {
         this.state.preferences.chatHistoryEnabled = true;
       } else {
@@ -191,6 +203,16 @@
         const parsed = Number(this.state.preferences.toastDurationSeconds);
         const sanitized = Number.isFinite(parsed) ? Math.max(2, Math.min(60, Math.round(parsed))) : 6;
         this.state.preferences.toastDurationSeconds = sanitized;
+      }
+      if (!Object.prototype.hasOwnProperty.call(this.state.preferences, 'toastEnabled')) {
+        this.state.preferences.toastEnabled = true;
+      } else {
+        this.state.preferences.toastEnabled = Boolean(this.state.preferences.toastEnabled);
+      }
+      if (!Object.prototype.hasOwnProperty.call(this.state.preferences, 'toastPosition')) {
+        this.state.preferences.toastPosition = 'top-right';
+      } else {
+        this.state.preferences.toastPosition = this.sanitizeToastPosition(this.state.preferences.toastPosition);
       }
       const categoryIdMap = new Map();
       this.state.categories.forEach((category, index) => {
@@ -466,6 +488,12 @@
           safePreferences.toastDurationSeconds = Math.max(2, Math.min(60, Math.round(parsed)));
         }
       }
+      if (typeof payload.preferences.toastEnabled === 'boolean') {
+        safePreferences.toastEnabled = payload.preferences.toastEnabled;
+      }
+      if (typeof payload.preferences.toastPosition === 'string') {
+        safePreferences.toastPosition = this.sanitizeToastPosition(payload.preferences.toastPosition);
+      }
       if (typeof payload.preferences.chatHistoryEnabled === 'boolean') {
         safePreferences.chatHistoryEnabled = payload.preferences.chatHistoryEnabled;
       }
@@ -477,6 +505,12 @@
         if (Number.isFinite(parsed)) {
           safePreferences.toastDurationSeconds = Math.max(2, Math.min(60, Math.round(parsed)));
         }
+      }
+      if (typeof payload.preferences.toastEnabled === 'boolean') {
+        safePreferences.toastEnabled = payload.preferences.toastEnabled;
+      }
+      if (typeof payload.preferences.toastPosition === 'string') {
+        safePreferences.toastPosition = this.sanitizeToastPosition(payload.preferences.toastPosition);
       }
     }
 
@@ -1068,6 +1102,40 @@
       await this.updateState((draft) => {
         const prefs = draft.preferences || (draft.preferences = {});
         prefs.toastDurationSeconds = sanitized;
+      });
+    }
+
+    sanitizeToastPosition(position) {
+      const allowed = new Set([
+        'top-left',
+        'top-center',
+        'top-right',
+        'bottom-left',
+        'bottom-center',
+        'bottom-right'
+      ]);
+      return allowed.has(position) ? position : 'top-right';
+    }
+
+    async setToastEnabled(enabled) {
+      const next = Boolean(enabled);
+      if (Boolean(this.state.preferences?.toastEnabled) === next) {
+        return;
+      }
+      await this.updateState((draft) => {
+        const prefs = draft.preferences || (draft.preferences = {});
+        prefs.toastEnabled = next;
+      });
+    }
+
+    async setToastPosition(position) {
+      const sanitized = this.sanitizeToastPosition(position);
+      if ((this.state.preferences?.toastPosition || 'top-right') === sanitized) {
+        return;
+      }
+      await this.updateState((draft) => {
+        const prefs = draft.preferences || (draft.preferences = {});
+        prefs.toastPosition = sanitized;
       });
     }
 

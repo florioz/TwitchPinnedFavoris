@@ -15,7 +15,9 @@ const DEFAULT_STATE = {
     recentLiveEnabled: false,
     recentLiveThresholdMinutes: 10,
     recentLiveCollapsed: false,
-    toastDurationSeconds: 6
+    toastDurationSeconds: 6,
+    toastEnabled: true,
+    toastPosition: 'top-right'
   }
 };
 
@@ -716,7 +718,11 @@ const updateBadge = async (count = liveBadgeCount) => {
   }
 };
 
-const notifyNewLives = (entries) => {
+const notifyNewLives = (entries, preferences = {}) => {
+  const prefs = preferences || {};
+  if (prefs.toastEnabled === false) {
+    return;
+  }
   const eligible = entries.filter(({ fav }) => fav?.recentHighlightEnabled !== false);
   if (!eligible.length) {
     return;
@@ -788,7 +794,7 @@ const evaluateLiveStatus = async (reason = 'manual') => {
 
   await updateBadge(currentlyLive.length);
   if (newlyLive.length) {
-    notifyNewLives(newlyLive);
+    notifyNewLives(newlyLive, state.preferences || {});
   }
 
   const snapshot = {
@@ -914,6 +920,32 @@ extensionApi.runtime.onMessage.addListener((message, sender, sendResponse) => {
       extensionApi.tabs.create({ url });
     }
     sendResponse({ ok: Boolean(url) });
+    return true;
+  } else if (message?.type === 'TFR_TEST_OVERLAY_TOAST') {
+    const tabId = sender?.tab?.id;
+    if (!Number.isInteger(tabId)) {
+      sendResponse({ ok: false, message: 'missing tab' });
+      return true;
+    }
+    sendMessageToTab(tabId, {
+      type: 'TFR_OVERLAY_TOAST',
+      force: true,
+      entries: [{
+        fav: {
+          login: 'twitchfavorites',
+          displayName: 'Twitch Favorites',
+          avatarUrl: ''
+        },
+        live: {
+          login: 'twitchfavorites',
+          displayName: 'Notification test',
+          avatarUrl: '',
+          viewers: 1337,
+          game: 'Debug',
+          title: 'Test de position et de fermeture'
+        }
+      }]
+    }).then((result) => sendResponse({ ok: Boolean(result?.ok), result }));
     return true;
   } else if (message?.type === 'TFR_DRIVE_SYNC_STATUS') {
     getDriveSyncStatus()
