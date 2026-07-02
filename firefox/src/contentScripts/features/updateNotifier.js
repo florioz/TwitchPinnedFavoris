@@ -151,6 +151,26 @@
       this.removeBanner();
     }
 
+    extractReleaseHighlights(notes) {
+      const ignoredHeadings = new Set(['english', 'francais', 'fran\u00e7ais', 'verification']);
+      const highlights = String(notes || '')
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter((line) => {
+          if (!line) return false;
+          const heading = line.replace(/^#+\s*/, '').trim().toLowerCase();
+          if (line.startsWith('#') && ignoredHeadings.has(heading)) return false;
+          if (/^#\s+twitch favorites sidebar/i.test(line)) return false;
+          if (/^`[^`]+`$/.test(line)) return false;
+          return true;
+        })
+        .map((line) => line.replace(/^[-*]\s*/, '').replace(/^#+\s*/, '').trim())
+        .filter(Boolean)
+        .slice(0, 3);
+
+      return highlights;
+    }
+
     showBanner(version, url, notes) {
       if (this.banner || !document?.body) {
         return;
@@ -176,12 +196,11 @@
 
       const body = document.createElement('p');
       body.className = 'tfr-update-banner__body';
-      const summaryLine = (notes || '')
-        .split(/\r?\n/)
-        .map((line) => line.trim())
-        .find((line) => line.length);
-      const description = summaryLine ? `Notes : ${summaryLine}` : 'Consultez GitHub pour telecharger la derniere version.';
-      body.textContent = `Version ${version} est disponible. ${description}`;
+      const highlights = this.extractReleaseHighlights(notes);
+      const description = highlights.length
+        ? `Nouveautes : ${highlights.join(' - ')}`
+        : 'Consultez GitHub pour telecharger la derniere version.';
+      body.textContent = `Version ${version} disponible. ${description}`;
 
       const actions = document.createElement('div');
       actions.className = 'tfr-update-banner__actions';

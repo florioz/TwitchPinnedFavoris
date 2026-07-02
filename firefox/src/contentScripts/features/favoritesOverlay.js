@@ -622,10 +622,7 @@ class FavoritesOverlay {
     styleTitle.textContent = t('categoryAppearance.style');
     styleHeader.appendChild(styleTitle);
     styleField.appendChild(styleHeader);
-    const styleSelect = document.createElement('select');
-    styleSelect.id = 'tfr-category-color-style';
-    styleSelect.className = 'tfr-category-appearance-settings__select';
-    [
+    const categoryStyleValues = [
       'gradient',
       'solid',
       'stripe',
@@ -643,7 +640,11 @@ class FavoritesOverlay {
       'ink',
       'compact',
       'parent-accent'
-    ].forEach((style) => {
+    ];
+    const styleSelect = document.createElement('select');
+    styleSelect.id = 'tfr-category-color-style';
+    styleSelect.className = 'tfr-category-appearance-settings__select';
+    categoryStyleValues.forEach((style) => {
       const option = document.createElement('option');
       option.value = style;
       option.textContent = t(`categoryAppearance.style.${style}`);
@@ -654,7 +655,11 @@ class FavoritesOverlay {
       await this.store.setCategoryColorStyle(event.target.value);
       this.render();
     });
-    styleField.appendChild(styleSelect);
+    styleField.appendChild(this.renderStyleStepper(
+      styleSelect,
+      categoryStyleValues,
+      (nextValue) => this.store.setCategoryColorStyle(nextValue)
+    ));
     controls.appendChild(styleField);
 
     controls.appendChild(createSlider({
@@ -704,6 +709,47 @@ class FavoritesOverlay {
     return wrapper;
   }
 
+  renderStyleStepper(select, values, onChange) {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'tfr-style-stepper';
+
+    const move = async (direction) => {
+      const currentIndex = Math.max(0, values.indexOf(select.value));
+      const nextIndex = (currentIndex + direction + values.length) % values.length;
+      const nextValue = values[nextIndex];
+      select.value = nextValue;
+      await onChange(nextValue);
+      this.render();
+    };
+
+    const previous = document.createElement('button');
+    previous.type = 'button';
+    previous.className = 'tfr-style-stepper__button';
+    previous.textContent = '<';
+    previous.title = t('styleStepper.previous');
+    previous.setAttribute('aria-label', t('styleStepper.previous'));
+    previous.addEventListener('click', (event) => {
+      event.preventDefault();
+      move(-1);
+    });
+
+    const next = document.createElement('button');
+    next.type = 'button';
+    next.className = 'tfr-style-stepper__button';
+    next.textContent = '>';
+    next.title = t('styleStepper.next');
+    next.setAttribute('aria-label', t('styleStepper.next'));
+    next.addEventListener('click', (event) => {
+      event.preventDefault();
+      move(1);
+    });
+
+    wrapper.appendChild(previous);
+    wrapper.appendChild(select);
+    wrapper.appendChild(next);
+    return wrapper;
+  }
+
   renderSpecialCategoryColorControl({ key, label, color }) {
     const wrapper = document.createElement('div');
     wrapper.className = 'tfr-special-category-color';
@@ -738,10 +784,7 @@ class FavoritesOverlay {
     label.appendChild(labelText);
     field.appendChild(label);
 
-    const select = document.createElement('select');
-    select.id = 'tfr-streamer-item-style';
-    select.className = 'tfr-streamer-appearance-settings__select';
-    [
+    const streamerStyleValues = [
       'default',
       'compact',
       'card',
@@ -756,7 +799,11 @@ class FavoritesOverlay {
       'title-focus',
       'glass',
       'minimal'
-    ].forEach((style) => {
+    ];
+    const select = document.createElement('select');
+    select.id = 'tfr-streamer-item-style';
+    select.className = 'tfr-streamer-appearance-settings__select';
+    streamerStyleValues.forEach((style) => {
       const option = document.createElement('option');
       option.value = style;
       option.textContent = t(`streamerAppearance.style.${style}`);
@@ -767,7 +814,11 @@ class FavoritesOverlay {
       await this.store.setStreamerItemStyle(event.target.value);
       this.render();
     });
-    field.appendChild(select);
+    field.appendChild(this.renderStyleStepper(
+      select,
+      streamerStyleValues,
+      (nextValue) => this.store.setStreamerItemStyle(nextValue)
+    ));
     wrapper.appendChild(field);
 
     const hint = document.createElement('p');
@@ -800,10 +851,7 @@ class FavoritesOverlay {
     label.appendChild(labelText);
     field.appendChild(label);
 
-    const select = document.createElement('select');
-    select.id = 'tfr-sidebar-surface-style';
-    select.className = 'tfr-streamer-appearance-settings__select';
-    [
+    const surfaceStyleValues = [
       'default',
       'full',
       'panel',
@@ -817,7 +865,11 @@ class FavoritesOverlay {
       'pulse',
       'poster',
       'arcade'
-    ].forEach((style) => {
+    ];
+    const select = document.createElement('select');
+    select.id = 'tfr-sidebar-surface-style';
+    select.className = 'tfr-streamer-appearance-settings__select';
+    surfaceStyleValues.forEach((style) => {
       const option = document.createElement('option');
       option.value = style;
       option.textContent = t(`sidebarSurface.style.${style}`);
@@ -828,7 +880,11 @@ class FavoritesOverlay {
       await this.store.setSidebarSurfaceStyle(event.target.value);
       this.render();
     });
-    field.appendChild(select);
+    field.appendChild(this.renderStyleStepper(
+      select,
+      surfaceStyleValues,
+      (nextValue) => this.store.setSidebarSurfaceStyle(nextValue)
+    ));
     wrapper.appendChild(field);
 
     wrapper.appendChild(this.renderCategoryColorPickerControl({
@@ -967,6 +1023,15 @@ class FavoritesOverlay {
     wrapper.className = 'tfr-feature-toggles';
 
     const toggles = [
+      {
+        key: 'liveFavoritesEnabled',
+        label: t('settings.liveSidebar.toggle'),
+        description: t('settings.liveSidebar.description'),
+        handler: async (checked) => {
+          await this.store.setLiveFavoritesEnabled(checked);
+          this.render();
+        }
+      },
       {
         key: 'chatHistoryEnabled',
         label: t('settings.chatHistory.toggle'),

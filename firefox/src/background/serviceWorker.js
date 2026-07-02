@@ -12,6 +12,7 @@ const DEFAULT_STATE = {
   preferences: {
     sortMode: 'viewersDesc',
     uncategorizedCollapsed: false,
+    liveFavoritesEnabled: true,
     liveFavoritesCollapsed: false,
     recentLiveEnabled: false,
     recentLiveThresholdMinutes: 10,
@@ -318,7 +319,7 @@ const parseHashParams = (url) => {
   return new URLSearchParams(hash);
 };
 
-const getWebAuthDriveToken = async (interactive = false) => {
+const getWebAuthDriveToken = async (interactive = false, options = {}) => {
   const stored = await getStoredWebAuthDriveToken();
   if (stored?.accessToken) {
     await setDriveAuthMode('web');
@@ -341,8 +342,10 @@ const getWebAuthDriveToken = async (interactive = false) => {
   authUrl.searchParams.set('response_type', 'token');
   authUrl.searchParams.set('redirect_uri', redirectUri);
   authUrl.searchParams.set('scope', DRIVE_SCOPE);
-  authUrl.searchParams.set('prompt', 'select_account consent');
   authUrl.searchParams.set('include_granted_scopes', 'true');
+  if (options.forceAccountChoice) {
+    authUrl.searchParams.set('prompt', 'select_account consent');
+  }
 
   const redirectUrl = await new Promise((resolve, reject) => {
     extensionApi.identity.launchWebAuthFlow({ url: authUrl.toString(), interactive: true }, (resultUrl) => {
@@ -394,6 +397,15 @@ const getDriveToken = async (interactive = false) => {
     }
     console.warn('[TFR] chrome.identity.getAuthToken failed, falling back to launchWebAuthFlow', error);
     return getWebAuthDriveToken(true);
+  }
+};
+
+const getDriveTokenForSync = async () => {
+  try {
+    return await getDriveToken(false);
+  } catch (error) {
+    console.info('[TFR] cached Google Drive token unavailable, requesting a new token', error);
+    return getDriveToken(true);
   }
 };
 
@@ -500,7 +512,7 @@ const connectGoogleDrive = async () => {
 };
 
 const pushBackupToDrive = async (backupPayload) => {
-  const token = await getDriveToken(true);
+  const token = await getDriveTokenForSync();
   const existing = await findDriveBackupFile(token);
   const payload = {
     ...backupPayload,
@@ -529,7 +541,7 @@ const pushBackupToDrive = async (backupPayload) => {
 };
 
 const pullBackupFromDrive = async () => {
-  const token = await getDriveToken(true);
+  const token = await getDriveTokenForSync();
   const file = await findDriveBackupFile(token) || await findLegacyAppDataBackupFile(token);
   if (!file?.id) {
     throw new Error('No Drive backup found yet.');

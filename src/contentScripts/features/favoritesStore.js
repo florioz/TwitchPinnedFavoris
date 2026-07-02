@@ -145,6 +145,7 @@
         this.state.preferences = {
           sortMode: 'viewersDesc',
           uncategorizedCollapsed: false,
+          liveFavoritesEnabled: true,
           liveFavoritesCollapsed: false,
           recentLiveEnabled: false,
           recentLiveThresholdMinutes: 10,
@@ -172,6 +173,11 @@
       }
       if (!Object.prototype.hasOwnProperty.call(this.state.preferences, 'liveFavoritesCollapsed')) {
         this.state.preferences.liveFavoritesCollapsed = false;
+      }
+      if (!Object.prototype.hasOwnProperty.call(this.state.preferences, 'liveFavoritesEnabled')) {
+        this.state.preferences.liveFavoritesEnabled = !Boolean(this.state.preferences.liveFavoritesCollapsed);
+      } else {
+        this.state.preferences.liveFavoritesEnabled = Boolean(this.state.preferences.liveFavoritesEnabled);
       }
       if (!Object.prototype.hasOwnProperty.call(this.state.preferences, 'recentLiveEnabled')) {
         this.state.preferences.recentLiveEnabled = false;
@@ -519,6 +525,9 @@
       }
       if (typeof payload.preferences.liveFavoritesCollapsed === 'boolean') {
         safePreferences.liveFavoritesCollapsed = payload.preferences.liveFavoritesCollapsed;
+      }
+      if (typeof payload.preferences.liveFavoritesEnabled === 'boolean') {
+        safePreferences.liveFavoritesEnabled = payload.preferences.liveFavoritesEnabled;
       }
       if (typeof payload.preferences.recentLiveEnabled === 'boolean') {
         safePreferences.recentLiveEnabled = payload.preferences.recentLiveEnabled;
@@ -1179,6 +1188,14 @@
       await this.updateState((draft) => {
         const prefs = draft.preferences || (draft.preferences = {});
         prefs.liveFavoritesCollapsed = !Boolean(prefs.liveFavoritesCollapsed);
+      });
+    }
+
+    async setLiveFavoritesEnabled(enabled) {
+      await this.updateState((draft) => {
+        const prefs = draft.preferences || (draft.preferences = {});
+        prefs.liveFavoritesEnabled = Boolean(enabled);
+        prefs.liveFavoritesCollapsed = !Boolean(enabled);
       });
     }
 

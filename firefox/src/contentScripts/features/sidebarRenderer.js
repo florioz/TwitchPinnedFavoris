@@ -562,18 +562,19 @@
     this.applySurfaceColor(this.container, state.preferences?.sidebarSurfaceColor);
     const groups = this.collectGroups(state, liveData);
     const totalLive = groups.reduce((sum, group) => sum + group.totalEntries, 0);
-    const isCollapsed = Boolean(state.preferences?.liveFavoritesCollapsed);
+    const isEnabled = state.preferences?.liveFavoritesEnabled !== false;
 
       this.container.innerHTML = '';
-    const header = document.createElement('button');
-    header.type = 'button';
+    this.container.hidden = !isEnabled;
+    if (!isEnabled) {
+      return;
+    }
+
+    const header = document.createElement('div');
     header.className = 'tfr-nav-header';
-    if (isCollapsed) header.classList.add('is-collapsed');
     header.textContent = totalLive
       ? t('sidebar.live.headerWithCount', { count: totalLive })
       : t('sidebar.live.header');
-    header.setAttribute('aria-expanded', String(!isCollapsed));
-    header.addEventListener('click', () => this.store.toggleLiveFavoritesCollapsed());
     this.container.appendChild(header);
 
     if (!totalLive) {
@@ -581,14 +582,6 @@
       empty.className = 'tfr-empty';
       empty.textContent = t('sidebar.live.empty');
       this.container.appendChild(empty);
-      return;
-    }
-
-    if (isCollapsed) {
-      const collapsedNotice = document.createElement('div');
-      collapsedNotice.className = 'tfr-empty';
-      collapsedNotice.textContent = t('sidebar.live.collapsedNotice');
-      this.container.appendChild(collapsedNotice);
       return;
     }
 
