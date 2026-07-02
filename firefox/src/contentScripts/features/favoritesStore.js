@@ -32,6 +32,17 @@
     }
   }
 
+  const LEGACY_CATEGORY_COLORS = {
+    purple: '#9147ff',
+    blue: '#4a80ff',
+    cyan: '#23bed2',
+    green: '#3eb973',
+    yellow: '#d8b56d',
+    orange: '#ff8f4e',
+    red: '#ff4f69',
+    pink: '#ec60be'
+  };
+
   class FavoritesStore {
     constructor() {
       this.state = deepCopy(DEFAULT_STATE);
@@ -62,7 +73,8 @@
           id: `cat_${Date.now()}`,
           name: t('categories.defaultName'),
           collapsed: false,
-          sortOrder: Date.now()
+          sortOrder: Date.now(),
+          color: ''
         };
         this.state.categories = [initialCategory];
         await this.persistState();
@@ -137,6 +149,14 @@
           recentLiveEnabled: false,
           recentLiveThresholdMinutes: 10,
           recentLiveCollapsed: false,
+          hideCollapsedGroupsUntilHover: false,
+          categoryColorOpacity: 7,
+          categoryColorGradient: 62,
+          categoryColorStyle: 'gradient',
+          streamerItemStyle: 'default',
+          sidebarSurfaceStyle: 'default',
+          sidebarSurfaceColor: '',
+          specialCategoryColors: {},
           toastDurationSeconds: 6,
           toastEnabled: true,
           toastPosition: 'top-right',
@@ -170,6 +190,32 @@
       } else {
         this.state.preferences.recentLiveCollapsed = Boolean(this.state.preferences.recentLiveCollapsed);
       }
+      if (!Object.prototype.hasOwnProperty.call(this.state.preferences, 'hideCollapsedGroupsUntilHover')) {
+        this.state.preferences.hideCollapsedGroupsUntilHover = false;
+      } else {
+        this.state.preferences.hideCollapsedGroupsUntilHover = Boolean(this.state.preferences.hideCollapsedGroupsUntilHover);
+      }
+      this.state.preferences.categoryColorOpacity = this.sanitizeCategoryColorOpacity(
+        this.state.preferences.categoryColorOpacity
+      );
+      this.state.preferences.categoryColorGradient = this.sanitizeCategoryColorGradient(
+        this.state.preferences.categoryColorGradient
+      );
+      this.state.preferences.categoryColorStyle = this.sanitizeCategoryColorStyle(
+        this.state.preferences.categoryColorStyle
+      );
+      this.state.preferences.streamerItemStyle = this.sanitizeStreamerItemStyle(
+        this.state.preferences.streamerItemStyle
+      );
+      this.state.preferences.sidebarSurfaceStyle = this.sanitizeSidebarSurfaceStyle(
+        this.state.preferences.sidebarSurfaceStyle
+      );
+      this.state.preferences.sidebarSurfaceColor = this.sanitizeCategoryColor(
+        this.state.preferences.sidebarSurfaceColor
+      );
+      this.state.preferences.specialCategoryColors = this.sanitizeSpecialCategoryColors(
+        this.state.preferences.specialCategoryColors
+      );
       if (!Object.prototype.hasOwnProperty.call(this.state.preferences, 'toastDurationSeconds')) {
         this.state.preferences.toastDurationSeconds = 6;
       } else {
@@ -222,7 +268,8 @@
             name: t('categories.defaultName'),
             collapsed: false,
             sortOrder: Date.now() + index,
-            parentId: null
+            parentId: null,
+            color: ''
           };
           category = this.state.categories[index];
         }
@@ -241,6 +288,7 @@
         if (typeof category.parentId !== 'string' || !category.parentId.trim()) {
           category.parentId = null;
         }
+        category.color = this.sanitizeCategoryColor(category.color);
         categoryIdMap.set(category.id, category);
       });
       this.state.categories.forEach((category) => {
@@ -273,7 +321,8 @@
           name: t('categories.defaultName'),
           collapsed: false,
           sortOrder: Date.now(),
-          parentId: null
+          parentId: null,
+          color: ''
         });
       }
       const normalizedFavorites = {};
@@ -456,7 +505,8 @@
       const sortOrder = typeof raw.sortOrder === 'number' ? raw.sortOrder : Date.now() + index;
       const collapsed = typeof raw.collapsed === 'boolean' ? raw.collapsed : false;
       const parentId = typeof raw.parentId === 'string' && raw.parentId.trim() ? raw.parentId.trim() : null;
-      safeCategories.push({ id, name, sortOrder, collapsed, parentId });
+      const color = this.sanitizeCategoryColor(raw.color);
+      safeCategories.push({ id, name, sortOrder, collapsed, parentId, color });
     });
 
     const safePreferences = {};
@@ -475,6 +525,30 @@
       }
       if (typeof payload.preferences.recentLiveCollapsed === 'boolean') {
         safePreferences.recentLiveCollapsed = payload.preferences.recentLiveCollapsed;
+      }
+      if (typeof payload.preferences.hideCollapsedGroupsUntilHover === 'boolean') {
+        safePreferences.hideCollapsedGroupsUntilHover = payload.preferences.hideCollapsedGroupsUntilHover;
+      }
+      if (payload.preferences.categoryColorOpacity != null) {
+        safePreferences.categoryColorOpacity = this.sanitizeCategoryColorOpacity(payload.preferences.categoryColorOpacity);
+      }
+      if (payload.preferences.categoryColorGradient != null) {
+        safePreferences.categoryColorGradient = this.sanitizeCategoryColorGradient(payload.preferences.categoryColorGradient);
+      }
+      if (typeof payload.preferences.categoryColorStyle === 'string') {
+        safePreferences.categoryColorStyle = this.sanitizeCategoryColorStyle(payload.preferences.categoryColorStyle);
+      }
+      if (typeof payload.preferences.streamerItemStyle === 'string') {
+        safePreferences.streamerItemStyle = this.sanitizeStreamerItemStyle(payload.preferences.streamerItemStyle);
+      }
+      if (typeof payload.preferences.sidebarSurfaceStyle === 'string') {
+        safePreferences.sidebarSurfaceStyle = this.sanitizeSidebarSurfaceStyle(payload.preferences.sidebarSurfaceStyle);
+      }
+      if (typeof payload.preferences.sidebarSurfaceColor === 'string') {
+        safePreferences.sidebarSurfaceColor = this.sanitizeCategoryColor(payload.preferences.sidebarSurfaceColor);
+      }
+      if (payload.preferences.specialCategoryColors && typeof payload.preferences.specialCategoryColors === 'object') {
+        safePreferences.specialCategoryColors = this.sanitizeSpecialCategoryColors(payload.preferences.specialCategoryColors);
       }
       if (payload.preferences.recentLiveThresholdMinutes != null) {
         const parsed = Number(payload.preferences.recentLiveThresholdMinutes);
@@ -615,6 +689,7 @@
         collapsed: Boolean(category.collapsed),
         sortOrder: typeof category.sortOrder === 'number' ? category.sortOrder : 0,
         parentId: category.parentId || null,
+        color: this.sanitizeCategoryColor(category.color),
         children: []
       }));
       const nodeMap = new Map();
@@ -778,7 +853,8 @@
           name: trimmed,
           collapsed: false,
           sortOrder: Date.now(),
-          parentId: parent
+          parentId: parent,
+          color: ''
         });
       });
       return id;
@@ -995,6 +1071,74 @@
       });
     }
 
+    sanitizeCategoryColor(color) {
+      const normalized = typeof color === 'string' ? color.trim().toLowerCase() : '';
+      if (!normalized) {
+        return '';
+      }
+      if (LEGACY_CATEGORY_COLORS[normalized]) {
+        return LEGACY_CATEGORY_COLORS[normalized];
+      }
+      const shortHex = normalized.match(/^#([0-9a-f]{3})$/i);
+      if (shortHex) {
+        return `#${shortHex[1].split('').map((part) => part + part).join('')}`.toLowerCase();
+      }
+      return /^#[0-9a-f]{6}$/i.test(normalized) ? normalized.toLowerCase() : '';
+    }
+
+    async setCategoryColor(categoryId, color) {
+      const sanitized = this.sanitizeCategoryColor(color);
+      await this.updateState((draft) => {
+        const category = draft.categories.find((cat) => cat.id === categoryId);
+        if (category) {
+          category.color = sanitized;
+        }
+      });
+    }
+
+    hslToHex(hue, saturation, lightness) {
+      const s = Math.max(0, Math.min(1, saturation));
+      const l = Math.max(0, Math.min(1, lightness));
+      const c = (1 - Math.abs(2 * l - 1)) * s;
+      const x = c * (1 - Math.abs(((hue / 60) % 2) - 1));
+      const m = l - c / 2;
+      let r = 0;
+      let g = 0;
+      let b = 0;
+      if (hue < 60) {
+        r = c;
+        g = x;
+      } else if (hue < 120) {
+        r = x;
+        g = c;
+      } else if (hue < 180) {
+        g = c;
+        b = x;
+      } else if (hue < 240) {
+        g = x;
+        b = c;
+      } else if (hue < 300) {
+        r = x;
+        b = c;
+      } else {
+        r = c;
+        b = x;
+      }
+      return `#${[r, g, b]
+        .map((channel) => Math.round((channel + m) * 255).toString(16).padStart(2, '0'))
+        .join('')}`;
+    }
+
+    async randomizeCategoryColors() {
+      const offset = Math.floor(Math.random() * 360);
+      await this.updateState((draft) => {
+        draft.categories.forEach((category, index) => {
+          const hue = (offset + index * 137.508) % 360;
+          category.color = this.hslToHex(hue, 0.72, 0.58);
+        });
+      });
+    }
+
     async removeCategory(categoryId) {
       await this.updateState((draft) => {
         const target = draft.categories.find((cat) => cat.id === categoryId);
@@ -1074,6 +1218,176 @@
       await this.updateState((draft) => {
         const prefs = draft.preferences || (draft.preferences = {});
         prefs.moderationHistoryEnabled = Boolean(enabled);
+      });
+    }
+
+    async setHideCollapsedGroupsUntilHover(enabled) {
+      await this.updateState((draft) => {
+        const prefs = draft.preferences || (draft.preferences = {});
+        prefs.hideCollapsedGroupsUntilHover = Boolean(enabled);
+      });
+    }
+
+    sanitizeCategoryColorOpacity(value) {
+      const parsed = Number(value);
+      return Number.isFinite(parsed) ? Math.max(0, Math.min(30, Math.round(parsed))) : 7;
+    }
+
+    sanitizeCategoryColorGradient(value) {
+      const parsed = Number(value);
+      return Number.isFinite(parsed) ? Math.max(0, Math.min(100, Math.round(parsed))) : 62;
+    }
+
+    sanitizeCategoryColorStyle(value) {
+      const allowed = new Set([
+        'gradient',
+        'solid',
+        'stripe',
+        'glow',
+        'glass',
+        'outline',
+        'minimal',
+        'dot',
+        'rail',
+        'double',
+        'soft-card',
+        'soft-neon',
+        'ribbon',
+        'count-badge',
+        'ink',
+        'compact',
+        'parent-accent'
+      ]);
+      return allowed.has(value) ? value : 'gradient';
+    }
+
+    sanitizeStreamerItemStyle(value) {
+      const allowed = new Set([
+        'default',
+        'compact',
+        'card',
+        'soft-card',
+        'outline',
+        'left-line',
+        'avatar-ring',
+        'avatar-square',
+        'neon',
+        'viewer-badge',
+        'game-focus',
+        'title-focus',
+        'glass',
+        'minimal'
+      ]);
+      return allowed.has(value) ? value : 'default';
+    }
+
+    sanitizeSidebarSurfaceStyle(value) {
+      const allowed = new Set([
+        'default',
+        'full',
+        'panel',
+        'glow',
+        'rail',
+        'connected',
+        'layers',
+        'canvas',
+        'edge',
+        'spectrum',
+        'pulse',
+        'poster',
+        'arcade'
+      ]);
+      return allowed.has(value) ? value : 'default';
+    }
+
+    sanitizeSpecialCategoryColors(colors = {}) {
+      const source = colors && typeof colors === 'object' ? colors : {};
+      return {
+        recentLive: this.sanitizeCategoryColor(source.recentLive),
+        uncategorized: this.sanitizeCategoryColor(source.uncategorized)
+      };
+    }
+
+    async setCategoryColorOpacity(value) {
+      const sanitized = this.sanitizeCategoryColorOpacity(value);
+      if (this.sanitizeCategoryColorOpacity(this.state.preferences?.categoryColorOpacity) === sanitized) {
+        return;
+      }
+      await this.updateState((draft) => {
+        const prefs = draft.preferences || (draft.preferences = {});
+        prefs.categoryColorOpacity = sanitized;
+      });
+    }
+
+    async setCategoryColorGradient(value) {
+      const sanitized = this.sanitizeCategoryColorGradient(value);
+      if (this.sanitizeCategoryColorGradient(this.state.preferences?.categoryColorGradient) === sanitized) {
+        return;
+      }
+      await this.updateState((draft) => {
+        const prefs = draft.preferences || (draft.preferences = {});
+        prefs.categoryColorGradient = sanitized;
+      });
+    }
+
+    async setCategoryColorStyle(value) {
+      const sanitized = this.sanitizeCategoryColorStyle(value);
+      if (this.sanitizeCategoryColorStyle(this.state.preferences?.categoryColorStyle) === sanitized) {
+        return;
+      }
+      await this.updateState((draft) => {
+        const prefs = draft.preferences || (draft.preferences = {});
+        prefs.categoryColorStyle = sanitized;
+      });
+    }
+
+    async setStreamerItemStyle(value) {
+      const sanitized = this.sanitizeStreamerItemStyle(value);
+      if (this.sanitizeStreamerItemStyle(this.state.preferences?.streamerItemStyle) === sanitized) {
+        return;
+      }
+      await this.updateState((draft) => {
+        const prefs = draft.preferences || (draft.preferences = {});
+        prefs.streamerItemStyle = sanitized;
+      });
+    }
+
+    async setSidebarSurfaceStyle(value) {
+      const sanitized = this.sanitizeSidebarSurfaceStyle(value);
+      if (this.sanitizeSidebarSurfaceStyle(this.state.preferences?.sidebarSurfaceStyle) === sanitized) {
+        return;
+      }
+      await this.updateState((draft) => {
+        const prefs = draft.preferences || (draft.preferences = {});
+        prefs.sidebarSurfaceStyle = sanitized;
+      });
+    }
+
+    async setSidebarSurfaceColor(color) {
+      const sanitized = this.sanitizeCategoryColor(color);
+      if (this.sanitizeCategoryColor(this.state.preferences?.sidebarSurfaceColor) === sanitized) {
+        return;
+      }
+      await this.updateState((draft) => {
+        const prefs = draft.preferences || (draft.preferences = {});
+        prefs.sidebarSurfaceColor = sanitized;
+      });
+    }
+
+    async setSpecialCategoryColor(key, color) {
+      if (!['recentLive', 'uncategorized'].includes(key)) {
+        return;
+      }
+      const sanitized = this.sanitizeCategoryColor(color);
+      const current = this.sanitizeSpecialCategoryColors(this.state.preferences?.specialCategoryColors)[key];
+      if (current === sanitized) {
+        return;
+      }
+      await this.updateState((draft) => {
+        const prefs = draft.preferences || (draft.preferences = {});
+        const specialColors = this.sanitizeSpecialCategoryColors(prefs.specialCategoryColors);
+        specialColors[key] = sanitized;
+        prefs.specialCategoryColors = specialColors;
       });
     }
 

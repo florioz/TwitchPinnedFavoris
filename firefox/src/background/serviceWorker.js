@@ -3,6 +3,7 @@ const extensionApi = globalThis.chrome ?? globalThis.browser;
 const actionApi = extensionApi.action ?? extensionApi.browserAction ?? null;
 const STORAGE_KEY = 'tfr_state';
 const LIVE_CACHE_KEY = 'tfr_live_cache';
+const NOTIFIED_STREAMS_KEY = 'tfr_notified_streams';
 const DEFAULT_STATE = {
   activeProfileId: 'default',
   profiles: {},
@@ -15,6 +16,14 @@ const DEFAULT_STATE = {
     recentLiveEnabled: false,
     recentLiveThresholdMinutes: 10,
     recentLiveCollapsed: false,
+    hideCollapsedGroupsUntilHover: false,
+    categoryColorOpacity: 7,
+    categoryColorGradient: 62,
+    categoryColorStyle: 'gradient',
+    streamerItemStyle: 'default',
+    sidebarSurfaceStyle: 'default',
+    sidebarSurfaceColor: '',
+    specialCategoryColors: {},
     toastDurationSeconds: 6,
     toastEnabled: true,
     toastPosition: 'top-right'
@@ -95,6 +104,59 @@ const sendMessageToTab = (tabId, payload) =>
     });
   });
 
+const queryTabs = (queryInfo) =>
+  new Promise((resolve) => {
+    if (!extensionApi.tabs?.query) {
+      resolve([]);
+      return;
+    }
+
+    const handleTabs = (tabs) => resolve(Array.isArray(tabs) ? tabs : []);
+    const handleError = () => resolve([]);
+
+    try {
+      const maybePromise = extensionApi.tabs.query(queryInfo, (tabs) => {
+        const lastError = extensionApi.runtime?.lastError;
+        if (lastError) {
+          handleError();
+          return;
+        }
+        handleTabs(tabs);
+      });
+      if (maybePromise?.then) {
+        maybePromise.then(handleTabs).catch(handleError);
+      }
+    } catch (error) {
+      try {
+        const maybePromise = extensionApi.tabs.query(queryInfo);
+        if (maybePromise?.then) {
+          maybePromise.then(handleTabs).catch(handleError);
+        } else {
+          handleTabs(maybePromise);
+        }
+      } catch (_) {
+        handleError();
+      }
+    }
+  });
+
+const getOverlayRecipientTabIds = async () => {
+  const tabIds = new Set(overlayTabs);
+  const activeTabs = await queryTabs({
+    active: true,
+    currentWindow: true
+  });
+  const twitchTabs = await queryTabs({
+    url: ['https://www.twitch.tv/*', 'https://twitch.tv/*']
+  });
+  [...activeTabs, ...twitchTabs].forEach((tab) => {
+    if (Number.isInteger(tab?.id)) {
+      tabIds.add(tab.id);
+    }
+  });
+  return Array.from(tabIds);
+};
+
 const setSidePanelBehavior = () => {
   try {
     extensionApi.sidePanel?.setPanelBehavior?.({ openPanelOnActionClick: false });
@@ -154,9 +216,14 @@ const broadcastOverlayState = (snapshot) => {
   overlayTabs.forEach((tabId) => sendMessageToTab(tabId, { type: 'TFR_STATE_PUSH', ...snapshot }));
 };
 
-const broadcastOverlayToast = (entries) => {
-  if (!entries?.length) return;
-  overlayTabs.forEach((tabId) => sendMessageToTab(tabId, { type: 'TFR_OVERLAY_TOAST', entries }));
+const broadcastOverlayToast = async (entries) => {
+  if (!entries?.length) return false;
+  const tabIds = await getOverlayRecipientTabIds();
+  if (!tabIds.length) return false;
+  const results = await Promise.all(
+    tabIds.map((tabId) => sendMessageToTab(tabId, { type: 'TFR_OVERLAY_TOAST', entries }))
+  );
+  return results.some((result) => result?.ok);
 };
 
 const normalizeCategoryName = (value) => {
@@ -567,6 +634,7 @@ const fetchStreamerLiveData = async (login, fallback = {}) => {
       displayName: user.displayName || user.login || login,
       avatarUrl: user.profileImageURL || fallbackLiveData.avatarUrl || DEFAULT_AVATAR,
       isLive: Boolean(stream),
+      streamId: stream?.id || null,
       viewers: stream?.viewersCount || 0,
       title: stream?.title || '',
       game: stream?.game?.name || '',
@@ -718,16 +786,83 @@ const updateBadge = async (count = liveBadgeCount) => {
   }
 };
 
-const notifyNewLives = (entries, preferences = {}) => {
+const getNotificationKey = (login, live) => {
+  if (!login || !live?.isLive) {
+    return '';
+  }
+  const streamId = live.streamId || '';
+  if (streamId) {
+    return `${login}:${streamId}`;
+  }
+  return live.startedAt ? `${login}:${live.startedAt}` : '';
+};
+
+const isRecentLiveStart = (live, preferences = {}, now = Date.now()) => {
+  if (!live?.isLive || !live.startedAt) {
+    return false;
+  }
+  const startedAt = Date.parse(live.startedAt);
+  if (!Number.isFinite(startedAt)) {
+    return false;
+  }
+  const thresholdMinutes = Number.isFinite(Number(preferences.recentLiveThresholdMinutes))
+    ? Math.max(1, Math.min(120, Math.round(Number(preferences.recentLiveThresholdMinutes))))
+    : 10;
+  return now - startedAt >= 0 && now - startedAt <= thresholdMinutes * 60 * 1000;
+};
+
+const cleanupNotifiedStreams = (notifiedStreams = {}, liveData = {}, now = Date.now()) => {
+  const next = {};
+  Object.entries(notifiedStreams || {}).forEach(([login, entry]) => {
+    const live = liveData?.[login];
+    if (!live?.isLive) {
+      return;
+    }
+    const key = getNotificationKey(login, live);
+    if (!key || entry?.key !== key) {
+      return;
+    }
+    const notifiedAt = Number(entry.notifiedAt || 0);
+    if (Number.isFinite(notifiedAt) && now - notifiedAt < 24 * 60 * 60 * 1000) {
+      next[login] = entry;
+    }
+  });
+  return next;
+};
+
+const markLiveNotificationHandled = async (login, notificationKey) => {
+  if (!login || !notificationKey) {
+    return {};
+  }
+  const stored = await extensionApi.storage.local.get(NOTIFIED_STREAMS_KEY);
+  const notifiedStreams =
+    stored?.[NOTIFIED_STREAMS_KEY] && typeof stored[NOTIFIED_STREAMS_KEY] === 'object'
+      ? stored[NOTIFIED_STREAMS_KEY]
+      : {};
+  const next = {
+    ...notifiedStreams,
+    [login]: {
+      key: notificationKey,
+      notifiedAt: Date.now()
+    }
+  };
+  await extensionApi.storage.local.set({ [NOTIFIED_STREAMS_KEY]: next });
+  return next;
+};
+
+const notifyNewLives = async (entries, preferences = {}) => {
   const prefs = preferences || {};
   if (prefs.toastEnabled === false) {
-    return;
+    return [];
   }
   const eligible = entries.filter(({ fav }) => fav?.recentHighlightEnabled !== false);
   if (!eligible.length) {
-    return;
+    return [];
   }
-  const toastEntries = eligible.slice(0, MAX_NOTIFICATIONS).map(({ fav, live }) => ({
+  const selected = eligible.slice(0, MAX_NOTIFICATIONS);
+  const toastEntries = selected.map(({ login, fav, live, notificationKey }) => ({
+    login,
+    notificationKey,
     fav: {
       login: fav.login,
       displayName: fav.displayName,
@@ -739,20 +874,28 @@ const notifyNewLives = (entries, preferences = {}) => {
       avatarUrl: live.avatarUrl,
       viewers: live.viewers,
       game: live.game,
-      title: live.title
+      title: live.title,
+      streamId: live.streamId,
+      startedAt: live.startedAt
     }
   }));
-  broadcastOverlayToast(toastEntries);
+  const delivered = await broadcastOverlayToast(toastEntries);
+  return delivered ? selected : [];
 };
 
 const evaluateLiveStatus = async (reason = 'manual') => {
   const now = Date.now();
-  const stored = await extensionApi.storage.local.get([STORAGE_KEY, LIVE_CACHE_KEY]);
+  const stored = await extensionApi.storage.local.get([STORAGE_KEY, LIVE_CACHE_KEY, NOTIFIED_STREAMS_KEY]);
   const state = stored?.[STORAGE_KEY] && typeof stored[STORAGE_KEY] === 'object' ? stored[STORAGE_KEY] : DEFAULT_STATE;
   const favorites = state.favorites || {};
   const categories = Array.isArray(state.categories) ? state.categories : [];
+  const preferences = state.preferences || DEFAULT_STATE.preferences;
   const logins = Object.keys(favorites);
   const previousLiveData = stored?.[LIVE_CACHE_KEY] && typeof stored[LIVE_CACHE_KEY] === 'object' ? stored[LIVE_CACHE_KEY] : {};
+  const previousNotifiedStreams =
+    stored?.[NOTIFIED_STREAMS_KEY] && typeof stored[NOTIFIED_STREAMS_KEY] === 'object'
+      ? stored[NOTIFIED_STREAMS_KEY]
+      : {};
 
   const liveData = {};
   if (logins.length) {
@@ -770,13 +913,9 @@ const evaluateLiveStatus = async (reason = 'manual') => {
     });
   }
 
-  await extensionApi.storage.local.set({
-    [LIVE_CACHE_KEY]: liveData,
-    tfr_lastLiveUpdate: now
-  });
-
   const currentlyLive = [];
-  const newlyLive = [];
+  const notificationCandidates = [];
+  const nextNotifiedStreams = cleanupNotifiedStreams(previousNotifiedStreams, liveData, now);
   logins.forEach((login) => {
     const fav = favorites[login];
     const live = liveData[login];
@@ -786,21 +925,43 @@ const evaluateLiveStatus = async (reason = 'manual') => {
     if (isLive) {
       currentlyLive.push({ fav, live });
     }
-    const previouslyLive = Boolean(previousLiveData?.[login]?.isLive && shouldDisplayFavorite(fav, previousLiveData[login]));
-    if (isLive && fav.recentHighlightEnabled !== false && !previouslyLive && !['install', 'startup'].includes(reason)) {
-      newlyLive.push({ fav, live });
+    const notificationKey = getNotificationKey(login, live);
+    const alreadyNotified = Boolean(notificationKey && previousNotifiedStreams?.[login]?.key === notificationKey);
+    if (
+      isLive &&
+      notificationKey &&
+      fav.recentHighlightEnabled !== false &&
+      !alreadyNotified &&
+      isRecentLiveStart(live, preferences, now) &&
+      reason !== 'install'
+    ) {
+      notificationCandidates.push({ login, fav, live, notificationKey });
     }
   });
 
   await updateBadge(currentlyLive.length);
-  if (newlyLive.length) {
-    notifyNewLives(newlyLive, state.preferences || {});
+  if (notificationCandidates.length) {
+    const sent = await notifyNewLives(notificationCandidates, preferences);
+    sent.forEach(({ login, fav, live, notificationKey }) => {
+      const storageLogin = login || fav?.login || live?.login;
+      if (!storageLogin || !notificationKey) return;
+      nextNotifiedStreams[storageLogin] = {
+        key: notificationKey,
+        notifiedAt: now
+      };
+    });
   }
+
+  await extensionApi.storage.local.set({
+    [LIVE_CACHE_KEY]: liveData,
+    [NOTIFIED_STREAMS_KEY]: nextNotifiedStreams,
+    tfr_lastLiveUpdate: now
+  });
 
   const snapshot = {
     favorites: cloneData(favorites),
     categories: cloneData(categories),
-    preferences: cloneData(state.preferences || DEFAULT_STATE.preferences),
+    preferences: cloneData(preferences),
     liveData: cloneData(liveData),
     timestamp: now
   };
@@ -920,6 +1081,11 @@ extensionApi.runtime.onMessage.addListener((message, sender, sendResponse) => {
       extensionApi.tabs.create({ url });
     }
     sendResponse({ ok: Boolean(url) });
+    return true;
+  } else if (message?.type === 'TFR_DISMISS_LIVE_TOAST') {
+    markLiveNotificationHandled(message.login, message.notificationKey)
+      .then(() => sendResponse({ ok: true }))
+      .catch((error) => sendResponse({ ok: false, message: error?.message || 'dismiss failed' }));
     return true;
   } else if (message?.type === 'TFR_TEST_OVERLAY_TOAST') {
     const tabId = sender?.tab?.id;

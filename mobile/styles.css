@@ -179,6 +179,7 @@ select {
 .tfm-card,
 .tfm-vod,
 .tfm-view-header,
+.tfm-notifications,
 .tfm-drive {
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -363,6 +364,64 @@ select {
 
 .tfm-view-header--vods {
   border-color: #6a4a2b;
+}
+
+.tfm-notifications {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+}
+
+.tfm-notifications small {
+  color: var(--muted);
+  line-height: 1.35;
+}
+
+.tfm-notifications small.is-error {
+  color: var(--danger);
+}
+
+.tfm-notifications small.is-ready {
+  color: #80f0a0;
+}
+
+.tfm-live-toast {
+  position: fixed;
+  z-index: 20;
+  left: 14px;
+  right: 14px;
+  bottom: max(14px, env(safe-area-inset-bottom));
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  padding: 12px;
+  border: 1px solid #b17cff;
+  border-radius: 12px;
+  background: rgba(23, 16, 37, 0.96);
+  color: var(--text);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.35);
+}
+
+.tfm-live-toast img {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: #2a1d3d;
+}
+
+.tfm-live-toast strong,
+.tfm-live-toast small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tfm-live-toast small {
+  color: var(--muted);
+  margin-top: 3px;
 }
 
 .tfm-view-list {

@@ -21,6 +21,8 @@
   const VIDEO_LIMIT = 40;
   const CLIP_PAGE_LIMIT = 100;
   const CLIP_MAX_PAGES = 4;
+  const LIVE_NOTIFICATION_POLL_MS = 2 * 60 * 1000;
+  const LIVE_NOTIFICATION_RECENT_MS = 20 * 60 * 1000;
 
   const LIVE_QUERY = `
     query TfmChannelLive($login: String!) {
@@ -110,6 +112,11 @@
     searchTerm: '',
     vodSearchTerm: '',
     liveOnly: false,
+    liveNotificationsEnabled: false,
+    notifiedLiveStreams: {},
+    liveNotificationPollTimer: null,
+    liveNotificationStatus: '',
+    liveNotificationError: false,
     collapsedCategoryIds: new Set(),
     vodSortKey: 'time',
     vodSortDirection: 'asc',
@@ -145,6 +152,8 @@
     searchInput: document.getElementById('searchInput'),
     groupSelect: document.getElementById('groupSelect'),
     liveOnlyInput: document.getElementById('liveOnlyInput'),
+    liveNotificationsInput: document.getElementById('liveNotificationsInput'),
+    liveNotificationsStatus: document.getElementById('liveNotificationsStatus'),
     vodSearchInput: document.getElementById('vodSearchInput'),
     vodGroupSelect: document.getElementById('vodGroupSelect'),
     vodSortSelect: document.getElementById('vodSortSelect'),
@@ -325,12 +334,18 @@
       state.profiles = stored.profiles && typeof stored.profiles === 'object' ? stored.profiles : {};
       state.activeProfileId = typeof stored.activeProfileId === 'string' && stored.activeProfileId ? stored.activeProfileId : 'default';
       state.googleDriveToken = stored.googleDriveToken || null;
+      state.liveNotificationsEnabled = Boolean(stored.liveNotificationsEnabled);
+      state.notifiedLiveStreams = stored.notifiedLiveStreams && typeof stored.notifiedLiveStreams === 'object'
+        ? stored.notifiedLiveStreams
+        : {};
     } catch {
       state.favorites = {};
       state.categories = [];
       state.profiles = {};
       state.activeProfileId = 'default';
       state.googleDriveToken = null;
+      state.liveNotificationsEnabled = false;
+      state.notifiedLiveStreams = {};
     }
   }
 
@@ -341,7 +356,9 @@
       categories: state.categories,
       profiles: state.profiles,
       activeProfileId: state.activeProfileId,
-      googleDriveToken: state.googleDriveToken || null
+      googleDriveToken: state.googleDriveToken || null,
+      liveNotificationsEnabled: Boolean(state.liveNotificationsEnabled),
+      notifiedLiveStreams: state.notifiedLiveStreams || {}
     }));
   }
 
@@ -369,6 +386,183 @@
     [elements.drivePullButton, elements.drivePushButton, elements.driveSignOutButton].forEach((button) => {
       if (button) button.disabled = Boolean(disabled);
     });
+  }
+
+  function setLiveNotificationStatus(message, isError = false) {
+    state.liveNotificationStatus = message || '';
+    state.liveNotificationError = Boolean(isError);
+    if (!elements.liveNotificationsStatus) return;
+    elements.liveNotificationsStatus.textContent = message || '';
+    elements.liveNotificationsStatus.classList.toggle('is-error', Boolean(isError));
+    elements.liveNotificationsStatus.classList.toggle('is-ready', Boolean(message && !isError && state.liveNotificationsEnabled));
+  }
+
+  function getLocalNotificationsPlugin() {
+    return window.Capacitor?.Plugins?.LocalNotifications || window.Capacitor?.LocalNotifications || null;
+  }
+
+  async function ensureLiveNotificationPermission() {
+    const localNotifications = getLocalNotificationsPlugin();
+    if (localNotifications?.checkPermissions && localNotifications?.requestPermissions) {
+      const current = await localNotifications.checkPermissions().catch(() => ({}));
+      if (current.display === 'granted') return true;
+      const requested = await localNotifications.requestPermissions().catch(() => ({}));
+      return requested.display === 'granted';
+    }
+    if (!('Notification' in window)) {
+      return false;
+    }
+    if (Notification.permission === 'granted') {
+      return true;
+    }
+    if (Notification.permission === 'denied') {
+      return false;
+    }
+    const permission = await Notification.requestPermission();
+    return permission === 'granted';
+  }
+
+  function getLiveNotificationKey(live) {
+    if (!live?.isLive) return '';
+    return live.streamId || live.startedAt || '';
+  }
+
+  function isRecentLiveStart(live) {
+    if (!live?.isLive || !live.startedAt) return false;
+    const startedAt = new Date(live.startedAt).getTime();
+    return Number.isFinite(startedAt) && Date.now() - startedAt >= 0 && Date.now() - startedAt <= LIVE_NOTIFICATION_RECENT_MS;
+  }
+
+  function pruneNotifiedLiveStreams() {
+    const next = {};
+    Object.entries(state.notifiedLiveStreams || {}).forEach(([login, entry]) => {
+      const live = state.liveByLogin.get(login);
+      const key = getLiveNotificationKey(live);
+      if (live?.isLive && key && entry?.key === key) {
+        next[login] = entry;
+      }
+    });
+    state.notifiedLiveStreams = next;
+  }
+
+  function markCurrentLivesAsNotified() {
+    state.liveByLogin.forEach((live, login) => {
+      const key = getLiveNotificationKey(live);
+      if (!key) return;
+      state.notifiedLiveStreams[login] = {
+        key,
+        notifiedAt: Date.now()
+      };
+    });
+  }
+
+  function showLiveToast(favorite, live) {
+    const previous = document.querySelector('.tfm-live-toast');
+    previous?.remove();
+    const toast = document.createElement('a');
+    toast.className = 'tfm-live-toast';
+    toast.href = `https://www.twitch.tv/${encodeURIComponent(favorite.login)}`;
+    toast.target = '_blank';
+    toast.rel = 'noopener noreferrer';
+    toast.innerHTML = `
+      <img src="${escapeHtml(live.avatarUrl || favorite.avatarUrl || DEFAULT_AVATAR)}" alt="" />
+      <span>
+        <strong>${escapeHtml(favorite.displayName || live.displayName || favorite.login)} est en live</strong>
+        <small>${escapeHtml(live.game || 'Twitch')}${live.title ? ` - ${escapeHtml(live.title)}` : ''}</small>
+      </span>
+    `;
+    document.body.appendChild(toast);
+    window.setTimeout(() => {
+      if (toast.isConnected) toast.remove();
+    }, 7000);
+  }
+
+  async function sendLiveNotification(favorite, live) {
+    const title = `${favorite.displayName || live.displayName || favorite.login} est en live`;
+    const body = `${live.game || 'Twitch'}${live.title ? ` - ${live.title}` : ''}`;
+    const localNotifications = getLocalNotificationsPlugin();
+    if (localNotifications?.schedule) {
+      await localNotifications.schedule({
+        notifications: [{
+          id: Math.floor(Date.now() % 2147483647),
+          title,
+          body,
+          schedule: { at: new Date(Date.now() + 100) },
+          extra: { url: `https://www.twitch.tv/${favorite.login}`, login: favorite.login }
+        }]
+      });
+    } else if ('Notification' in window && Notification.permission === 'granted') {
+      new Notification(title, {
+        body,
+        icon: live.avatarUrl || favorite.avatarUrl || DEFAULT_AVATAR
+      });
+    }
+    showLiveToast(favorite, live);
+  }
+
+  async function notifyLiveStarts() {
+    if (!state.liveNotificationsEnabled) return;
+    const candidates = [];
+    Object.values(state.favorites).forEach((favorite) => {
+      const login = favorite.login;
+      const live = state.liveByLogin.get(login);
+      const key = getLiveNotificationKey(live);
+      if (!key || !isRecentLiveStart(live)) return;
+      if (state.notifiedLiveStreams?.[login]?.key === key) return;
+      candidates.push({ favorite, live, key });
+    });
+    for (const { favorite, live, key } of candidates) {
+      try {
+        await sendLiveNotification(favorite, live);
+        state.notifiedLiveStreams[favorite.login] = {
+          key,
+          notifiedAt: Date.now()
+        };
+      } catch (error) {
+        setLiveNotificationStatus(`Notification impossible : ${error?.message || 'erreur inconnue'}`, true);
+      }
+    }
+    pruneNotifiedLiveStreams();
+    persistLocalState();
+  }
+
+  function startLiveNotificationPolling() {
+    window.clearInterval(state.liveNotificationPollTimer);
+    state.liveNotificationPollTimer = null;
+    if (!state.liveNotificationsEnabled) return;
+    state.liveNotificationPollTimer = window.setInterval(() => {
+      if (!state.isLiveLoading) {
+        refreshLiveData({ notify: true });
+      }
+    }, LIVE_NOTIFICATION_POLL_MS);
+  }
+
+  async function setLiveNotificationsEnabled(enabled) {
+    if (!enabled) {
+      state.liveNotificationsEnabled = false;
+      window.clearInterval(state.liveNotificationPollTimer);
+      state.liveNotificationPollTimer = null;
+      persistLocalState();
+      setLiveNotificationStatus('Desactivees.');
+      renderFilters();
+      return;
+    }
+    const granted = await ensureLiveNotificationPermission();
+    if (!granted) {
+      state.liveNotificationsEnabled = false;
+      persistLocalState();
+      setLiveNotificationStatus('Permission refusee par Android ou le navigateur.', true);
+      renderFilters();
+      return;
+    }
+    state.liveNotificationsEnabled = true;
+    persistLocalState();
+    setLiveNotificationStatus('Activees. L app surveille les nouveaux lives toutes les 2 minutes.');
+    await refreshLiveData({ notify: false });
+    markCurrentLivesAsNotified();
+    persistLocalState();
+    startLiveNotificationPolling();
+    renderFilters();
   }
 
   async function requestDriveDeviceCode() {
@@ -562,6 +756,7 @@
     state.liveByLogin.clear();
     state.videosByLogin.clear();
     state.clipsByVideoId.clear();
+    state.notifiedLiveStreams = {};
     state.selectedCategoryId = 'all';
     state.selectedVodCategoryId = 'all';
     state.selectedVideoId = '';
@@ -897,6 +1092,7 @@
       displayName: user.displayName || state.favorites[login]?.displayName || login,
       avatarUrl: user.profileImageURL || state.favorites[login]?.avatarUrl || DEFAULT_AVATAR,
       isLive: Boolean(stream),
+      streamId: stream?.id || '',
       title: stream?.title || '',
       game: stream?.game?.name || '',
       viewers: Number(stream?.viewersCount) || 0,
@@ -978,7 +1174,8 @@
       .sort((a, b) => a.offsetSeconds - b.offsetSeconds || b.viewCount - a.viewCount);
   }
 
-  async function refreshLiveData() {
+  async function refreshLiveData(options = {}) {
+    const shouldNotify = options.notify !== false;
     const favorites = Object.values(state.favorites);
     if (!favorites.length || state.isLiveLoading) return;
     state.isLiveLoading = true;
@@ -996,6 +1193,11 @@
       }
     });
     state.isLiveLoading = false;
+    if (shouldNotify) {
+      await notifyLiveStarts();
+    } else {
+      pruneNotifiedLiveStreams();
+    }
     persistLocalState();
     renderFavorites();
   }
@@ -1153,6 +1355,15 @@
     elements.vodGroupSelect.appendChild(groupOptions.cloneNode(true));
     elements.vodGroupSelect.value = selectedVod;
     elements.liveOnlyInput.checked = state.liveOnly;
+    if (elements.liveNotificationsInput) {
+      elements.liveNotificationsInput.checked = Boolean(state.liveNotificationsEnabled);
+    }
+    if (elements.liveNotificationsStatus) {
+      const fallbackStatus = state.liveNotificationsEnabled
+        ? 'Activees. L app surveille les nouveaux lives toutes les 2 minutes.'
+        : 'Desactivees.';
+      setLiveNotificationStatus(state.liveNotificationStatus || fallbackStatus, state.liveNotificationError);
+    }
     elements.vodSortSelect.value = state.vodSortKey;
     elements.vodSortDirectionButton.textContent = state.vodSortDirection === 'asc' ? 'Croissant' : 'Descendant';
 
@@ -1406,6 +1617,9 @@
       renderFilters();
       renderFavorites();
     });
+    elements.liveNotificationsInput?.addEventListener('change', (event) => {
+      setLiveNotificationsEnabled(Boolean(event.target.checked));
+    });
     elements.favoritesList.addEventListener('click', (event) => {
       const button = event.target.closest('.tfm-collapse-button');
       if (!button) return;
@@ -1518,6 +1732,7 @@
   bindEvents();
   render();
   setView(state.activeView);
+  startLiveNotificationPolling();
   refreshLiveData();
   checkForUpdates(false);
 })();

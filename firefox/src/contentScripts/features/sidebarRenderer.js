@@ -12,6 +12,19 @@
       this.container = null;
       this.sideNavObserver = null;
       this.unsubscribe = null;
+      this.isSidebarHovering = false;
+      this.boundMouseEnter = () => {
+        if (!this.isSidebarHovering) {
+          this.isSidebarHovering = true;
+          this.render();
+        }
+      };
+      this.boundMouseLeave = () => {
+        if (this.isSidebarHovering) {
+          this.isSidebarHovering = false;
+          this.render();
+        }
+      };
     }
 
     init() {
@@ -23,6 +36,132 @@
     dispose() {
       this.unsubscribe?.();
       this.sideNavObserver?.disconnect();
+    }
+
+    hexToRgb(hex) {
+      const normalized = typeof hex === 'string' && /^#[0-9a-f]{6}$/i.test(hex) ? hex.slice(1) : '';
+      if (!normalized) return null;
+      return {
+        r: parseInt(normalized.slice(0, 2), 16),
+        g: parseInt(normalized.slice(2, 4), 16),
+        b: parseInt(normalized.slice(4, 6), 16)
+      };
+    }
+
+    getCategoryAppearance(preferences = {}) {
+      const opacity = Number(preferences.categoryColorOpacity);
+      const gradient = Number(preferences.categoryColorGradient);
+      const colorStyle = typeof preferences.categoryColorStyle === 'string' ? preferences.categoryColorStyle : 'gradient';
+      const allowedStyles = new Set([
+        'gradient',
+        'solid',
+        'stripe',
+        'glow',
+        'glass',
+        'outline',
+        'minimal',
+        'dot',
+        'rail',
+        'double',
+        'soft-card',
+        'soft-neon',
+        'ribbon',
+        'count-badge',
+        'ink',
+        'compact',
+        'parent-accent'
+      ]);
+      return {
+        fillOpacity: Number.isFinite(opacity) ? Math.max(0, Math.min(30, Math.round(opacity))) / 100 : 0.07,
+        gradientStop: `${Number.isFinite(gradient) ? Math.max(0, Math.min(100, Math.round(gradient))) : 62}%`,
+        colorStyle: allowedStyles.has(colorStyle) ? colorStyle : 'gradient'
+      };
+    }
+
+    applyCategoryColor(element, color, appearance = this.getCategoryAppearance()) {
+      const rgb = this.hexToRgb(color);
+      if (!rgb) return;
+      const fillOpacity = Math.max(0, Math.min(1, Number(appearance.fillOpacity) || 0));
+      const tintOpacity = fillOpacity > 0 ? Math.min(0.42, fillOpacity + 0.11) : 0;
+      const hoverOpacity = fillOpacity > 0 ? Math.min(0.52, tintOpacity + 0.1) : 0.12;
+      element.dataset.color = 'custom';
+      element.dataset.colorStyle = appearance.colorStyle || 'gradient';
+      element.style.setProperty('--tfr-category-tint', `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${tintOpacity.toFixed(2)})`);
+      element.style.setProperty('--tfr-category-fill', `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${fillOpacity.toFixed(2)})`);
+      element.style.setProperty('--tfr-category-tint-hover', `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${hoverOpacity.toFixed(2)})`);
+      element.style.setProperty('--tfr-category-accent', color);
+      element.style.setProperty('--tfr-category-glow', `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${Math.min(0.38, fillOpacity + 0.08).toFixed(2)})`);
+      element.style.setProperty('--tfr-category-gradient-stop', appearance.gradientStop || '62%');
+    }
+
+    applyRootAccent(element, color) {
+      const rgb = this.hexToRgb(color);
+      if (!rgb) return;
+      element.dataset.rootAccent = 'custom';
+      element.style.setProperty('--tfr-root-accent', `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.72)`);
+      element.style.setProperty('--tfr-root-accent-soft', `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.08)`);
+    }
+
+    applyFavoriteAccent(element, color) {
+      const rgb = this.hexToRgb(color);
+      if (!rgb) return;
+      element.dataset.groupAccent = 'custom';
+      element.style.setProperty('--tfr-streamer-accent', color);
+      element.style.setProperty('--tfr-streamer-accent-soft', `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.16)`);
+      element.style.setProperty('--tfr-streamer-accent-mid', `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.28)`);
+      element.style.setProperty('--tfr-streamer-accent-glow', `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.38)`);
+      element.style.setProperty('--tfr-streamer-accent-text', `rgb(${rgb.r}, ${rgb.g}, ${rgb.b})`);
+    }
+
+    applySurfaceColor(element, color) {
+      const rgb = this.hexToRgb(color);
+      if (!rgb) return;
+      element.dataset.surfaceColor = 'custom';
+      element.style.setProperty('--tfr-sidebar-custom', color);
+      element.style.setProperty('--tfr-sidebar-custom-soft', `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.14)`);
+      element.style.setProperty('--tfr-sidebar-custom-mid', `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.26)`);
+      element.style.setProperty('--tfr-sidebar-custom-strong', `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.42)`);
+      element.style.setProperty('--tfr-sidebar-custom-glow', `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.5)`);
+    }
+
+
+    sanitizeStreamerItemStyle(value) {
+      const allowed = new Set([
+        'default',
+        'compact',
+        'card',
+        'soft-card',
+        'outline',
+        'left-line',
+        'avatar-ring',
+        'avatar-square',
+        'neon',
+        'viewer-badge',
+        'game-focus',
+        'title-focus',
+        'glass',
+        'minimal'
+      ]);
+      return allowed.has(value) ? value : 'default';
+    }
+
+    sanitizeSidebarSurfaceStyle(value) {
+      const allowed = new Set([
+        'default',
+        'full',
+        'panel',
+        'glow',
+        'rail',
+        'connected',
+        'layers',
+        'canvas',
+        'edge',
+        'spectrum',
+        'pulse',
+        'poster',
+        'arcade'
+      ]);
+      return allowed.has(value) ? value : 'default';
     }
 
     observeSideNav() {
@@ -213,6 +352,10 @@
       }
 
       container.style.pointerEvents = 'auto';
+      container.removeEventListener('mouseenter', this.boundMouseEnter);
+      container.removeEventListener('mouseleave', this.boundMouseLeave);
+      container.addEventListener('mouseenter', this.boundMouseEnter);
+      container.addEventListener('mouseleave', this.boundMouseLeave);
 
       document.querySelectorAll('#tfr-favorites-root').forEach((node) => {
         if (node !== container) {
@@ -273,6 +416,7 @@
           name: node.name,
           collapsed: node.collapsed,
           parentId: node.parentId,
+          color: node.color || '',
           entries,
           children,
           totalEntries
@@ -286,6 +430,7 @@
         }
       });
       const preferences = state.preferences || {};
+      const specialColors = preferences.specialCategoryColors || {};
       if (preferences.recentLiveEnabled) {
         const thresholdMinutes = Number(preferences.recentLiveThresholdMinutes);
         const sanitizedMinutes = Number.isFinite(thresholdMinutes) ? Math.max(1, Math.min(120, Math.round(thresholdMinutes))) : 10;
@@ -316,6 +461,7 @@
             entries: recentEntries,
             children: [],
             totalEntries: recentEntries.length,
+            color: this.hexToRgb(specialColors.recentLive) ? specialColors.recentLive : '',
             isRecentLive: true
           });
         }
@@ -331,13 +477,14 @@
           entries: uncategorizedEntries,
           children: [],
           totalEntries: uncategorizedEntries.length,
+          color: this.hexToRgb(specialColors.uncategorized) ? specialColors.uncategorized : '',
           isUncategorized: true
         });
       }
       return groups;
     }
 
-    createFavoriteEntry(fav, liveData) {
+    createFavoriteEntry(fav, liveData, groupColor = '') {
       const live = getLiveDataEntry(liveData, fav);
       const anchor = document.createElement('a');
       anchor.className = 'tfr-favorite-entry';
@@ -352,6 +499,7 @@
       } else {
         anchor.title = fav.displayName;
       }
+      this.applyFavoriteAccent(anchor, groupColor);
 
       const avatar = document.createElement('img');
       avatar.className = 'tfr-favorite-entry__avatar';
@@ -360,6 +508,10 @@
 
       const info = document.createElement('div');
       info.className = 'tfr-favorite-entry__info';
+      const identity = document.createElement('div');
+      identity.className = 'tfr-favorite-entry__identity';
+      const meta = document.createElement('div');
+      meta.className = 'tfr-favorite-entry__meta';
       const nameLine = document.createElement('span');
       nameLine.className = 'tfr-favorite-entry__name';
       nameLine.textContent = live?.displayName || fav.displayName;
@@ -368,12 +520,21 @@
       categoryLine.textContent = live?.game || '';
       const viewerLine = document.createElement('span');
       viewerLine.className = 'tfr-favorite-entry__viewers';
-      viewerLine.textContent = t('sidebar.viewerCount', { count: formatViewers(live?.viewers || 0) });
-      info.appendChild(nameLine);
-      if (categoryLine.textContent) {
-        info.appendChild(categoryLine);
+      viewerLine.textContent = formatViewers(live?.viewers || 0);
+      viewerLine.title = t('sidebar.viewerCount', { count: viewerLine.textContent });
+      const titleLine = document.createElement('span');
+      titleLine.className = 'tfr-favorite-entry__title';
+      titleLine.textContent = live?.title || '';
+      identity.appendChild(nameLine);
+      meta.appendChild(categoryLine);
+      if (titleLine.textContent) {
+        meta.appendChild(titleLine);
       }
+      info.appendChild(identity);
       info.appendChild(viewerLine);
+      if (categoryLine.textContent || titleLine.textContent) {
+        info.appendChild(meta);
+      }
       anchor.appendChild(avatar);
       anchor.appendChild(info);
       return anchor;
@@ -387,6 +548,18 @@
 
       const state = this.store.getState();
       const liveData = this.store.getLiveData();
+    const hideCollapsedUntilHover = Boolean(state.preferences?.hideCollapsedGroupsUntilHover);
+    const shouldHideCollapsedGroups = hideCollapsedUntilHover && !this.isSidebarHovering;
+    const categoryAppearance = this.getCategoryAppearance(state.preferences || {});
+    this.container.dataset.streamerStyle = this.sanitizeStreamerItemStyle(state.preferences?.streamerItemStyle);
+    this.container.dataset.surfaceStyle = this.sanitizeSidebarSurfaceStyle(state.preferences?.sidebarSurfaceStyle);
+    this.container.removeAttribute('data-surface-color');
+    this.container.style.removeProperty('--tfr-sidebar-custom');
+    this.container.style.removeProperty('--tfr-sidebar-custom-soft');
+    this.container.style.removeProperty('--tfr-sidebar-custom-mid');
+    this.container.style.removeProperty('--tfr-sidebar-custom-strong');
+    this.container.style.removeProperty('--tfr-sidebar-custom-glow');
+    this.applySurfaceColor(this.container, state.preferences?.sidebarSurfaceColor);
     const groups = this.collectGroups(state, liveData);
     const totalLive = groups.reduce((sum, group) => sum + group.totalEntries, 0);
     const isCollapsed = Boolean(state.preferences?.liveFavoritesCollapsed);
@@ -419,18 +592,30 @@
       return;
     }
 
-    const renderGroup = (group, depth = 0) => {
+    const renderGroup = (group, depth = 0, inheritedParentColor = '') => {
+      if (shouldHideCollapsedGroups && group.collapsed) {
+        return null;
+      }
+      const childAccentColor = group.color || inheritedParentColor;
+      const visibleChildBlocks = (group.children || [])
+        .map((child) => renderGroup(child, depth + 1, childAccentColor))
+        .filter(Boolean);
+      if (!group.entries.length && !visibleChildBlocks.length) {
+        return null;
+      }
       const block = document.createElement('div');
       block.className = 'tfr-category-block';
       block.dataset.depth = String(depth);
       if (group.collapsed) block.classList.add('is-collapsed');
       if (group.isRecentLive) block.classList.add('tfr-category-block--recent');
-
+      if (group.color) {
+        this.applyCategoryColor(block, group.color, categoryAppearance);
+      }
       const headerRow = document.createElement('button');
       headerRow.type = 'button';
       headerRow.className = 'tfr-category-header';
       if (group.isRecentLive) headerRow.classList.add('tfr-category-header--recent');
-      headerRow.style.paddingLeft = `${12 + depth * 16}px`;
+      headerRow.style.paddingLeft = `${6 + depth * 10}px`;
       const label = document.createElement('span');
       label.className = 'tfr-category-header-label';
       const chevron = document.createElement('span');
@@ -461,21 +646,20 @@
       if (group.entries.length) {
         const list = document.createElement('div');
         list.className = 'tfr-category-list';
-        list.style.paddingLeft = `${depth * 16}px`;
+        list.style.paddingLeft = `${depth * 8}px`;
+        const entryAccentColor = group.color || inheritedParentColor;
         group.entries.forEach((fav) => {
-          list.appendChild(this.createFavoriteEntry(fav, liveData));
+          list.appendChild(this.createFavoriteEntry(fav, liveData, entryAccentColor));
         });
         block.appendChild(list);
       }
-      if (group.children && group.children.length) {
+      if (visibleChildBlocks.length) {
         const childContainer = document.createElement('div');
         childContainer.className = 'tfr-subcategory-container';
-        group.children.forEach((child) => {
-          const childBlock = renderGroup(child, depth + 1);
-          if (childBlock) {
-            childContainer.appendChild(childBlock);
-          }
-        });
+        if (childAccentColor) {
+          this.applyRootAccent(childContainer, childAccentColor);
+        }
+        visibleChildBlocks.forEach((childBlock) => childContainer.appendChild(childBlock));
         block.appendChild(childContainer);
       }
       return block;

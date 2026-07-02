@@ -54,6 +54,72 @@ class FavoritesOverlay {
     document.addEventListener('keydown', this.handleEscapeKeydown);
   }
 
+  hexToRgb(hex) {
+    const normalized = typeof hex === 'string' && /^#[0-9a-f]{6}$/i.test(hex) ? hex.slice(1) : '';
+    if (!normalized) return null;
+    return {
+      r: parseInt(normalized.slice(0, 2), 16),
+      g: parseInt(normalized.slice(2, 4), 16),
+      b: parseInt(normalized.slice(4, 6), 16)
+    };
+  }
+
+  applyCategoryColorVars(element, color) {
+    const rgb = this.hexToRgb(color);
+    if (!rgb) return;
+    element.dataset.color = 'custom';
+    element.style.setProperty('--tfr-category-card-tint', `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.28)`);
+    element.style.setProperty('--tfr-category-card-border', `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.62)`);
+    element.style.setProperty('--tfr-swatch-color', color);
+  }
+
+  hsvToHex(hue, saturation, value) {
+    const h = ((hue % 360) + 360) % 360;
+    const s = Math.max(0, Math.min(1, saturation));
+    const v = Math.max(0, Math.min(1, value));
+    const c = v * s;
+    const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+    const m = v - c;
+    let r = 0;
+    let g = 0;
+    let b = 0;
+    if (h < 60) {
+      r = c;
+      g = x;
+    } else if (h < 120) {
+      r = x;
+      g = c;
+    } else if (h < 180) {
+      g = c;
+      b = x;
+    } else if (h < 240) {
+      g = x;
+      b = c;
+    } else if (h < 300) {
+      r = x;
+      b = c;
+    } else {
+      r = c;
+      b = x;
+    }
+    return `#${[r, g, b]
+      .map((channel) => Math.round((channel + m) * 255).toString(16).padStart(2, '0'))
+      .join('')}`;
+  }
+
+  getColorFromWheelEvent(event, element) {
+    const rect = element.getBoundingClientRect();
+    const centerX = rect.left + rect.width / 2;
+    const centerY = rect.top + rect.height / 2;
+    const dx = event.clientX - centerX;
+    const dy = event.clientY - centerY;
+    const radius = Math.min(rect.width, rect.height) / 2;
+    const distance = Math.min(radius, Math.sqrt(dx * dx + dy * dy));
+    const hue = ((Math.atan2(dy, dx) * 180) / Math.PI + 90 + 360) % 360;
+    const saturation = Math.max(0, Math.min(1, distance / radius));
+    return this.hsvToHex(hue, saturation, 0.94);
+  }
+
   ensureRoot() {
     if (this.root) {
       return;
@@ -251,6 +317,21 @@ class FavoritesOverlay {
     const recentSettings = this.renderRecentLiveSettings(state);
     if (recentSettings) {
       content.appendChild(recentSettings);
+    }
+
+    const categoryAppearanceSettings = this.renderCategoryAppearanceSettings(state);
+    if (categoryAppearanceSettings) {
+      content.appendChild(categoryAppearanceSettings);
+    }
+
+    const streamerAppearanceSettings = this.renderStreamerAppearanceSettings(state);
+    if (streamerAppearanceSettings) {
+      content.appendChild(streamerAppearanceSettings);
+    }
+
+    const sidebarSurfaceSettings = this.renderSidebarSurfaceSettings(state);
+    if (sidebarSurfaceSettings) {
+      content.appendChild(sidebarSurfaceSettings);
     }
 
     const toastSettings = this.renderToastSettings(state);
@@ -477,6 +558,294 @@ class FavoritesOverlay {
     return wrapper;
   }
 
+  renderCategoryAppearanceSettings(state) {
+    const prefs = state.preferences || {};
+    const opacity = Number.isFinite(Number(prefs.categoryColorOpacity))
+      ? Math.max(0, Math.min(30, Math.round(Number(prefs.categoryColorOpacity))))
+      : 7;
+    const gradient = Number.isFinite(Number(prefs.categoryColorGradient))
+      ? Math.max(0, Math.min(100, Math.round(Number(prefs.categoryColorGradient))))
+      : 62;
+    const colorStyle = this.store.sanitizeCategoryColorStyle?.(prefs.categoryColorStyle) || 'gradient';
+
+    const wrapper = document.createElement('section');
+    wrapper.className = 'tfr-category-appearance-settings';
+
+    const title = document.createElement('h3');
+    title.className = 'tfr-category-appearance-settings__title';
+    title.textContent = t('categoryAppearance.title');
+    wrapper.appendChild(title);
+
+    const controls = document.createElement('div');
+    controls.className = 'tfr-category-appearance-settings__controls';
+
+    const createSlider = ({ id, label, min, max, value, onChange }) => {
+      const field = document.createElement('label');
+      field.className = 'tfr-category-appearance-settings__field';
+      field.setAttribute('for', id);
+
+      const header = document.createElement('span');
+      header.className = 'tfr-category-appearance-settings__label';
+      const labelText = document.createElement('strong');
+      labelText.textContent = label;
+      const valueText = document.createElement('span');
+      valueText.textContent = `${value}%`;
+      header.appendChild(labelText);
+      header.appendChild(valueText);
+      field.appendChild(header);
+
+      const input = document.createElement('input');
+      input.id = id;
+      input.type = 'range';
+      input.min = String(min);
+      input.max = String(max);
+      input.step = '1';
+      input.value = String(value);
+      input.className = 'tfr-category-appearance-settings__range';
+      input.addEventListener('input', (event) => {
+        valueText.textContent = `${event.target.value}%`;
+      });
+      input.addEventListener('change', async (event) => {
+        await onChange(event.target.value);
+      });
+      field.appendChild(input);
+
+      return field;
+    };
+
+    const styleField = document.createElement('label');
+    styleField.className = 'tfr-category-appearance-settings__field';
+    styleField.setAttribute('for', 'tfr-category-color-style');
+    const styleHeader = document.createElement('span');
+    styleHeader.className = 'tfr-category-appearance-settings__label';
+    const styleTitle = document.createElement('strong');
+    styleTitle.textContent = t('categoryAppearance.style');
+    styleHeader.appendChild(styleTitle);
+    styleField.appendChild(styleHeader);
+    const styleSelect = document.createElement('select');
+    styleSelect.id = 'tfr-category-color-style';
+    styleSelect.className = 'tfr-category-appearance-settings__select';
+    [
+      'gradient',
+      'solid',
+      'stripe',
+      'glow',
+      'glass',
+      'outline',
+      'minimal',
+      'dot',
+      'rail',
+      'double',
+      'soft-card',
+      'soft-neon',
+      'ribbon',
+      'count-badge',
+      'ink',
+      'compact',
+      'parent-accent'
+    ].forEach((style) => {
+      const option = document.createElement('option');
+      option.value = style;
+      option.textContent = t(`categoryAppearance.style.${style}`);
+      styleSelect.appendChild(option);
+    });
+    styleSelect.value = colorStyle;
+    styleSelect.addEventListener('change', async (event) => {
+      await this.store.setCategoryColorStyle(event.target.value);
+      this.render();
+    });
+    styleField.appendChild(styleSelect);
+    controls.appendChild(styleField);
+
+    controls.appendChild(createSlider({
+      id: 'tfr-category-color-opacity',
+      label: t('categoryAppearance.opacity'),
+      min: 0,
+      max: 30,
+      value: opacity,
+      onChange: (value) => this.store.setCategoryColorOpacity(value)
+    }));
+
+    const intensitySlider = createSlider({
+      id: 'tfr-category-color-gradient',
+      label: t('categoryAppearance.gradient'),
+      min: 0,
+      max: 100,
+      value: gradient,
+      onChange: (value) => this.store.setCategoryColorGradient(value)
+    });
+    intensitySlider.hidden = !['gradient', 'glow', 'glass', 'soft-neon', 'ink', 'parent-accent'].includes(colorStyle);
+    controls.appendChild(intensitySlider);
+    wrapper.appendChild(controls);
+
+    const specialColors = this.store.sanitizeSpecialCategoryColors?.(prefs.specialCategoryColors) || {};
+    const specialSection = document.createElement('div');
+    specialSection.className = 'tfr-special-category-settings';
+    const specialTitle = document.createElement('strong');
+    specialTitle.textContent = t('categoryAppearance.special');
+    specialSection.appendChild(specialTitle);
+    specialSection.appendChild(this.renderSpecialCategoryColorControl({
+      key: 'recentLive',
+      label: t('categoryAppearance.special.recent'),
+      color: specialColors.recentLive
+    }));
+    specialSection.appendChild(this.renderSpecialCategoryColorControl({
+      key: 'uncategorized',
+      label: t('categoryAppearance.special.uncategorized'),
+      color: specialColors.uncategorized
+    }));
+    wrapper.appendChild(specialSection);
+
+    const hint = document.createElement('p');
+    hint.className = 'tfr-category-appearance-settings__hint';
+    hint.textContent = t('categoryAppearance.hint');
+    wrapper.appendChild(hint);
+
+    return wrapper;
+  }
+
+  renderSpecialCategoryColorControl({ key, label, color }) {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'tfr-special-category-color';
+    wrapper.appendChild(this.renderCategoryColorPickerControl({
+      label,
+      currentColor: color,
+      onApply: (nextColor) => this.store.setSpecialCategoryColor(key, nextColor),
+      onClear: () => this.store.setSpecialCategoryColor(key, '')
+    }));
+    return wrapper;
+  }
+
+  renderStreamerAppearanceSettings(state) {
+    const prefs = state.preferences || {};
+    const streamerStyle = this.store.sanitizeStreamerItemStyle?.(prefs.streamerItemStyle) || 'default';
+
+    const wrapper = document.createElement('section');
+    wrapper.className = 'tfr-streamer-appearance-settings';
+
+    const title = document.createElement('h3');
+    title.className = 'tfr-streamer-appearance-settings__title';
+    title.textContent = t('streamerAppearance.title');
+    wrapper.appendChild(title);
+
+    const field = document.createElement('label');
+    field.className = 'tfr-streamer-appearance-settings__field';
+    field.setAttribute('for', 'tfr-streamer-item-style');
+    const label = document.createElement('span');
+    label.className = 'tfr-streamer-appearance-settings__label';
+    const labelText = document.createElement('strong');
+    labelText.textContent = t('streamerAppearance.style');
+    label.appendChild(labelText);
+    field.appendChild(label);
+
+    const select = document.createElement('select');
+    select.id = 'tfr-streamer-item-style';
+    select.className = 'tfr-streamer-appearance-settings__select';
+    [
+      'default',
+      'compact',
+      'card',
+      'soft-card',
+      'outline',
+      'left-line',
+      'avatar-ring',
+      'avatar-square',
+      'neon',
+      'viewer-badge',
+      'game-focus',
+      'title-focus',
+      'glass',
+      'minimal'
+    ].forEach((style) => {
+      const option = document.createElement('option');
+      option.value = style;
+      option.textContent = t(`streamerAppearance.style.${style}`);
+      select.appendChild(option);
+    });
+    select.value = streamerStyle;
+    select.addEventListener('change', async (event) => {
+      await this.store.setStreamerItemStyle(event.target.value);
+      this.render();
+    });
+    field.appendChild(select);
+    wrapper.appendChild(field);
+
+    const hint = document.createElement('p');
+    hint.className = 'tfr-streamer-appearance-settings__hint';
+    hint.textContent = t('streamerAppearance.hint');
+    wrapper.appendChild(hint);
+
+    return wrapper;
+  }
+
+  renderSidebarSurfaceSettings(state) {
+    const prefs = state.preferences || {};
+    const surfaceStyle = this.store.sanitizeSidebarSurfaceStyle?.(prefs.sidebarSurfaceStyle) || 'default';
+
+    const wrapper = document.createElement('section');
+    wrapper.className = 'tfr-streamer-appearance-settings tfr-sidebar-surface-settings';
+
+    const title = document.createElement('h3');
+    title.className = 'tfr-streamer-appearance-settings__title';
+    title.textContent = t('sidebarSurface.title');
+    wrapper.appendChild(title);
+
+    const field = document.createElement('label');
+    field.className = 'tfr-streamer-appearance-settings__field';
+    field.setAttribute('for', 'tfr-sidebar-surface-style');
+    const label = document.createElement('span');
+    label.className = 'tfr-streamer-appearance-settings__label';
+    const labelText = document.createElement('strong');
+    labelText.textContent = t('sidebarSurface.style');
+    label.appendChild(labelText);
+    field.appendChild(label);
+
+    const select = document.createElement('select');
+    select.id = 'tfr-sidebar-surface-style';
+    select.className = 'tfr-streamer-appearance-settings__select';
+    [
+      'default',
+      'full',
+      'panel',
+      'glow',
+      'rail',
+      'connected',
+      'layers',
+      'canvas',
+      'edge',
+      'spectrum',
+      'pulse',
+      'poster',
+      'arcade'
+    ].forEach((style) => {
+      const option = document.createElement('option');
+      option.value = style;
+      option.textContent = t(`sidebarSurface.style.${style}`);
+      select.appendChild(option);
+    });
+    select.value = surfaceStyle;
+    select.addEventListener('change', async (event) => {
+      await this.store.setSidebarSurfaceStyle(event.target.value);
+      this.render();
+    });
+    field.appendChild(select);
+    wrapper.appendChild(field);
+
+    wrapper.appendChild(this.renderCategoryColorPickerControl({
+      label: t('sidebarSurface.color'),
+      currentColor: prefs.sidebarSurfaceColor,
+      onApply: (nextColor) => this.store.setSidebarSurfaceColor(nextColor),
+      onClear: () => this.store.setSidebarSurfaceColor('')
+    }));
+
+    const hint = document.createElement('p');
+    hint.className = 'tfr-streamer-appearance-settings__hint';
+    hint.textContent = t('sidebarSurface.hint');
+    wrapper.appendChild(hint);
+
+    return wrapper;
+  }
+
   renderToastSettings(state) {
     const prefs = state.preferences || {};
     const wrapper = document.createElement('section');
@@ -615,6 +984,16 @@ class FavoritesOverlay {
           await this.store.setModerationHistoryEnabled(checked);
           this.render();
         }
+      },
+      {
+        key: 'hideCollapsedGroupsUntilHover',
+        defaultEnabled: false,
+        label: t('settings.collapsedGroups.toggle'),
+        description: t('settings.collapsedGroups.description'),
+        handler: async (checked) => {
+          await this.store.setHideCollapsedGroupsUntilHover(checked);
+          this.render();
+        }
       }
     ];
 
@@ -623,7 +1002,9 @@ class FavoritesOverlay {
       item.className = 'tfr-feature-toggle';
       const input = document.createElement('input');
       input.type = 'checkbox';
-      input.checked = prefs[toggleConfig.key] !== false;
+      input.checked = toggleConfig.defaultEnabled === false
+        ? prefs[toggleConfig.key] === true
+        : prefs[toggleConfig.key] !== false;
       input.className = 'tfr-feature-toggle__input';
       item.appendChild(input);
       const body = document.createElement('span');
@@ -829,6 +1210,16 @@ class FavoritesOverlay {
     });
     header.appendChild(addButton);
 
+    const randomButton = document.createElement('button');
+    randomButton.type = 'button';
+    randomButton.className = 'tfr-chip-action';
+    randomButton.textContent = t('categories.color.randomize');
+    randomButton.addEventListener('click', async () => {
+      await this.store.randomizeCategoryColors();
+      this.render();
+    });
+    header.appendChild(randomButton);
+
     column.appendChild(header);
 
     const categoriesTree = this.store.getCategoriesTree();
@@ -897,6 +1288,9 @@ class FavoritesOverlay {
     card.dataset.depth = String(depth);
     card.style.setProperty('--card-depth', String(depth));
     card.draggable = true;
+    if (node.color) {
+      this.applyCategoryColorVars(card, node.color);
+    }
     card.addEventListener('dragstart', (event) => {
       event.stopPropagation();
       if (event.dataTransfer) {
@@ -1021,6 +1415,8 @@ class FavoritesOverlay {
     header.appendChild(actions);
     card.appendChild(header);
 
+    card.appendChild(this.renderCategoryColorPicker(node));
+
     const body = document.createElement('div');
     body.className = 'tfr-category-card__body';
     if (node.collapsed) {
@@ -1062,6 +1458,123 @@ class FavoritesOverlay {
     this.setupCategoryDropTarget(card, node.id);
     this.setupCategoryDropTarget(favoritesGrid, node.id);
     return card;
+  }
+
+  renderCategoryColorPicker(node) {
+    return this.renderCategoryColorPickerControl({
+      label: t('categories.color.label'),
+      currentColor: node.color,
+      onApply: (nextColor) => this.store.setCategoryColor(node.id, nextColor),
+      onClear: () => this.store.setCategoryColor(node.id, '')
+    });
+  }
+
+  renderCategoryColorPickerControl({ label: labelText, currentColor: rawColor, onApply, onClear }) {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'tfr-category-color-picker';
+
+    const label = document.createElement('span');
+    label.className = 'tfr-category-color-picker__label';
+    label.textContent = labelText;
+    wrapper.appendChild(label);
+
+    const options = document.createElement('div');
+    options.className = 'tfr-category-color-picker__options';
+    const currentColor = this.store.sanitizeCategoryColor?.(rawColor) || '';
+    let pendingColor = currentColor;
+
+    const previewButton = document.createElement('button');
+    previewButton.type = 'button';
+    previewButton.className = 'tfr-category-color-swatch tfr-category-color-swatch--picker';
+    previewButton.title = t('categories.color.openPalette');
+    previewButton.setAttribute('aria-label', t('categories.color.openPalette'));
+    if (currentColor) {
+      this.applyCategoryColorVars(previewButton, currentColor);
+    } else {
+      previewButton.classList.add('tfr-category-color-swatch--none');
+    }
+    previewButton.addEventListener('click', (event) => {
+      event.stopPropagation();
+      wrapper.classList.toggle('is-open');
+    });
+    options.appendChild(previewButton);
+
+    const value = document.createElement('code');
+    value.className = 'tfr-category-color-picker__value';
+    value.textContent = currentColor || t('categories.color.none');
+    options.appendChild(value);
+
+    const palette = document.createElement('div');
+    palette.className = 'tfr-category-color-popover';
+
+    const updatePreview = (color) => {
+      pendingColor = this.store.sanitizeCategoryColor?.(color) || '';
+      value.textContent = pendingColor || t('categories.color.none');
+      previewButton.classList.toggle('tfr-category-color-swatch--none', !pendingColor);
+      if (pendingColor) {
+        this.applyCategoryColorVars(previewButton, pendingColor);
+      } else {
+        previewButton.removeAttribute('data-color');
+        previewButton.style.removeProperty('--tfr-category-card-tint');
+        previewButton.style.removeProperty('--tfr-category-card-border');
+        previewButton.style.removeProperty('--tfr-swatch-color');
+      }
+    };
+
+    const wheel = document.createElement('button');
+    wheel.type = 'button';
+    wheel.className = 'tfr-category-color-wheel';
+    wheel.setAttribute('aria-label', t('categories.color.pickFromWheel'));
+    let isPicking = false;
+    const pickFromWheel = (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      updatePreview(this.getColorFromWheelEvent(event, wheel));
+    };
+    wheel.addEventListener('pointerdown', (event) => {
+      isPicking = true;
+      wheel.setPointerCapture?.(event.pointerId);
+      pickFromWheel(event);
+    });
+    wheel.addEventListener('pointermove', (event) => {
+      if (!isPicking) return;
+      pickFromWheel(event);
+    });
+    wheel.addEventListener('pointerup', (event) => {
+      isPicking = false;
+      wheel.releasePointerCapture?.(event.pointerId);
+    });
+    wheel.addEventListener('pointercancel', (event) => {
+      isPicking = false;
+      wheel.releasePointerCapture?.(event.pointerId);
+    });
+    palette.appendChild(wheel);
+
+    const applyButton = document.createElement('button');
+    applyButton.type = 'button';
+    applyButton.className = 'tfr-chip-action tfr-chip-action--primary';
+    applyButton.textContent = t('categories.color.apply');
+    applyButton.addEventListener('click', async (event) => {
+      event.stopPropagation();
+      await onApply(pendingColor);
+      this.render();
+    });
+    palette.appendChild(applyButton);
+
+    const clearButton = document.createElement('button');
+    clearButton.type = 'button';
+    clearButton.className = 'tfr-chip-action';
+    clearButton.textContent = t('categories.color.clear');
+    clearButton.addEventListener('click', async (event) => {
+      event.stopPropagation();
+      await onClear();
+      this.render();
+    });
+    palette.appendChild(clearButton);
+    options.appendChild(palette);
+
+    wrapper.appendChild(options);
+    return wrapper;
   }
 
   createFavoriteSquare(fav, liveData) {

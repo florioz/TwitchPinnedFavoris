@@ -433,6 +433,140 @@
   margin: 0;
 }
 
+.tfr-category-appearance-settings {
+  margin-top: 12px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  border: 1px solid rgba(145, 71, 255, 0.2);
+  background: rgba(18, 13, 28, 0.6);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.tfr-category-appearance-settings__title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+  color: #f7f7f8;
+}
+
+.tfr-category-appearance-settings__controls {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.tfr-category-appearance-settings__field {
+  display: grid;
+  gap: 8px;
+  color: #e7e7f3;
+}
+
+.tfr-category-appearance-settings__label {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 13px;
+}
+
+.tfr-category-appearance-settings__label span {
+  color: #f5d178;
+  font-weight: 800;
+}
+
+.tfr-category-appearance-settings__range {
+  width: 100%;
+  accent-color: #9147ff;
+}
+
+.tfr-category-appearance-settings__select {
+  min-height: 34px;
+  border: 1px solid rgba(145, 71, 255, 0.35);
+  border-radius: 8px;
+  background: #120c22;
+  color: #f7f7f8;
+  padding: 0 8px;
+}
+
+.tfr-category-appearance-settings__hint {
+  font-size: 12px;
+  color: #adadb8;
+  margin: 0;
+}
+
+.tfr-special-category-settings {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 10px;
+  padding-top: 4px;
+}
+
+.tfr-special-category-settings > strong {
+  color: #f7f7f8;
+  font-size: 13px;
+  margin-right: 2px;
+}
+
+.tfr-special-category-color {
+  padding: 6px 8px;
+  border: 1px solid rgba(145, 71, 255, 0.24);
+  border-radius: 12px;
+  background: rgba(8, 5, 16, 0.28);
+}
+
+.tfr-special-category-color .tfr-category-color-picker {
+  margin-top: 0;
+}
+
+.tfr-streamer-appearance-settings {
+  margin-top: 12px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  border: 1px solid rgba(145, 71, 255, 0.2);
+  background: rgba(18, 13, 28, 0.6);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.tfr-streamer-appearance-settings__title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+  color: #f7f7f8;
+}
+
+.tfr-streamer-appearance-settings__field {
+  display: grid;
+  gap: 8px;
+  color: #e7e7f3;
+  max-width: 360px;
+}
+
+.tfr-streamer-appearance-settings__label {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 13px;
+}
+
+.tfr-streamer-appearance-settings__select {
+  min-height: 34px;
+  border: 1px solid rgba(145, 71, 255, 0.35);
+  border-radius: 8px;
+  background: #120c22;
+  color: #f7f7f8;
+  padding: 0 8px;
+}
+
+.tfr-streamer-appearance-settings__hint {
+  font-size: 12px;
+  color: #adadb8;
+  margin: 0;
+}
+
 .tfr-toast-settings {
   margin-top: 12px;
   padding: 14px 16px;
@@ -740,6 +874,8 @@
 }
 
 .tfr-category-card {
+  --tfr-category-card-tint: rgba(18, 12, 34, 0.75);
+  --tfr-category-card-border: rgba(145, 71, 255, 0.25);
   background: rgba(18, 12, 34, 0.75);
   border: 1px solid rgba(145, 71, 255, 0.25);
   border-radius: 12px;
@@ -751,6 +887,13 @@
   cursor: grab;
   user-select: none;
   -webkit-user-drag: element;
+}
+
+.tfr-category-card[data-color] {
+  background:
+    linear-gradient(135deg, var(--tfr-category-card-tint), rgba(18, 12, 34, 0.78) 58%),
+    rgba(18, 12, 34, 0.75);
+  border-color: var(--tfr-category-card-border);
 }
 
 .tfr-category-card.is-dragging {
@@ -787,6 +930,114 @@
   flex-wrap: wrap;
 }
 
+.tfr-category-color-picker {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: -4px;
+  position: relative;
+}
+
+.tfr-category-color-picker__label {
+  color: #bca9d8;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.tfr-category-color-picker__options {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  position: relative;
+}
+
+.tfr-category-color-swatch {
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  background: var(--tfr-swatch-color, #9147ff);
+  cursor: pointer;
+  padding: 0;
+  box-shadow: inset 0 0 0 2px rgba(12, 8, 20, 0.38);
+}
+
+.tfr-category-color-swatch--picker {
+  background:
+    radial-gradient(circle at center, rgba(255, 255, 255, 0.82) 0 12%, transparent 13%),
+    conic-gradient(red, yellow, lime, cyan, blue, magenta, red);
+}
+
+.tfr-category-color-swatch--picker[data-color] {
+  background: var(--tfr-swatch-color, #9147ff);
+}
+
+.tfr-category-color-swatch--none {
+  position: relative;
+  background: rgba(18, 12, 34, 0.9);
+}
+
+.tfr-category-color-swatch--none::after {
+  content: '';
+  position: absolute;
+  inset: 4px;
+  border-top: 2px solid rgba(255, 255, 255, 0.68);
+  transform: rotate(-40deg);
+  transform-origin: center;
+}
+
+.tfr-category-color-swatch.is-active {
+  outline: 2px solid #ffffff;
+  outline-offset: 2px;
+  border-color: rgba(255, 255, 255, 0.82);
+}
+
+.tfr-category-color-picker__value {
+  min-width: 72px;
+  padding: 3px 7px;
+  border-radius: 999px;
+  border: 1px solid rgba(145, 71, 255, 0.22);
+  background: rgba(8, 5, 16, 0.46);
+  color: #d9c8f7;
+  font-family: Consolas, 'Liberation Mono', monospace;
+  font-size: 11px;
+}
+
+.tfr-category-color-popover {
+  display: none;
+  position: absolute;
+  z-index: 4;
+  top: calc(100% + 8px);
+  left: 0;
+  width: 176px;
+  padding: 12px;
+  border: 1px solid rgba(145, 71, 255, 0.42);
+  border-radius: 12px;
+  background: rgba(18, 12, 34, 0.98);
+  box-shadow: 0 18px 34px rgba(0, 0, 0, 0.34);
+}
+
+.tfr-category-color-picker.is-open .tfr-category-color-popover {
+  display: grid;
+  gap: 10px;
+}
+
+.tfr-category-color-wheel {
+  width: 152px;
+  height: 152px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background:
+    radial-gradient(circle at center, #ffffff 0 4%, rgba(255, 255, 255, 0) 65%),
+    conic-gradient(red, yellow, lime, cyan, blue, magenta, red);
+  box-shadow: inset 0 0 0 1px rgba(12, 8, 20, 0.4);
+  cursor: crosshair;
+}
+
 .tfr-chip-action {
   background: rgba(145, 71, 255, 0.16);
   color: #f7f7f8;
@@ -800,6 +1051,17 @@
 
 .tfr-chip-action:hover {
   background: rgba(145, 71, 255, 0.3);
+}
+
+.tfr-chip-action--primary {
+  background: rgba(145, 71, 255, 0.42);
+  border-color: rgba(191, 148, 255, 0.72);
+  color: #ffffff;
+  font-weight: 800;
+}
+
+.tfr-chip-action--primary:hover {
+  background: rgba(145, 71, 255, 0.58);
 }
 
 .tfr-chip-action--danger {

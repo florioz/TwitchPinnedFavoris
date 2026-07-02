@@ -906,7 +906,7 @@
 
     const duration = state.toastDurationMs || DEFAULT_TOAST_DURATION;
 
-    entries.slice(0, MAX_VISIBLE_TOASTS).forEach(({ fav, live }) => {
+    entries.slice(0, MAX_VISIBLE_TOASTS).forEach(({ login, fav, live, notificationKey }) => {
 
       const toast = document.createElement('div');
 
@@ -927,18 +927,38 @@
         <button class="tfr-toast__close" type="button" aria-label="Fermer la notification">×</button>
 
       `;
-      const closeToast = () => {
+      let didDismiss = false;
+      const dismissToast = () => {
+        if (didDismiss) {
+          return;
+        }
+        didDismiss = true;
+        const targetLogin = login || live.login || fav.login;
+        if (!targetLogin || !notificationKey) {
+          return;
+        }
+        sendMessage({
+          type: 'TFR_DISMISS_LIVE_TOAST',
+          login: targetLogin,
+          notificationKey
+        });
+      };
+
+      const closeToast = (dismiss = false) => {
+        if (dismiss) {
+          dismissToast();
+        }
         toast.style.animation = 'tfr-toast-out 0.2s ease forwards';
         setTimeout(() => toast.remove(), 200);
       };
-      toast.querySelector('.tfr-toast__close')?.addEventListener('click', closeToast);
+      toast.querySelector('.tfr-toast__close')?.addEventListener('click', () => closeToast(true));
 
       state.toastStack.prepend(toast);
 
       setTimeout(() => {
 
         if (toast.isConnected) {
-          closeToast();
+          closeToast(true);
         }
 
       }, duration);
@@ -1002,8 +1022,6 @@
   }
 
 })();
-
-
 
 
 
