@@ -19,6 +19,31 @@
 
   const REFRESH_INTERVAL = 90_000;
 
+  const SOUND_PRESETS = {
+    soft: [
+      { frequency: 660, start: 0, duration: 0.11, type: 'sine' },
+      { frequency: 880, start: 0.1, duration: 0.14, type: 'sine' }
+    ],
+    chime: [
+      { frequency: 523.25, start: 0, duration: 0.12, type: 'triangle' },
+      { frequency: 783.99, start: 0.11, duration: 0.18, type: 'triangle' },
+      { frequency: 1046.5, start: 0.25, duration: 0.2, type: 'triangle' }
+    ],
+    arcade: [
+      { frequency: 440, start: 0, duration: 0.08, type: 'square' },
+      { frequency: 660, start: 0.08, duration: 0.08, type: 'square' },
+      { frequency: 990, start: 0.16, duration: 0.12, type: 'square' }
+    ],
+    pulse: [
+      { frequency: 392, start: 0, duration: 0.1, type: 'sine' },
+      { frequency: 392, start: 0.16, duration: 0.1, type: 'sine' }
+    ],
+    alert: [
+      { frequency: 880, start: 0, duration: 0.09, type: 'sawtooth' },
+      { frequency: 740, start: 0.1, duration: 0.1, type: 'sawtooth' }
+    ]
+  };
+
 
 
   const normalizeCategoryName = (value) => {
@@ -126,6 +151,11 @@
     toastDurationMs: DEFAULT_TOAST_DURATION,
     toastEnabled: true,
     toastPosition: 'top-right',
+    toastSoundEnabled: false,
+    toastSoundId: 'soft',
+    toastSoundVolume: 35,
+    toastCustomSoundDataUrl: '',
+    audioContext: null,
 
     categoryCollapse: new Map()
 
@@ -398,6 +428,72 @@
     return allowed.has(position) ? position : 'top-right';
   };
 
+  const sanitizeSoundId = (soundId) => (
+    soundId === 'custom' || Object.prototype.hasOwnProperty.call(SOUND_PRESETS, soundId) ? soundId : 'soft'
+  );
+
+  const sanitizeSoundVolume = (volume) => {
+    const numeric = Number(volume);
+    return Number.isFinite(numeric) ? Math.max(0, Math.min(100, Math.round(numeric))) : 35;
+  };
+
+  const getAudioContext = async () => {
+    const AudioContextConstructor = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextConstructor) {
+      return null;
+    }
+    if (!state.audioContext) {
+      state.audioContext = new AudioContextConstructor();
+    }
+    if (state.audioContext.state === 'suspended') {
+      await state.audioContext.resume().catch(() => null);
+    }
+    return state.audioContext;
+  };
+
+  const playNotificationSound = async (options = {}) => {
+    const volume = sanitizeSoundVolume(options.volume ?? state.toastSoundVolume);
+    if (volume <= 0) {
+      return false;
+    }
+    const soundId = sanitizeSoundId(options.soundId ?? state.toastSoundId);
+    const customSoundDataUrl = typeof options.customSoundDataUrl === 'string' && options.customSoundDataUrl
+      ? options.customSoundDataUrl
+      : state.toastCustomSoundDataUrl;
+    if (soundId === 'custom' && customSoundDataUrl) {
+      const audio = new Audio(customSoundDataUrl);
+      audio.volume = Math.max(0, Math.min(1, volume / 100));
+      await audio.play().catch(() => null);
+      return true;
+    }
+    const context = await getAudioContext();
+    if (!context) {
+      return false;
+    }
+    const preset = SOUND_PRESETS[soundId] || SOUND_PRESETS.soft;
+    const masterGain = context.createGain();
+    const now = context.currentTime + 0.02;
+    masterGain.gain.setValueAtTime(Math.min(0.5, volume / 100), now);
+    masterGain.connect(context.destination);
+    preset.forEach((note) => {
+      const oscillator = context.createOscillator();
+      const gain = context.createGain();
+      const start = now + note.start;
+      const end = start + note.duration;
+      oscillator.type = note.type;
+      oscillator.frequency.setValueAtTime(note.frequency, start);
+      gain.gain.setValueAtTime(0.0001, start);
+      gain.gain.exponentialRampToValueAtTime(0.35, start + 0.015);
+      gain.gain.exponentialRampToValueAtTime(0.0001, end);
+      oscillator.connect(gain);
+      gain.connect(masterGain);
+      oscillator.start(start);
+      oscillator.stop(end + 0.03);
+    });
+    setTimeout(() => masterGain.disconnect(), 900);
+    return true;
+  };
+
   const applyToastPosition = () => {
     if (!state.toastStack) return;
     state.toastStack.dataset.position = sanitizeToastPosition(state.toastPosition);
@@ -642,6 +738,12 @@
       : DEFAULT_TOAST_DURATION;
     state.toastEnabled = preferences.toastEnabled !== false;
     state.toastPosition = sanitizeToastPosition(preferences.toastPosition);
+    state.toastSoundEnabled = preferences.toastSoundEnabled === true;
+    state.toastSoundId = sanitizeSoundId(preferences.toastSoundId);
+    state.toastSoundVolume = sanitizeSoundVolume(preferences.toastSoundVolume);
+    state.toastCustomSoundDataUrl = typeof preferences.toastCustomSoundDataUrl === 'string'
+      ? preferences.toastCustomSoundDataUrl
+      : '';
     applyToastPosition();
 
     const { groups, totalLive, totalFavorites } = buildCategoryGroups(favorites, liveData, categories);
@@ -899,7 +1001,22 @@
 
   const displayToast = (entries = [], options = {}) => {
 
-    if (!entries.length || (!state.toastEnabled && !options.force)) return;
+    if (!entries.length) return false;
+
+    const shouldPlaySound = options.playSound === true || (state.toastSoundEnabled && options.playSound !== false);
+    const shouldShowToast = options.showToast !== false && (state.toastEnabled || options.force);
+
+    if (shouldPlaySound) {
+      playNotificationSound({
+        soundId: options.soundId,
+        volume: options.soundVolume,
+        customSoundDataUrl: options.customSoundDataUrl
+      });
+    }
+
+    if (!shouldShowToast) {
+      return shouldPlaySound;
+    }
 
     ensureToastStack();
     applyToastPosition();
@@ -973,10 +1090,15 @@
 
     });
 
+    return true;
   };
 
+  window.addEventListener('TFR_TEST_TOAST_SOUND', (event) => {
+    playNotificationSound(event.detail || {});
+  });
 
-  extensionApi.runtime.onMessage.addListener((message) => {
+
+  extensionApi.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
     if (!message) return false;
 
@@ -990,7 +1112,16 @@
 
     } else if (message.type === 'TFR_OVERLAY_TOAST') {
 
-      displayToast(message.entries || [], { force: Boolean(message.force) });
+      const displayed = displayToast(message.entries || [], {
+        force: Boolean(message.force),
+        showToast: message.showToast,
+        playSound: message.playSound,
+        soundId: message.soundId,
+        soundVolume: message.soundVolume,
+        customSoundDataUrl: message.customSoundDataUrl
+      });
+      sendResponse?.({ ok: Boolean(displayed) });
+      return true;
 
     }
 
@@ -1022,9 +1153,6 @@
   }
 
 })();
-
-
-
 
 
 

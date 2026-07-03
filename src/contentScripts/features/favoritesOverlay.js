@@ -23,6 +23,7 @@ class FavoritesOverlay {
     this.driveStatus = null;
     this.driveMessage = '';
     this.driveDebugVisible = false;
+    this.toastSoundMessage = '';
     this.draggedLogin = null;
     this.draggedCategoryStartX = 0;
     this.selectedFavorites = new Set();
@@ -925,7 +926,7 @@ class FavoritesOverlay {
     wrapper.appendChild(enabledLabel);
 
     const controls = document.createElement('div');
-    controls.className = 'tfr-toast-settings__controls';
+    controls.className = 'tfr-toast-settings__controls tfr-toast-settings__controls--visual';
     const label = document.createElement('label');
     label.textContent = t('toast.settings.durationLabel');
     controls.appendChild(label);
@@ -951,7 +952,7 @@ class FavoritesOverlay {
     wrapper.appendChild(controls);
 
     const positionControls = document.createElement('div');
-    positionControls.className = 'tfr-toast-settings__controls';
+    positionControls.className = 'tfr-toast-settings__controls tfr-toast-settings__controls--visual';
     const positionLabel = document.createElement('label');
     positionLabel.textContent = t('toast.settings.positionLabel');
     positionControls.appendChild(positionLabel);
@@ -1013,6 +1014,195 @@ class FavoritesOverlay {
       await this.store.setToastPosition(event.target.value);
       this.render();
     });
+
+    const soundLabel = document.createElement('label');
+    soundLabel.className = 'tfr-toast-settings__toggle';
+    const soundInput = document.createElement('input');
+    soundInput.type = 'checkbox';
+    soundInput.checked = prefs.toastSoundEnabled === true;
+    soundInput.className = 'tfr-toast-settings__checkbox';
+    soundLabel.appendChild(soundInput);
+    const soundText = document.createElement('span');
+    soundText.textContent = t('toast.settings.soundEnabled');
+    soundLabel.appendChild(soundText);
+    wrapper.appendChild(soundLabel);
+
+    const soundControls = document.createElement('div');
+    soundControls.className = 'tfr-toast-settings__controls tfr-toast-settings__controls--sound';
+    const soundSelectLabel = document.createElement('label');
+    soundSelectLabel.textContent = t('toast.settings.soundLabel');
+    soundControls.appendChild(soundSelectLabel);
+    const soundSelect = document.createElement('select');
+    soundSelect.className = 'tfr-toast-settings__select';
+    const currentSound = typeof prefs.toastSoundId === 'string' ? prefs.toastSoundId : 'soft';
+    ['soft', 'chime', 'arcade', 'pulse', 'alert', 'custom'].forEach((soundId) => {
+      const option = document.createElement('option');
+      option.value = soundId;
+      option.textContent = t(`toast.settings.sound.${soundId}`);
+      if (soundId === 'custom' && !prefs.toastCustomSoundDataUrl) {
+        option.disabled = true;
+      }
+      soundSelect.appendChild(option);
+    });
+    soundSelect.value = currentSound === 'custom' && !prefs.toastCustomSoundDataUrl ? 'soft' : currentSound;
+    const soundSelectId = 'tfr-toast-settings-sound';
+    soundSelect.id = soundSelectId;
+    soundSelectLabel.setAttribute('for', soundSelectId);
+    soundControls.appendChild(soundSelect);
+
+    const volumeLabel = document.createElement('label');
+    volumeLabel.textContent = t('toast.settings.volumeLabel');
+    soundControls.appendChild(volumeLabel);
+    const volumeInput = document.createElement('input');
+    volumeInput.type = 'range';
+    volumeInput.min = '0';
+    volumeInput.max = '100';
+    volumeInput.step = '1';
+    volumeInput.value = String(Number.isFinite(Number(prefs.toastSoundVolume)) ? prefs.toastSoundVolume : 35);
+    volumeInput.className = 'tfr-toast-settings__range';
+    const volumeId = 'tfr-toast-settings-volume';
+    volumeInput.id = volumeId;
+    volumeLabel.setAttribute('for', volumeId);
+    soundControls.appendChild(volumeInput);
+    const volumeValue = document.createElement('span');
+    volumeValue.className = 'tfr-toast-settings__value';
+    volumeValue.textContent = `${volumeInput.value}%`;
+    soundControls.appendChild(volumeValue);
+
+    const testSoundButton = document.createElement('button');
+    testSoundButton.type = 'button';
+    testSoundButton.className = 'tfr-button tfr-button--ghost tfr-toast-settings__test';
+    testSoundButton.textContent = t('toast.settings.testSound');
+    soundControls.appendChild(testSoundButton);
+    wrapper.appendChild(soundControls);
+
+    const customSoundControls = document.createElement('div');
+    customSoundControls.className = 'tfr-toast-settings__custom-sound';
+    const fileInput = document.createElement('input');
+    fileInput.type = 'file';
+    fileInput.accept = 'audio/mpeg,audio/mp3,audio/wav,audio/ogg,audio/webm';
+    fileInput.className = 'tfr-toast-settings__file';
+    const importButton = document.createElement('button');
+    importButton.type = 'button';
+    importButton.className = 'tfr-button tfr-button--ghost';
+    importButton.textContent = t('toast.settings.importSound');
+    const removeButton = document.createElement('button');
+    removeButton.type = 'button';
+    removeButton.className = 'tfr-button tfr-button--ghost';
+    removeButton.textContent = t('toast.settings.removeSound');
+    removeButton.disabled = !prefs.toastCustomSoundDataUrl;
+    const customInfo = document.createElement('span');
+    customInfo.className = 'tfr-toast-settings__custom-info';
+    customInfo.textContent = prefs.toastCustomSoundName || t('toast.settings.customSoundEmpty');
+    const customHint = document.createElement('small');
+    customHint.className = 'tfr-toast-settings__hint';
+    customHint.textContent = t('toast.settings.customSoundLimit');
+    const customMessage = document.createElement('small');
+    customMessage.className = 'tfr-toast-settings__message';
+    customMessage.textContent = this.toastSoundMessage;
+    customMessage.hidden = !this.toastSoundMessage;
+    customSoundControls.appendChild(fileInput);
+    customSoundControls.appendChild(importButton);
+    customSoundControls.appendChild(removeButton);
+    customSoundControls.appendChild(customInfo);
+    customSoundControls.appendChild(customHint);
+    customSoundControls.appendChild(customMessage);
+    wrapper.appendChild(customSoundControls);
+
+    const playTestSound = () => {
+      window.dispatchEvent(new CustomEvent('TFR_TEST_TOAST_SOUND', {
+        detail: {
+          soundId: soundSelect.value,
+          volume: Number(volumeInput.value),
+          customSoundDataUrl: prefs.toastCustomSoundDataUrl
+        }
+      }));
+    };
+
+    const applySoundEnabledState = () => {
+      const enabled = soundInput.checked;
+      soundSelect.disabled = !enabled;
+      volumeInput.disabled = !enabled;
+      testSoundButton.disabled = !enabled;
+      soundControls.classList.toggle('is-disabled', !enabled);
+    };
+    applySoundEnabledState();
+
+    soundInput.addEventListener('change', async (event) => {
+      await this.store.setToastSoundEnabled(Boolean(event.target.checked));
+      applySoundEnabledState();
+      this.render();
+    });
+
+    soundSelect.addEventListener('change', async (event) => {
+      await this.store.setToastSound(event.target.value);
+      playTestSound();
+      this.render();
+    });
+
+    importButton.addEventListener('click', () => fileInput.click());
+
+    fileInput.addEventListener('change', async (event) => {
+      const file = event.target.files?.[0];
+      event.target.value = '';
+      if (!file) {
+        return;
+      }
+      const hasAudioType = /^audio\//i.test(file.type || '');
+      const hasAudioExtension = /\.(mp3|wav|ogg|webm)$/i.test(file.name || '');
+      if (!hasAudioType && !hasAudioExtension) {
+        this.toastSoundMessage = t('toast.settings.customSoundInvalid');
+        this.render();
+        return;
+      }
+      if (file.size > 1_048_576) {
+        this.toastSoundMessage = t('toast.settings.customSoundTooLarge');
+        this.render();
+        return;
+      }
+      const dataUrl = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.addEventListener('load', () => resolve(String(reader.result || '')));
+        reader.addEventListener('error', () => reject(reader.error || new Error('read failed')));
+        reader.readAsDataURL(file);
+      }).catch(() => '');
+      if (!dataUrl) {
+        this.toastSoundMessage = t('toast.settings.customSoundInvalid');
+        this.render();
+        return;
+      }
+      await this.store.setToastCustomSound({ name: file.name, dataUrl });
+      this.toastSoundMessage = '';
+      this.render();
+      window.dispatchEvent(new CustomEvent('TFR_TEST_TOAST_SOUND', {
+        detail: {
+          soundId: 'custom',
+          volume: Number(volumeInput.value),
+          customSoundDataUrl: dataUrl
+        }
+      }));
+    });
+
+    removeButton.addEventListener('click', async () => {
+      await this.store.clearToastCustomSound();
+      this.toastSoundMessage = '';
+      this.render();
+    });
+
+    volumeInput.addEventListener('input', (event) => {
+      volumeValue.textContent = `${event.target.value}%`;
+    });
+
+    volumeInput.addEventListener('change', async (event) => {
+      const value = Number(event.target.value);
+      const sanitized = Number.isFinite(value) ? Math.max(0, Math.min(100, Math.round(value))) : 35;
+      event.target.value = String(sanitized);
+      volumeValue.textContent = `${sanitized}%`;
+      await this.store.setToastSoundVolume(sanitized);
+      playTestSound();
+    });
+
+    testSoundButton.addEventListener('click', playTestSound);
 
     return wrapper;
   }

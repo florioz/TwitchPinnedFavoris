@@ -654,8 +654,52 @@
   width: min(260px, 100%);
 }
 
-.tfr-toast-settings.is-disabled .tfr-toast-settings__controls,
-.tfr-toast-settings.is-disabled .tfr-toast-settings__hint {
+.tfr-toast-settings__controls--sound {
+  align-items: center;
+}
+
+.tfr-toast-settings__range {
+  width: 140px;
+  accent-color: #9147ff;
+}
+
+.tfr-toast-settings__value {
+  min-width: 42px;
+  color: #bf94ff;
+  font-weight: 700;
+}
+
+.tfr-toast-settings__test {
+  min-height: 32px;
+  padding: 6px 12px;
+}
+
+.tfr-toast-settings__custom-sound {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.tfr-toast-settings__file {
+  display: none;
+}
+
+.tfr-toast-settings__custom-info {
+  color: #dedee8;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.tfr-toast-settings__message {
+  color: #ff8b8b;
+  font-size: 12px;
+  width: 100%;
+}
+
+.tfr-toast-settings.is-disabled .tfr-toast-settings__controls--visual,
+.tfr-toast-settings.is-disabled .tfr-toast-settings__hint,
+.tfr-toast-settings__controls.is-disabled {
   opacity: 0.58;
 }
 

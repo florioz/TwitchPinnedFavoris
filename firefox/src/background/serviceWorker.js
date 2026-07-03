@@ -27,7 +27,12 @@ const DEFAULT_STATE = {
     specialCategoryColors: {},
     toastDurationSeconds: 6,
     toastEnabled: true,
-    toastPosition: 'top-right'
+    toastPosition: 'top-right',
+    toastSoundEnabled: false,
+    toastSoundVolume: 35,
+    toastSoundId: 'soft',
+    toastCustomSoundName: '',
+    toastCustomSoundDataUrl: ''
   }
 };
 
@@ -158,6 +163,34 @@ const getOverlayRecipientTabIds = async () => {
   return Array.from(tabIds);
 };
 
+const getOverlayRecipients = async () => {
+  const tabIds = new Set(overlayTabs);
+  const activeTabs = await queryTabs({
+    active: true,
+    currentWindow: true
+  });
+  const twitchTabs = await queryTabs({
+    url: ['https://www.twitch.tv/*', 'https://twitch.tv/*']
+  });
+  [...activeTabs, ...twitchTabs].forEach((tab) => {
+    if (Number.isInteger(tab?.id)) {
+      tabIds.add(tab.id);
+    }
+  });
+
+  const focusedActiveTwitch = activeTabs.find((tab) => (
+    Number.isInteger(tab?.id) &&
+    typeof tab.url === 'string' &&
+    /^https:\/\/(?:www\.)?twitch\.tv\//i.test(tab.url)
+  ));
+  const soundTabId = focusedActiveTwitch?.id ?? twitchTabs.find((tab) => Number.isInteger(tab?.id))?.id ?? null;
+
+  return {
+    tabIds: Array.from(tabIds),
+    soundTabId
+  };
+};
+
 const setSidePanelBehavior = () => {
   try {
     extensionApi.sidePanel?.setPanelBehavior?.({ openPanelOnActionClick: false });
@@ -217,12 +250,17 @@ const broadcastOverlayState = (snapshot) => {
   overlayTabs.forEach((tabId) => sendMessageToTab(tabId, { type: 'TFR_STATE_PUSH', ...snapshot }));
 };
 
-const broadcastOverlayToast = async (entries) => {
+const broadcastOverlayToast = async (entries, options = {}) => {
   if (!entries?.length) return false;
-  const tabIds = await getOverlayRecipientTabIds();
+  const { tabIds, soundTabId } = await getOverlayRecipients();
   if (!tabIds.length) return false;
   const results = await Promise.all(
-    tabIds.map((tabId) => sendMessageToTab(tabId, { type: 'TFR_OVERLAY_TOAST', entries }))
+    tabIds.map((tabId) => sendMessageToTab(tabId, {
+      type: 'TFR_OVERLAY_TOAST',
+      entries,
+      ...options,
+      playSound: options.playSound === true && tabId === soundTabId
+    }))
   );
   return results.some((result) => result?.ok);
 };
@@ -864,7 +902,9 @@ const markLiveNotificationHandled = async (login, notificationKey) => {
 
 const notifyNewLives = async (entries, preferences = {}) => {
   const prefs = preferences || {};
-  if (prefs.toastEnabled === false) {
+  const wantsToast = prefs.toastEnabled !== false;
+  const wantsSound = prefs.toastSoundEnabled === true;
+  if (!wantsToast && !wantsSound) {
     return [];
   }
   const eligible = entries.filter(({ fav }) => fav?.recentHighlightEnabled !== false);
@@ -891,7 +931,13 @@ const notifyNewLives = async (entries, preferences = {}) => {
       startedAt: live.startedAt
     }
   }));
-  const delivered = await broadcastOverlayToast(toastEntries);
+  const delivered = await broadcastOverlayToast(toastEntries, {
+    showToast: wantsToast,
+    playSound: wantsSound,
+    soundId: prefs.toastSoundId,
+    soundVolume: prefs.toastSoundVolume,
+    customSoundDataUrl: prefs.toastCustomSoundDataUrl
+  });
   return delivered ? selected : [];
 };
 
@@ -1108,6 +1154,9 @@ extensionApi.runtime.onMessage.addListener((message, sender, sendResponse) => {
     sendMessageToTab(tabId, {
       type: 'TFR_OVERLAY_TOAST',
       force: true,
+      showToast: true,
+      playSound: true,
+      soundId: 'soft',
       entries: [{
         fav: {
           login: 'twitchfavorites',

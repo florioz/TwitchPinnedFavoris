@@ -161,6 +161,11 @@
           toastDurationSeconds: 6,
           toastEnabled: true,
           toastPosition: 'top-right',
+          toastSoundEnabled: false,
+          toastSoundVolume: 35,
+          toastSoundId: 'soft',
+          toastCustomSoundName: '',
+          toastCustomSoundDataUrl: '',
           chatHistoryEnabled: true,
           moderationHistoryEnabled: true
         };
@@ -239,6 +244,23 @@
       } else {
         this.state.preferences.toastPosition = this.sanitizeToastPosition(this.state.preferences.toastPosition);
       }
+      if (!Object.prototype.hasOwnProperty.call(this.state.preferences, 'toastSoundEnabled')) {
+        this.state.preferences.toastSoundEnabled = false;
+      } else {
+        this.state.preferences.toastSoundEnabled = Boolean(this.state.preferences.toastSoundEnabled);
+      }
+      this.state.preferences.toastSoundVolume = this.sanitizeToastSoundVolume(
+        this.state.preferences.toastSoundVolume
+      );
+      this.state.preferences.toastSoundId = this.sanitizeToastSoundId(
+        this.state.preferences.toastSoundId
+      );
+      this.state.preferences.toastCustomSoundName = this.sanitizeToastCustomSoundName(
+        this.state.preferences.toastCustomSoundName
+      );
+      this.state.preferences.toastCustomSoundDataUrl = this.sanitizeToastCustomSoundDataUrl(
+        this.state.preferences.toastCustomSoundDataUrl
+      );
       if (!Object.prototype.hasOwnProperty.call(this.state.preferences, 'chatHistoryEnabled')) {
         this.state.preferences.chatHistoryEnabled = true;
       } else {
@@ -266,6 +288,23 @@
       } else {
         this.state.preferences.toastPosition = this.sanitizeToastPosition(this.state.preferences.toastPosition);
       }
+      if (!Object.prototype.hasOwnProperty.call(this.state.preferences, 'toastSoundEnabled')) {
+        this.state.preferences.toastSoundEnabled = false;
+      } else {
+        this.state.preferences.toastSoundEnabled = Boolean(this.state.preferences.toastSoundEnabled);
+      }
+      this.state.preferences.toastSoundVolume = this.sanitizeToastSoundVolume(
+        this.state.preferences.toastSoundVolume
+      );
+      this.state.preferences.toastSoundId = this.sanitizeToastSoundId(
+        this.state.preferences.toastSoundId
+      );
+      this.state.preferences.toastCustomSoundName = this.sanitizeToastCustomSoundName(
+        this.state.preferences.toastCustomSoundName
+      );
+      this.state.preferences.toastCustomSoundDataUrl = this.sanitizeToastCustomSoundDataUrl(
+        this.state.preferences.toastCustomSoundDataUrl
+      );
       const categoryIdMap = new Map();
       this.state.categories.forEach((category, index) => {
         if (!category || typeof category !== 'object') {
@@ -577,6 +616,21 @@
       if (typeof payload.preferences.toastPosition === 'string') {
         safePreferences.toastPosition = this.sanitizeToastPosition(payload.preferences.toastPosition);
       }
+      if (typeof payload.preferences.toastSoundEnabled === 'boolean') {
+        safePreferences.toastSoundEnabled = payload.preferences.toastSoundEnabled;
+      }
+      if (payload.preferences.toastSoundVolume != null) {
+        safePreferences.toastSoundVolume = this.sanitizeToastSoundVolume(payload.preferences.toastSoundVolume);
+      }
+      if (typeof payload.preferences.toastSoundId === 'string') {
+        safePreferences.toastSoundId = this.sanitizeToastSoundId(payload.preferences.toastSoundId);
+      }
+      if (typeof payload.preferences.toastCustomSoundName === 'string') {
+        safePreferences.toastCustomSoundName = this.sanitizeToastCustomSoundName(payload.preferences.toastCustomSoundName);
+      }
+      if (typeof payload.preferences.toastCustomSoundDataUrl === 'string') {
+        safePreferences.toastCustomSoundDataUrl = this.sanitizeToastCustomSoundDataUrl(payload.preferences.toastCustomSoundDataUrl);
+      }
       if (typeof payload.preferences.chatHistoryEnabled === 'boolean') {
         safePreferences.chatHistoryEnabled = payload.preferences.chatHistoryEnabled;
       }
@@ -594,6 +648,21 @@
       }
       if (typeof payload.preferences.toastPosition === 'string') {
         safePreferences.toastPosition = this.sanitizeToastPosition(payload.preferences.toastPosition);
+      }
+      if (typeof payload.preferences.toastSoundEnabled === 'boolean') {
+        safePreferences.toastSoundEnabled = payload.preferences.toastSoundEnabled;
+      }
+      if (payload.preferences.toastSoundVolume != null) {
+        safePreferences.toastSoundVolume = this.sanitizeToastSoundVolume(payload.preferences.toastSoundVolume);
+      }
+      if (typeof payload.preferences.toastSoundId === 'string') {
+        safePreferences.toastSoundId = this.sanitizeToastSoundId(payload.preferences.toastSoundId);
+      }
+      if (typeof payload.preferences.toastCustomSoundName === 'string') {
+        safePreferences.toastCustomSoundName = this.sanitizeToastCustomSoundName(payload.preferences.toastCustomSoundName);
+      }
+      if (typeof payload.preferences.toastCustomSoundDataUrl === 'string') {
+        safePreferences.toastCustomSoundDataUrl = this.sanitizeToastCustomSoundDataUrl(payload.preferences.toastCustomSoundDataUrl);
       }
     }
 
@@ -1448,6 +1517,31 @@
       return allowed.has(position) ? position : 'top-right';
     }
 
+    sanitizeToastSoundId(soundId) {
+      const allowed = new Set(['soft', 'chime', 'arcade', 'pulse', 'alert', 'custom']);
+      return allowed.has(soundId) ? soundId : 'soft';
+    }
+
+    sanitizeToastSoundVolume(volume) {
+      const numeric = Number(volume);
+      return Number.isFinite(numeric) ? Math.max(0, Math.min(100, Math.round(numeric))) : 35;
+    }
+
+    sanitizeToastCustomSoundName(name) {
+      return typeof name === 'string' ? name.trim().slice(0, 120) : '';
+    }
+
+    sanitizeToastCustomSoundDataUrl(dataUrl) {
+      if (typeof dataUrl !== 'string') {
+        return '';
+      }
+      const trimmed = dataUrl.trim();
+      if (!/^data:audio\/(?:mpeg|mp3|wav|x-wav|wave|ogg|webm);base64,/i.test(trimmed)) {
+        return '';
+      }
+      return trimmed.length <= 1_500_000 ? trimmed : '';
+    }
+
     async setToastEnabled(enabled) {
       const next = Boolean(enabled);
       if (Boolean(this.state.preferences?.toastEnabled) === next) {
@@ -1467,6 +1561,64 @@
       await this.updateState((draft) => {
         const prefs = draft.preferences || (draft.preferences = {});
         prefs.toastPosition = sanitized;
+      });
+    }
+
+    async setToastSoundEnabled(enabled) {
+      const next = Boolean(enabled);
+      if (Boolean(this.state.preferences?.toastSoundEnabled) === next) {
+        return;
+      }
+      await this.updateState((draft) => {
+        const prefs = draft.preferences || (draft.preferences = {});
+        prefs.toastSoundEnabled = next;
+      });
+    }
+
+    async setToastSound(soundId) {
+      const sanitized = this.sanitizeToastSoundId(soundId);
+      if ((this.state.preferences?.toastSoundId || 'soft') === sanitized) {
+        return;
+      }
+      await this.updateState((draft) => {
+        const prefs = draft.preferences || (draft.preferences = {});
+        prefs.toastSoundId = sanitized;
+      });
+    }
+
+    async setToastSoundVolume(volume) {
+      const sanitized = this.sanitizeToastSoundVolume(volume);
+      if (this.sanitizeToastSoundVolume(this.state.preferences?.toastSoundVolume) === sanitized) {
+        return;
+      }
+      await this.updateState((draft) => {
+        const prefs = draft.preferences || (draft.preferences = {});
+        prefs.toastSoundVolume = sanitized;
+      });
+    }
+
+    async setToastCustomSound({ name = '', dataUrl = '' } = {}) {
+      const safeName = this.sanitizeToastCustomSoundName(name);
+      const safeDataUrl = this.sanitizeToastCustomSoundDataUrl(dataUrl);
+      if (!safeDataUrl) {
+        return;
+      }
+      await this.updateState((draft) => {
+        const prefs = draft.preferences || (draft.preferences = {});
+        prefs.toastCustomSoundName = safeName || 'Son personnalise';
+        prefs.toastCustomSoundDataUrl = safeDataUrl;
+        prefs.toastSoundId = 'custom';
+      });
+    }
+
+    async clearToastCustomSound() {
+      await this.updateState((draft) => {
+        const prefs = draft.preferences || (draft.preferences = {});
+        prefs.toastCustomSoundName = '';
+        prefs.toastCustomSoundDataUrl = '';
+        if (prefs.toastSoundId === 'custom') {
+          prefs.toastSoundId = 'soft';
+        }
       });
     }
 
