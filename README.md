@@ -5,7 +5,7 @@ Twitch Favorites Sidebar is a browser extension and companion mobile app for peo
 
 The extension rebuilds the Twitch followed-channels sidebar with custom pinned favorites, nested groups, live filters, profile sync, VOD planning, and chat/moderation tools. The mobile app focuses on the same core library of groups, streamers, profiles, and VODs in a phone-friendly interface.
 
-Current release: v0.5.7
+Current release: v0.5.8
 
 ## English
 
@@ -54,6 +54,14 @@ The mobile app provides a compact companion experience:
 The APK is built from the Capacitor project in `mobile/` and `android/`.
 
 ### Release Timeline
+
+#### v0.5.8
+
+- Added smart automatic sidebar compaction that targets the largest visible groups first.
+- Added per-group compact levels so normal, compact, and avatar-only groups can coexist.
+- Added the selectable Ultimate compact streamer style.
+- Added an Auto compact style selector in the favorites manager.
+- Improved compact-mode stability and Firefox build synchronization.
 
 #### v0.5.4
 
@@ -171,6 +179,14 @@ L'application mobile permet de retrouver :
 - une notification quand une nouvelle version est disponible.
 
 ### Chronologie Des Versions
+
+#### v0.5.8
+
+- Ajout du compact automatique intelligent qui cible les plus gros groupes visibles en premier.
+- Ajout de niveaux de compact par groupe pour melanger les styles normal, compact et avatars seuls.
+- Ajout du style selectionnable Compact ultime.
+- Ajout du selecteur Style compact auto dans la gestion des favoris.
+- Stabilisation du mode compact et synchronisation des fichiers Firefox.
 
 #### v0.5.4
 

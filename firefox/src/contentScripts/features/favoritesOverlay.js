@@ -766,6 +766,7 @@ class FavoritesOverlay {
   renderStreamerAppearanceSettings(state) {
     const prefs = state.preferences || {};
     const streamerStyle = this.store.sanitizeStreamerItemStyle?.(prefs.streamerItemStyle) || 'default';
+    const autoCompactStyle = this.store.sanitizeStreamerItemStyle?.(prefs.autoCompactStreamerStyle || 'compact') || 'compact';
 
     const wrapper = document.createElement('section');
     wrapper.className = 'tfr-streamer-appearance-settings';
@@ -799,7 +800,8 @@ class FavoritesOverlay {
       'game-focus',
       'title-focus',
       'glass',
-      'minimal'
+      'minimal',
+      'avatar-grid'
     ];
     const select = document.createElement('select');
     select.id = 'tfr-streamer-item-style';
@@ -821,6 +823,37 @@ class FavoritesOverlay {
       (nextValue) => this.store.setStreamerItemStyle(nextValue)
     ));
     wrapper.appendChild(field);
+
+    const compactField = document.createElement('label');
+    compactField.className = 'tfr-streamer-appearance-settings__field';
+    compactField.setAttribute('for', 'tfr-auto-compact-streamer-style');
+    const compactLabel = document.createElement('span');
+    compactLabel.className = 'tfr-streamer-appearance-settings__label';
+    const compactLabelText = document.createElement('strong');
+    compactLabelText.textContent = t('streamerAppearance.autoCompactStyle');
+    compactLabel.appendChild(compactLabelText);
+    compactField.appendChild(compactLabel);
+
+    const compactSelect = document.createElement('select');
+    compactSelect.id = 'tfr-auto-compact-streamer-style';
+    compactSelect.className = 'tfr-streamer-appearance-settings__select';
+    streamerStyleValues.forEach((style) => {
+      const option = document.createElement('option');
+      option.value = style;
+      option.textContent = t(`streamerAppearance.style.${style}`);
+      compactSelect.appendChild(option);
+    });
+    compactSelect.value = autoCompactStyle;
+    compactSelect.addEventListener('change', async (event) => {
+      await this.store.setAutoCompactStreamerStyle(event.target.value);
+      this.render();
+    });
+    compactField.appendChild(this.renderStyleStepper(
+      compactSelect,
+      streamerStyleValues,
+      (nextValue) => this.store.setAutoCompactStreamerStyle(nextValue)
+    ));
+    wrapper.appendChild(compactField);
 
     const hint = document.createElement('p');
     hint.className = 'tfr-streamer-appearance-settings__hint';
@@ -1247,6 +1280,16 @@ class FavoritesOverlay {
         description: t('settings.collapsedGroups.description'),
         handler: async (checked) => {
           await this.store.setHideCollapsedGroupsUntilHover(checked);
+          this.render();
+        }
+      },
+      {
+        key: 'autoCompactSidebarEnabled',
+        defaultEnabled: false,
+        label: t('settings.autoCompactSidebar.toggle'),
+        description: t('settings.autoCompactSidebar.description'),
+        handler: async (checked) => {
+          await this.store.setAutoCompactSidebarEnabled(checked);
           this.render();
         }
       }

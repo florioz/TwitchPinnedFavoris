@@ -151,10 +151,12 @@
           recentLiveThresholdMinutes: 10,
           recentLiveCollapsed: false,
           hideCollapsedGroupsUntilHover: false,
+          autoCompactSidebarEnabled: false,
           categoryColorOpacity: 7,
           categoryColorGradient: 62,
           categoryColorStyle: 'gradient',
           streamerItemStyle: 'default',
+          autoCompactStreamerStyle: 'compact',
           sidebarSurfaceStyle: 'default',
           sidebarSurfaceColor: '',
           specialCategoryColors: {},
@@ -206,6 +208,11 @@
       } else {
         this.state.preferences.hideCollapsedGroupsUntilHover = Boolean(this.state.preferences.hideCollapsedGroupsUntilHover);
       }
+      if (!Object.prototype.hasOwnProperty.call(this.state.preferences, 'autoCompactSidebarEnabled')) {
+        this.state.preferences.autoCompactSidebarEnabled = false;
+      } else {
+        this.state.preferences.autoCompactSidebarEnabled = Boolean(this.state.preferences.autoCompactSidebarEnabled);
+      }
       this.state.preferences.categoryColorOpacity = this.sanitizeCategoryColorOpacity(
         this.state.preferences.categoryColorOpacity
       );
@@ -217,6 +224,9 @@
       );
       this.state.preferences.streamerItemStyle = this.sanitizeStreamerItemStyle(
         this.state.preferences.streamerItemStyle
+      );
+      this.state.preferences.autoCompactStreamerStyle = this.sanitizeStreamerItemStyle(
+        this.state.preferences.autoCompactStreamerStyle || 'compact'
       );
       this.state.preferences.sidebarSurfaceStyle = this.sanitizeSidebarSurfaceStyle(
         this.state.preferences.sidebarSurfaceStyle
@@ -577,6 +587,9 @@
       if (typeof payload.preferences.hideCollapsedGroupsUntilHover === 'boolean') {
         safePreferences.hideCollapsedGroupsUntilHover = payload.preferences.hideCollapsedGroupsUntilHover;
       }
+      if (typeof payload.preferences.autoCompactSidebarEnabled === 'boolean') {
+        safePreferences.autoCompactSidebarEnabled = payload.preferences.autoCompactSidebarEnabled;
+      }
       if (payload.preferences.categoryColorOpacity != null) {
         safePreferences.categoryColorOpacity = this.sanitizeCategoryColorOpacity(payload.preferences.categoryColorOpacity);
       }
@@ -588,6 +601,9 @@
       }
       if (typeof payload.preferences.streamerItemStyle === 'string') {
         safePreferences.streamerItemStyle = this.sanitizeStreamerItemStyle(payload.preferences.streamerItemStyle);
+      }
+      if (typeof payload.preferences.autoCompactStreamerStyle === 'string') {
+        safePreferences.autoCompactStreamerStyle = this.sanitizeStreamerItemStyle(payload.preferences.autoCompactStreamerStyle);
       }
       if (typeof payload.preferences.sidebarSurfaceStyle === 'string') {
         safePreferences.sidebarSurfaceStyle = this.sanitizeSidebarSurfaceStyle(payload.preferences.sidebarSurfaceStyle);
@@ -1314,6 +1330,13 @@
       });
     }
 
+    async setAutoCompactSidebarEnabled(enabled) {
+      await this.updateState((draft) => {
+        const prefs = draft.preferences || (draft.preferences = {});
+        prefs.autoCompactSidebarEnabled = Boolean(enabled);
+      });
+    }
+
     sanitizeCategoryColorOpacity(value) {
       const parsed = Number(value);
       return Number.isFinite(parsed) ? Math.max(0, Math.min(30, Math.round(parsed))) : 7;
@@ -1362,7 +1385,8 @@
         'game-focus',
         'title-focus',
         'glass',
-        'minimal'
+        'minimal',
+        'avatar-grid'
       ]);
       return allowed.has(value) ? value : 'default';
     }
@@ -1435,6 +1459,17 @@
       await this.updateState((draft) => {
         const prefs = draft.preferences || (draft.preferences = {});
         prefs.streamerItemStyle = sanitized;
+      });
+    }
+
+    async setAutoCompactStreamerStyle(value) {
+      const sanitized = this.sanitizeStreamerItemStyle(value);
+      if (this.sanitizeStreamerItemStyle(this.state.preferences?.autoCompactStreamerStyle || 'compact') === sanitized) {
+        return;
+      }
+      await this.updateState((draft) => {
+        const prefs = draft.preferences || (draft.preferences = {});
+        prefs.autoCompactStreamerStyle = sanitized;
       });
     }
 

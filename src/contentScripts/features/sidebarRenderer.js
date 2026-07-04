@@ -13,6 +13,9 @@
       this.sideNavObserver = null;
       this.unsubscribe = null;
       this.isSidebarHovering = false;
+      this.isAutoCompact = false;
+      this.autoCompactLevel = 0;
+      this.autoCompactFrame = null;
       this.boundMouseEnter = () => {
         if (!this.isSidebarHovering) {
           this.isSidebarHovering = true;
@@ -36,6 +39,85 @@
     dispose() {
       this.unsubscribe?.();
       this.sideNavObserver?.disconnect();
+      if (this.autoCompactFrame) {
+        cancelAnimationFrame(this.autoCompactFrame);
+        this.autoCompactFrame = null;
+      }
+    }
+
+    scheduleAutoCompactCheck(enabled) {
+      if (this.autoCompactFrame) {
+        cancelAnimationFrame(this.autoCompactFrame);
+        this.autoCompactFrame = null;
+      }
+      const clearGroupCompaction = () => {
+        this.container?.querySelectorAll('.tfr-category-block[data-compact-level]').forEach((block) => {
+          block.removeAttribute('data-compact-level');
+        });
+      };
+      if (!enabled || !this.container) {
+        this.isAutoCompact = false;
+        this.autoCompactLevel = 0;
+        clearGroupCompaction();
+        this.container?.classList.remove('is-auto-compact');
+        this.container?.removeAttribute('data-auto-compact');
+        this.container?.removeAttribute('data-auto-compact-level');
+        return;
+      }
+      if (!document.body.contains(this.container)) {
+        return;
+      }
+      const parent = this.container.parentElement;
+      const viewportHeight = Math.max(1, window.innerHeight - this.container.getBoundingClientRect().top - 8);
+      const measuredHeights = [
+        this.container.clientHeight,
+        parent?.clientHeight || 0,
+        viewportHeight
+      ].filter((height) => Number.isFinite(height) && height > 0);
+      const visibleHeight = Math.max(1, Math.min(...measuredHeights));
+      this.container.dataset.autoCompact = 'measuring';
+      clearGroupCompaction();
+
+      const isOverflowing = (ratio = 1) => this.container.scrollHeight > visibleHeight * ratio;
+      if (!isOverflowing(1.08)) {
+        this.isAutoCompact = false;
+        this.autoCompactLevel = 0;
+        this.container.classList.remove('is-auto-compact');
+        this.container.dataset.autoCompact = 'idle';
+        this.container.dataset.autoCompactLevel = '0';
+        return;
+      }
+
+      const candidates = Array.from(this.container.querySelectorAll('.tfr-category-block'))
+        .filter((block) => !block.classList.contains('is-collapsed'))
+        .map((block, index) => ({
+          block,
+          index,
+          entries: Number(block.dataset.totalEntries || '0'),
+          height: block.scrollHeight
+        }))
+        .filter((item) => item.entries > 1 && item.height > 0)
+        .sort((a, b) => (b.height - a.height) || (b.entries - a.entries) || (a.index - b.index));
+
+      for (const item of candidates) {
+        item.block.dataset.compactLevel = '1';
+        if (!isOverflowing(1.02)) break;
+      }
+
+      if (isOverflowing(1.02)) {
+        for (const item of candidates) {
+          item.block.dataset.compactLevel = '2';
+          if (!isOverflowing(1.0)) break;
+        }
+      }
+
+      const nextLevel = candidates.reduce((level, item) => Math.max(level, Number(item.block.dataset.compactLevel || '0')), 0);
+      const shouldCompact = nextLevel > 0;
+      this.autoCompactLevel = nextLevel;
+      this.isAutoCompact = shouldCompact;
+      this.container.classList.toggle('is-auto-compact', shouldCompact);
+      this.container.dataset.autoCompact = shouldCompact ? 'active' : 'idle';
+      this.container.dataset.autoCompactLevel = String(nextLevel);
     }
 
     hexToRgb(hex) {
@@ -140,7 +222,8 @@
         'game-focus',
         'title-focus',
         'glass',
-        'minimal'
+        'minimal',
+        'avatar-grid'
       ]);
       return allowed.has(value) ? value : 'default';
     }
@@ -492,13 +575,14 @@
       anchor.href = `https://www.twitch.tv/${fav.login}`;
       anchor.target = '_self';
       anchor.rel = 'noopener noreferrer';
-      if (live?.title) {
-        anchor.title = live.title;
-      } else if (live?.displayName) {
-        anchor.title = live.displayName;
-      } else {
-        anchor.title = fav.displayName;
-      }
+      const tooltipParts = [
+        live?.displayName || fav.displayName,
+        live?.game || '',
+        live?.title || '',
+        live?.viewers ? t('sidebar.viewerCount', { count: formatViewers(live.viewers) }) : ''
+      ].filter(Boolean);
+      anchor.title = tooltipParts.join('\n');
+      anchor.dataset.tooltip = anchor.title;
       this.applyFavoriteAccent(anchor, groupColor);
 
       const avatar = document.createElement('img');
@@ -550,8 +634,18 @@
       const liveData = this.store.getLiveData();
     const hideCollapsedUntilHover = Boolean(state.preferences?.hideCollapsedGroupsUntilHover);
     const shouldHideCollapsedGroups = hideCollapsedUntilHover && !this.isSidebarHovering;
+    const autoCompactEnabled = Boolean(state.preferences?.autoCompactSidebarEnabled);
+    if (!autoCompactEnabled) {
+      this.isAutoCompact = false;
+      this.autoCompactLevel = 0;
+    }
+    const normalStreamerStyle = this.sanitizeStreamerItemStyle(state.preferences?.streamerItemStyle);
+    const compactStreamerStyle = this.sanitizeStreamerItemStyle(state.preferences?.autoCompactStreamerStyle || 'compact');
     const categoryAppearance = this.getCategoryAppearance(state.preferences || {});
-    this.container.dataset.streamerStyle = this.sanitizeStreamerItemStyle(state.preferences?.streamerItemStyle);
+    this.container.dataset.streamerStyle = normalStreamerStyle;
+    this.container.dataset.normalStreamerStyle = normalStreamerStyle;
+    this.container.dataset.compactStreamerStyle = compactStreamerStyle;
+    this.container.dataset.autoCompactLevel = String(this.autoCompactLevel);
     this.container.dataset.surfaceStyle = this.sanitizeSidebarSurfaceStyle(state.preferences?.sidebarSurfaceStyle);
     this.container.removeAttribute('data-surface-color');
     this.container.style.removeProperty('--tfr-sidebar-custom');
@@ -599,6 +693,7 @@
       const block = document.createElement('div');
       block.className = 'tfr-category-block';
       block.dataset.depth = String(depth);
+      block.dataset.totalEntries = String(group.totalEntries);
       if (group.collapsed) block.classList.add('is-collapsed');
       if (group.isRecentLive) block.classList.add('tfr-category-block--recent');
       if (group.color) {
@@ -664,6 +759,7 @@
         this.container.appendChild(block);
       }
     });
+    this.scheduleAutoCompactCheck(autoCompactEnabled);
     }
   }
 
