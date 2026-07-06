@@ -157,6 +157,8 @@
           categoryColorStyle: 'gradient',
           streamerItemStyle: 'default',
           autoCompactStreamerStyle: 'compact',
+          autoCompactGroupStyle: 'default',
+          sidebarAnimationStyle: 'soft',
           sidebarSurfaceStyle: 'default',
           sidebarSurfaceColor: '',
           specialCategoryColors: {},
@@ -227,6 +229,12 @@
       );
       this.state.preferences.autoCompactStreamerStyle = this.sanitizeStreamerItemStyle(
         this.state.preferences.autoCompactStreamerStyle || 'compact'
+      );
+      this.state.preferences.autoCompactGroupStyle = this.sanitizeAutoCompactGroupStyle(
+        this.state.preferences.autoCompactGroupStyle
+      );
+      this.state.preferences.sidebarAnimationStyle = this.sanitizeSidebarAnimationStyle(
+        this.state.preferences.sidebarAnimationStyle
       );
       this.state.preferences.sidebarSurfaceStyle = this.sanitizeSidebarSurfaceStyle(
         this.state.preferences.sidebarSurfaceStyle
@@ -604,6 +612,12 @@
       }
       if (typeof payload.preferences.autoCompactStreamerStyle === 'string') {
         safePreferences.autoCompactStreamerStyle = this.sanitizeStreamerItemStyle(payload.preferences.autoCompactStreamerStyle);
+      }
+      if (typeof payload.preferences.autoCompactGroupStyle === 'string') {
+        safePreferences.autoCompactGroupStyle = this.sanitizeAutoCompactGroupStyle(payload.preferences.autoCompactGroupStyle);
+      }
+      if (typeof payload.preferences.sidebarAnimationStyle === 'string') {
+        safePreferences.sidebarAnimationStyle = this.sanitizeSidebarAnimationStyle(payload.preferences.sidebarAnimationStyle);
       }
       if (typeof payload.preferences.sidebarSurfaceStyle === 'string') {
         safePreferences.sidebarSurfaceStyle = this.sanitizeSidebarSurfaceStyle(payload.preferences.sidebarSurfaceStyle);
@@ -1410,6 +1424,16 @@
       return allowed.has(value) ? value : 'default';
     }
 
+    sanitizeAutoCompactGroupStyle(value) {
+      const allowed = new Set(['default', 'dense', 'vertical']);
+      return allowed.has(value) ? value : 'default';
+    }
+
+    sanitizeSidebarAnimationStyle(value) {
+      const allowed = new Set(['none', 'soft', 'slide', 'pop', 'glow', 'fly', 'bounce', 'spin', 'glitch']);
+      return allowed.has(value) ? value : 'soft';
+    }
+
     sanitizeSpecialCategoryColors(colors = {}) {
       const source = colors && typeof colors === 'object' ? colors : {};
       return {
@@ -1470,6 +1494,28 @@
       await this.updateState((draft) => {
         const prefs = draft.preferences || (draft.preferences = {});
         prefs.autoCompactStreamerStyle = sanitized;
+      });
+    }
+
+    async setAutoCompactGroupStyle(value) {
+      const sanitized = this.sanitizeAutoCompactGroupStyle(value);
+      if (this.sanitizeAutoCompactGroupStyle(this.state.preferences?.autoCompactGroupStyle) === sanitized) {
+        return;
+      }
+      await this.updateState((draft) => {
+        const prefs = draft.preferences || (draft.preferences = {});
+        prefs.autoCompactGroupStyle = sanitized;
+      });
+    }
+
+    async setSidebarAnimationStyle(value) {
+      const sanitized = this.sanitizeSidebarAnimationStyle(value);
+      if (this.sanitizeSidebarAnimationStyle(this.state.preferences?.sidebarAnimationStyle) === sanitized) {
+        return;
+      }
+      await this.updateState((draft) => {
+        const prefs = draft.preferences || (draft.preferences = {});
+        prefs.sidebarAnimationStyle = sanitized;
       });
     }
 

@@ -5,7 +5,7 @@ Twitch Favorites Sidebar is a browser extension and companion mobile app for peo
 
 The extension rebuilds the Twitch followed-channels sidebar with custom pinned favorites, nested groups, live filters, profile sync, VOD planning, and chat/moderation tools. The mobile app focuses on the same core library of groups, streamers, profiles, and VODs in a phone-friendly interface.
 
-Current release: v0.5.8
+Current release: v0.5.9
 
 ## English
 
@@ -54,6 +54,14 @@ The mobile app provides a compact companion experience:
 The APK is built from the Capacitor project in `mobile/` and `android/`.
 
 ### Release Timeline
+
+#### v0.5.9
+
+- Added streamer-card-only sidebar animations with stronger visual styles.
+- The animation preview now tests every visible streamer card.
+- Fixed animation behavior so groups and the full sidebar no longer appear to move.
+- Added group layout options: Classic, Dense row, and Vertical label.
+- Made group layout changes apply immediately and sync with profiles/backups.
 
 #### v0.5.8
 
@@ -179,6 +187,14 @@ L'application mobile permet de retrouver :
 - une notification quand une nouvelle version est disponible.
 
 ### Chronologie Des Versions
+
+#### v0.5.9
+
+- Ajout d'animations limitees aux cartes streamer avec des styles plus visibles.
+- Le test d'animation s'applique maintenant a toutes les cartes streamer visibles.
+- Correction du rendu pour eviter que les groupes ou toute la sidebar donnent l'impression de bouger.
+- Ajout des presentations de groupes : Classique, Ligne dense et Libelle vertical.
+- Les changements de presentation s'appliquent directement et se synchronisent avec les profils/backups.
 
 #### v0.5.8
 

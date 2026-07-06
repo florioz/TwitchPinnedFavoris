@@ -24,6 +24,8 @@ const DEFAULT_STATE = {
     categoryColorStyle: 'gradient',
     streamerItemStyle: 'default',
     autoCompactStreamerStyle: 'compact',
+    autoCompactGroupStyle: 'default',
+    sidebarAnimationStyle: 'soft',
     sidebarSurfaceStyle: 'default',
     sidebarSurfaceColor: '',
     specialCategoryColors: {},

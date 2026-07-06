@@ -16,15 +16,22 @@
       this.isAutoCompact = false;
       this.autoCompactLevel = 0;
       this.autoCompactFrame = null;
+      this.previousVisibleLogins = null;
+      this.previousCompactLevels = new Map();
+      this.previewTimer = null;
+      this.suppressAnimationsOnce = false;
+      this.boundPreviewAnimation = () => this.previewSidebarAnimation();
       this.boundMouseEnter = () => {
         if (!this.isSidebarHovering) {
           this.isSidebarHovering = true;
+          this.suppressAnimationsOnce = true;
           this.render();
         }
       };
       this.boundMouseLeave = () => {
         if (this.isSidebarHovering) {
           this.isSidebarHovering = false;
+          this.suppressAnimationsOnce = true;
           this.render();
         }
       };
@@ -33,15 +40,21 @@
     init() {
       this.unsubscribe = this.store.subscribe(() => this.render());
       this.observeSideNav();
+      window.addEventListener('tfr:previewSidebarAnimation', this.boundPreviewAnimation);
       this.render();
     }
 
     dispose() {
       this.unsubscribe?.();
       this.sideNavObserver?.disconnect();
+      window.removeEventListener('tfr:previewSidebarAnimation', this.boundPreviewAnimation);
       if (this.autoCompactFrame) {
         cancelAnimationFrame(this.autoCompactFrame);
         this.autoCompactFrame = null;
+      }
+      if (this.previewTimer) {
+        clearTimeout(this.previewTimer);
+        this.previewTimer = null;
       }
     }
 
@@ -58,6 +71,7 @@
       if (!enabled || !this.container) {
         this.isAutoCompact = false;
         this.autoCompactLevel = 0;
+        this.previousCompactLevels = new Map();
         clearGroupCompaction();
         this.container?.classList.remove('is-auto-compact');
         this.container?.removeAttribute('data-auto-compact');
@@ -85,6 +99,7 @@
         this.container.classList.remove('is-auto-compact');
         this.container.dataset.autoCompact = 'idle';
         this.container.dataset.autoCompactLevel = '0';
+        this.previousCompactLevels = new Map();
         return;
       }
 
@@ -118,6 +133,19 @@
       this.container.classList.toggle('is-auto-compact', shouldCompact);
       this.container.dataset.autoCompact = shouldCompact ? 'active' : 'idle';
       this.container.dataset.autoCompactLevel = String(nextLevel);
+      this.previousCompactLevels = new Map(
+        Array.from(this.container.querySelectorAll('.tfr-category-block[data-group-id]')).map((block) => [
+          block.dataset.groupId,
+          block.dataset.compactLevel || '0'
+        ])
+      );
+    }
+
+    getSidebarAnimationStyle() {
+      if (this.suppressAnimationsOnce) return 'none';
+      const allowed = new Set(['none', 'soft', 'slide', 'pop', 'glow', 'fly', 'bounce', 'spin', 'glitch']);
+      const value = this.store.getState()?.preferences?.sidebarAnimationStyle;
+      return allowed.has(value) ? value : 'soft';
     }
 
     hexToRgb(hex) {
@@ -245,6 +273,103 @@
         'arcade'
       ]);
       return allowed.has(value) ? value : 'default';
+    }
+
+    sanitizeSidebarAnimationStyle(value) {
+      const allowed = new Set(['none', 'soft', 'slide', 'pop', 'glow', 'fly', 'bounce', 'spin', 'glitch']);
+      return allowed.has(value) ? value : 'soft';
+    }
+
+    sanitizeAutoCompactGroupStyle(value) {
+      const allowed = new Set(['default', 'dense', 'vertical']);
+      return allowed.has(value) ? value : 'default';
+    }
+
+    captureEntrySnapshots() {
+      if (!this.container) return new Map();
+      const snapshots = new Map();
+      this.container.querySelectorAll('.tfr-favorite-entry[data-login]').forEach((entry) => {
+        const login = entry.dataset.login;
+        if (!login) return;
+        snapshots.set(login, {
+          rect: entry.getBoundingClientRect(),
+          clone: entry.cloneNode(true)
+        });
+      });
+      return snapshots;
+    }
+
+    animateRemovedEntries(previousSnapshots, currentLogins) {
+      const animationStyle = this.getSidebarAnimationStyle();
+      if (animationStyle === 'none') return;
+      previousSnapshots.forEach((snapshot, login) => {
+        if (currentLogins.has(login) || !snapshot?.clone || !snapshot?.rect) return;
+        const ghost = snapshot.clone;
+        ghost.classList.add('tfr-favorite-entry-ghost', 'tfr-entry-leave');
+        ghost.dataset.sidebarAnimation = animationStyle;
+        ghost.style.left = `${snapshot.rect.left}px`;
+        ghost.style.top = `${snapshot.rect.top}px`;
+        ghost.style.width = `${snapshot.rect.width}px`;
+        ghost.style.height = `${snapshot.rect.height}px`;
+        ghost.style.setProperty('--tfr-sidebar-animation', animationStyle);
+        document.body.appendChild(ghost);
+        window.setTimeout(() => ghost.remove(), animationStyle === 'fly' ? 820 : 620);
+      });
+    }
+
+    animateNewEntries(currentLogins) {
+      const animationStyle = this.getSidebarAnimationStyle();
+      if (animationStyle === 'none' || !this.previousVisibleLogins) return;
+      this.container.querySelectorAll('.tfr-favorite-entry[data-login]').forEach((entry) => {
+        if (this.previousVisibleLogins.has(entry.dataset.login)) return;
+        if (animationStyle === 'fly') {
+          this.animateFlyingEntry(entry);
+          return;
+        }
+        entry.classList.add('tfr-entry-enter');
+        window.setTimeout(() => entry.classList.remove('tfr-entry-enter'), 620);
+      });
+    }
+
+    animateFlyingEntry(entry) {
+      const rect = entry.getBoundingClientRect();
+      const ghost = entry.cloneNode(true);
+      ghost.classList.add('tfr-favorite-entry-ghost', 'tfr-entry-fly-in');
+      ghost.dataset.sidebarAnimation = 'fly';
+      ghost.style.left = `${rect.left}px`;
+      ghost.style.top = `${rect.top}px`;
+      ghost.style.width = `${rect.width}px`;
+      ghost.style.height = `${rect.height}px`;
+      ghost.style.setProperty('--tfr-fly-x', `${Math.max(240, window.innerWidth - rect.left + 32)}px`);
+      document.body.appendChild(ghost);
+      entry.classList.add('tfr-entry-fly-target');
+      window.setTimeout(() => {
+        ghost.remove();
+        entry.classList.remove('tfr-entry-fly-target');
+      }, 820);
+    }
+
+    previewSidebarAnimation() {
+      if (!this.container || this.getSidebarAnimationStyle() === 'none') return;
+      const entries = Array.from(this.container.querySelectorAll('.tfr-favorite-entry'));
+      const animationStyle = this.getSidebarAnimationStyle();
+      const stepMs = animationStyle === 'fly' ? 55 : 28;
+      entries.forEach((entry, index) => {
+        window.setTimeout(() => {
+          if (animationStyle === 'fly') {
+            this.animateFlyingEntry(entry);
+            return;
+          }
+          entry.classList.remove('tfr-entry-enter');
+          void entry.offsetWidth;
+          entry.classList.add('tfr-entry-enter');
+        }, index * stepMs);
+      });
+      if (this.previewTimer) clearTimeout(this.previewTimer);
+      this.previewTimer = window.setTimeout(() => {
+        entries.forEach((entry) => entry.classList.remove('tfr-entry-enter'));
+        this.previewTimer = null;
+      }, 900 + entries.length * stepMs);
     }
 
     observeSideNav() {
@@ -572,6 +697,7 @@
       const anchor = document.createElement('a');
       anchor.className = 'tfr-favorite-entry';
       anchor.classList.add('side-nav-card__link', 'tw-link');
+      anchor.dataset.login = fav.login;
       anchor.href = `https://www.twitch.tv/${fav.login}`;
       anchor.target = '_self';
       anchor.rel = 'noopener noreferrer';
@@ -627,24 +753,34 @@
     render() {
       if (!this.container || !document.body.contains(this.container)) {
         this.ensureContainer();
-        if (!this.container) return;
+        if (!this.container) {
+          this.suppressAnimationsOnce = false;
+          return;
+        }
       }
 
+      try {
       const state = this.store.getState();
       const liveData = this.store.getLiveData();
+    const previousSnapshots = this.captureEntrySnapshots();
     const hideCollapsedUntilHover = Boolean(state.preferences?.hideCollapsedGroupsUntilHover);
     const shouldHideCollapsedGroups = hideCollapsedUntilHover && !this.isSidebarHovering;
     const autoCompactEnabled = Boolean(state.preferences?.autoCompactSidebarEnabled);
     if (!autoCompactEnabled) {
       this.isAutoCompact = false;
       this.autoCompactLevel = 0;
+      this.previousCompactLevels = new Map();
     }
     const normalStreamerStyle = this.sanitizeStreamerItemStyle(state.preferences?.streamerItemStyle);
     const compactStreamerStyle = this.sanitizeStreamerItemStyle(state.preferences?.autoCompactStreamerStyle || 'compact');
+    const compactGroupStyle = this.sanitizeAutoCompactGroupStyle(state.preferences?.autoCompactGroupStyle);
+    const animationStyle = this.sanitizeSidebarAnimationStyle(state.preferences?.sidebarAnimationStyle);
     const categoryAppearance = this.getCategoryAppearance(state.preferences || {});
     this.container.dataset.streamerStyle = normalStreamerStyle;
     this.container.dataset.normalStreamerStyle = normalStreamerStyle;
     this.container.dataset.compactStreamerStyle = compactStreamerStyle;
+    this.container.dataset.compactGroupStyle = compactGroupStyle;
+    this.container.dataset.sidebarAnimation = animationStyle;
     this.container.dataset.autoCompactLevel = String(this.autoCompactLevel);
     this.container.dataset.surfaceStyle = this.sanitizeSidebarSurfaceStyle(state.preferences?.sidebarSurfaceStyle);
     this.container.removeAttribute('data-surface-color');
@@ -694,6 +830,11 @@
       block.className = 'tfr-category-block';
       block.dataset.depth = String(depth);
       block.dataset.totalEntries = String(group.totalEntries);
+      block.dataset.groupId = group.id;
+      const previousCompactLevel = this.previousCompactLevels.get(group.id);
+      if (previousCompactLevel && previousCompactLevel !== '0') {
+        block.dataset.compactLevel = previousCompactLevel;
+      }
       if (group.collapsed) block.classList.add('is-collapsed');
       if (group.isRecentLive) block.classList.add('tfr-category-block--recent');
       if (group.color) {
@@ -759,7 +900,16 @@
         this.container.appendChild(block);
       }
     });
+    const currentLogins = new Set(
+      Array.from(this.container.querySelectorAll('.tfr-favorite-entry[data-login]')).map((entry) => entry.dataset.login)
+    );
+    this.animateRemovedEntries(previousSnapshots, currentLogins);
+    this.animateNewEntries(currentLogins);
+    this.previousVisibleLogins = currentLogins;
     this.scheduleAutoCompactCheck(autoCompactEnabled);
+      } finally {
+        this.suppressAnimationsOnce = false;
+      }
     }
   }
 

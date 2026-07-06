@@ -767,6 +767,8 @@ class FavoritesOverlay {
     const prefs = state.preferences || {};
     const streamerStyle = this.store.sanitizeStreamerItemStyle?.(prefs.streamerItemStyle) || 'default';
     const autoCompactStyle = this.store.sanitizeStreamerItemStyle?.(prefs.autoCompactStreamerStyle || 'compact') || 'compact';
+    const autoCompactGroupStyle = this.store.sanitizeAutoCompactGroupStyle?.(prefs.autoCompactGroupStyle) || 'default';
+    const animationStyle = this.store.sanitizeSidebarAnimationStyle?.(prefs.sidebarAnimationStyle) || 'soft';
 
     const wrapper = document.createElement('section');
     wrapper.className = 'tfr-streamer-appearance-settings';
@@ -855,12 +857,91 @@ class FavoritesOverlay {
     ));
     wrapper.appendChild(compactField);
 
+    const compactGroupField = document.createElement('label');
+    compactGroupField.className = 'tfr-streamer-appearance-settings__field';
+    compactGroupField.setAttribute('for', 'tfr-auto-compact-group-style');
+    const compactGroupLabel = document.createElement('span');
+    compactGroupLabel.className = 'tfr-streamer-appearance-settings__label';
+    const compactGroupLabelText = document.createElement('strong');
+    compactGroupLabelText.textContent = t('streamerAppearance.autoCompactGroupStyle');
+    compactGroupLabel.appendChild(compactGroupLabelText);
+    compactGroupField.appendChild(compactGroupLabel);
+
+    const compactGroupValues = ['default', 'dense', 'vertical'];
+    const compactGroupSelect = document.createElement('select');
+    compactGroupSelect.id = 'tfr-auto-compact-group-style';
+    compactGroupSelect.className = 'tfr-streamer-appearance-settings__select';
+    compactGroupValues.forEach((style) => {
+      const option = document.createElement('option');
+      option.value = style;
+      option.textContent = t(`streamerAppearance.groupStyle.${style}`);
+      compactGroupSelect.appendChild(option);
+    });
+    compactGroupSelect.value = autoCompactGroupStyle;
+    compactGroupSelect.addEventListener('change', async (event) => {
+      await this.store.setAutoCompactGroupStyle(event.target.value);
+      this.render();
+    });
+    compactGroupField.appendChild(this.renderStyleStepper(
+      compactGroupSelect,
+      compactGroupValues,
+      (nextValue) => this.store.setAutoCompactGroupStyle(nextValue)
+    ));
+    wrapper.appendChild(compactGroupField);
+
+    const animationField = document.createElement('label');
+    animationField.className = 'tfr-streamer-appearance-settings__field';
+    animationField.setAttribute('for', 'tfr-sidebar-animation-style');
+    const animationLabel = document.createElement('span');
+    animationLabel.className = 'tfr-streamer-appearance-settings__label';
+    const animationLabelText = document.createElement('strong');
+    animationLabelText.textContent = t('streamerAppearance.animationStyle');
+    animationLabel.appendChild(animationLabelText);
+    animationField.appendChild(animationLabel);
+
+    const animationValues = ['none', 'soft', 'slide', 'pop', 'glow', 'fly', 'bounce', 'spin', 'glitch'];
+    const animationSelect = document.createElement('select');
+    animationSelect.id = 'tfr-sidebar-animation-style';
+    animationSelect.className = 'tfr-streamer-appearance-settings__select';
+    animationValues.forEach((style) => {
+      const option = document.createElement('option');
+      option.value = style;
+      option.textContent = t(`streamerAppearance.animation.${style}`);
+      animationSelect.appendChild(option);
+    });
+    animationSelect.value = animationStyle;
+    animationSelect.addEventListener('change', async (event) => {
+      await this.store.setSidebarAnimationStyle(event.target.value);
+      this.previewSidebarAnimation();
+      this.render();
+    });
+    animationField.appendChild(this.renderStyleStepper(
+      animationSelect,
+      animationValues,
+      async (nextValue) => {
+        await this.store.setSidebarAnimationStyle(nextValue);
+        this.previewSidebarAnimation();
+      }
+    ));
+    wrapper.appendChild(animationField);
+
+    const previewButton = document.createElement('button');
+    previewButton.type = 'button';
+    previewButton.className = 'tfr-secondary-button';
+    previewButton.textContent = t('streamerAppearance.animationPreview');
+    previewButton.addEventListener('click', () => this.previewSidebarAnimation());
+    wrapper.appendChild(previewButton);
+
     const hint = document.createElement('p');
     hint.className = 'tfr-streamer-appearance-settings__hint';
     hint.textContent = t('streamerAppearance.hint');
     wrapper.appendChild(hint);
 
     return wrapper;
+  }
+
+  previewSidebarAnimation() {
+    window.dispatchEvent(new CustomEvent('tfr:previewSidebarAnimation'));
   }
 
   renderSidebarSurfaceSettings(state) {

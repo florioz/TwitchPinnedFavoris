@@ -1,6 +1,6 @@
 {
   "name": "twitch-pinned-favoris",
-  "version": "0.5.8",
+  "version": "0.5.9",
   "private": true,
   "description": "Twitch Favorites Sidebar browser extension.",
   "scripts": {
