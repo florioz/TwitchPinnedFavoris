@@ -35,11 +35,14 @@
 }
 
 .tfr-inline-button.is-remove {
-  background: #ff4f69;
+  background: var(--color-background-button-secondary-default, rgba(31, 31, 35, 0.95));
+  color: #ffffff;
+  box-shadow: none;
 }
 
 .tfr-inline-button.is-remove:hover {
-  background: #ff6e86;
+  background: var(--color-background-button-secondary-hover, rgba(62, 62, 70, 0.95));
+  color: #ffffff;
 }
 
 .tfr-inline-button.is-loading {
@@ -149,7 +152,3 @@
   border-radius: 50%;
   background-color: #bf94ff;
 }
-
-
-
-

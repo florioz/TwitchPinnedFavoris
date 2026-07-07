@@ -915,13 +915,21 @@
 
 
 
-  const refreshSnapshot = async (forceRefresh = false) => {
+  const refreshSnapshot = async (forceRefresh = false, options = {}) => {
 
-    state.panelEl?.classList.add('tfr-panel--loading');
+    const showLoading = options.showLoading !== false && (
+      forceRefresh || !Object.keys(state.snapshot?.liveData || {}).length
+    );
+
+    if (showLoading) {
+      state.panelEl?.classList.add('tfr-panel--loading');
+    }
 
     const snapshot = await sendMessage({ type: 'TFR_GET_POPUP_STATE', forceRefresh });
 
-    state.panelEl?.classList.remove('tfr-panel--loading');
+    if (showLoading) {
+      state.panelEl?.classList.remove('tfr-panel--loading');
+    }
 
     if (snapshot && !snapshot.error) {
 
@@ -971,7 +979,8 @@
 
     if (open) {
 
-      refreshSnapshot(true);
+      refreshSnapshot(false, { showLoading: false });
+      setTimeout(() => refreshSnapshot(true, { showLoading: false }), 150);
 
       scheduleRefreshInterval();
 
@@ -1163,7 +1172,6 @@
   }
 
 })();
-
 
 
 

@@ -16,13 +16,20 @@
       this.isAutoCompact = false;
       this.autoCompactLevel = 0;
       this.autoCompactFrame = null;
+      this.ensureContainerTimer = null;
       this.renderFrame = null;
       this.sideNavFrame = null;
       this.previousVisibleLogins = null;
       this.previousCompactLevels = new Map();
+      this.lastRenderSignature = '';
+      this.lastAutoCompactSignature = '';
       this.previewTimer = null;
       this.suppressAnimationsOnce = false;
       this.boundPreviewAnimation = () => this.previewSidebarAnimation();
+      this.boundResize = () => {
+        this.lastAutoCompactSignature = '';
+        this.scheduleRender();
+      };
       this.boundMouseEnter = () => {
         if (!this.isSidebarHovering) {
           this.isSidebarHovering = true;
@@ -42,7 +49,14 @@
     init() {
       this.unsubscribe = this.store.subscribe(() => this.scheduleRender());
       this.observeSideNav();
+      this.ensureContainerTimer = window.setInterval(() => {
+        if (this.container && document.body.contains(this.container)) {
+          return;
+        }
+        this.ensureContainer();
+      }, 2500);
       window.addEventListener('tfr:previewSidebarAnimation', this.boundPreviewAnimation);
+      window.addEventListener('resize', this.boundResize);
       this.render();
     }
 
@@ -50,6 +64,7 @@
       this.unsubscribe?.();
       this.sideNavObserver?.disconnect();
       window.removeEventListener('tfr:previewSidebarAnimation', this.boundPreviewAnimation);
+      window.removeEventListener('resize', this.boundResize);
       if (this.autoCompactFrame) {
         cancelAnimationFrame(this.autoCompactFrame);
         this.autoCompactFrame = null;
@@ -61,6 +76,10 @@
       if (this.sideNavFrame) {
         cancelAnimationFrame(this.sideNavFrame);
         this.sideNavFrame = null;
+      }
+      if (this.ensureContainerTimer) {
+        clearInterval(this.ensureContainerTimer);
+        this.ensureContainerTimer = null;
       }
       if (this.previewTimer) {
         clearTimeout(this.previewTimer);
@@ -92,6 +111,7 @@
         this.isAutoCompact = false;
         this.autoCompactLevel = 0;
         this.previousCompactLevels = new Map();
+        this.lastAutoCompactSignature = '';
         clearGroupCompaction();
         this.container?.classList.remove('is-auto-compact');
         this.container?.removeAttribute('data-auto-compact');
@@ -162,7 +182,7 @@
     }
 
     getSidebarAnimationStyle() {
-      if (this.suppressAnimationsOnce) return 'none';
+      if (this.suppressAnimationsOnce || document.hidden) return 'none';
       const allowed = new Set(['none', 'soft', 'slide', 'pop', 'glow', 'fly', 'bounce', 'spin', 'glitch']);
       const value = this.store.getState()?.preferences?.sidebarAnimationStyle;
       return allowed.has(value) ? value : 'soft';
@@ -305,8 +325,89 @@
       return allowed.has(value) ? value : 'default';
     }
 
+    createRenderSignature(state, liveData, groups, options = {}) {
+      const preferences = state.preferences || {};
+      const liveParts = groups.flatMap((group) => {
+        const parts = [];
+        const walk = (item) => {
+          parts.push([
+            'g',
+            item.id,
+            item.name,
+            item.collapsed ? 1 : 0,
+            item.color || '',
+            item.totalEntries || 0
+          ].join(':'));
+          (item.entries || []).forEach((fav) => {
+            const live = getLiveDataEntry(liveData, fav) || {};
+            parts.push([
+              'f',
+              fav.login,
+              live.isLive ? 1 : 0,
+              live.displayName || fav.displayName || fav.login,
+              live.avatarUrl || fav.avatarUrl || '',
+              live.viewers || 0,
+              live.game || '',
+              live.title || ''
+            ].join(':'));
+          });
+          (item.children || []).forEach(walk);
+        };
+        walk(group);
+        return parts;
+      });
+      return JSON.stringify({
+        enabled: state.preferences?.liveFavoritesEnabled !== false,
+        hover: Boolean(options.isSidebarHovering),
+        compactLevel: this.autoCompactLevel,
+        prefs: {
+          hideCollapsedGroupsUntilHover: Boolean(preferences.hideCollapsedGroupsUntilHover),
+          autoCompactSidebarEnabled: Boolean(preferences.autoCompactSidebarEnabled),
+          streamerItemStyle: preferences.streamerItemStyle || '',
+          autoCompactStreamerStyle: preferences.autoCompactStreamerStyle || '',
+          autoCompactGroupStyle: preferences.autoCompactGroupStyle || '',
+          sidebarAnimationStyle: preferences.sidebarAnimationStyle || '',
+          sidebarSurfaceStyle: preferences.sidebarSurfaceStyle || '',
+          sidebarSurfaceColor: preferences.sidebarSurfaceColor || '',
+          categoryColorOpacity: preferences.categoryColorOpacity,
+          categoryColorGradient: preferences.categoryColorGradient,
+          categoryColorStyle: preferences.categoryColorStyle || '',
+          specialCategoryColors: preferences.specialCategoryColors || {}
+        },
+        liveParts
+      });
+    }
+
+    createAutoCompactSignature(state, groups) {
+      const preferences = state.preferences || {};
+      const groupParts = [];
+      groups.forEach((group) => {
+        const walk = (item) => {
+          groupParts.push([
+            item.id,
+            item.collapsed ? 1 : 0,
+            item.totalEntries || 0,
+            (item.children || []).length
+          ].join(':'));
+          (item.children || []).forEach(walk);
+        };
+        walk(group);
+      });
+      return JSON.stringify({
+        enabled: Boolean(preferences.autoCompactSidebarEnabled),
+        streamerItemStyle: preferences.streamerItemStyle || '',
+        autoCompactStreamerStyle: preferences.autoCompactStreamerStyle || '',
+        autoCompactGroupStyle: preferences.autoCompactGroupStyle || '',
+        sidebarSurfaceStyle: preferences.sidebarSurfaceStyle || '',
+        hideCollapsedGroupsUntilHover: Boolean(preferences.hideCollapsedGroupsUntilHover),
+        hover: Boolean(this.isSidebarHovering),
+        groupParts
+      });
+    }
+
     captureEntrySnapshots() {
       if (!this.container) return new Map();
+      if (this.getSidebarAnimationStyle() === 'none') return new Map();
       const snapshots = new Map();
       this.container.querySelectorAll('.tfr-favorite-entry[data-login]').forEach((entry) => {
         const login = entry.dataset.login;
@@ -397,7 +498,7 @@
       this.sideNavObserver = new MutationObserver(() => {
         this.scheduleEnsureContainer();
       });
-      this.sideNavObserver.observe(document.body, { childList: true, subtree: true });
+      this.sideNavObserver.observe(document.body, { childList: true, subtree: false });
       this.ensureContainer();
     }
 
@@ -792,7 +893,6 @@
       try {
       const state = this.store.getState();
       const liveData = this.store.getLiveData();
-    const previousSnapshots = this.captureEntrySnapshots();
     const hideCollapsedUntilHover = Boolean(state.preferences?.hideCollapsedGroupsUntilHover);
     const shouldHideCollapsedGroups = hideCollapsedUntilHover && !this.isSidebarHovering;
     const autoCompactEnabled = Boolean(state.preferences?.autoCompactSidebarEnabled);
@@ -821,6 +921,24 @@
     this.container.style.removeProperty('--tfr-sidebar-custom-glow');
     this.applySurfaceColor(this.container, state.preferences?.sidebarSurfaceColor);
     const groups = this.collectGroups(state, liveData);
+    const nextRenderSignature = this.createRenderSignature(state, liveData, groups, {
+      isSidebarHovering: this.isSidebarHovering
+    });
+    if (this.lastRenderSignature === nextRenderSignature && this.container.childElementCount) {
+      return;
+    }
+    const nextVisibleLogins = new Set();
+    groups.forEach((group) => {
+      const walk = (item) => {
+        (item.entries || []).forEach((fav) => nextVisibleLogins.add(fav.login));
+        (item.children || []).forEach(walk);
+      };
+      walk(group);
+    });
+    const visibleLoginsChanged = !this.previousVisibleLogins
+      || nextVisibleLogins.size !== this.previousVisibleLogins.size
+      || Array.from(nextVisibleLogins).some((login) => !this.previousVisibleLogins.has(login));
+    const previousSnapshots = visibleLoginsChanged ? this.captureEntrySnapshots() : new Map();
     const totalLive = groups.reduce((sum, group) => sum + group.totalEntries, 0);
     const isEnabled = state.preferences?.liveFavoritesEnabled !== false;
 
@@ -930,13 +1048,20 @@
         this.container.appendChild(block);
       }
     });
+    const nextAutoCompactSignature = this.createAutoCompactSignature(state, groups);
     const currentLogins = new Set(
       Array.from(this.container.querySelectorAll('.tfr-favorite-entry[data-login]')).map((entry) => entry.dataset.login)
     );
-    this.animateRemovedEntries(previousSnapshots, currentLogins);
-    this.animateNewEntries(currentLogins);
+    if (visibleLoginsChanged) {
+      this.animateRemovedEntries(previousSnapshots, currentLogins);
+      this.animateNewEntries(currentLogins);
+    }
     this.previousVisibleLogins = currentLogins;
-    this.scheduleAutoCompactCheck(autoCompactEnabled);
+    this.lastRenderSignature = nextRenderSignature;
+    if (this.lastAutoCompactSignature !== nextAutoCompactSignature) {
+      this.lastAutoCompactSignature = nextAutoCompactSignature;
+      this.scheduleAutoCompactCheck(autoCompactEnabled);
+    }
       } finally {
         this.suppressAnimationsOnce = false;
       }

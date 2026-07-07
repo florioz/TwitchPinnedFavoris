@@ -1097,6 +1097,35 @@ const ensureLiveSnapshot = async (forceRefresh = false) => {
   if (!forceRefresh && liveCache && Date.now() - liveCacheTimestamp < LIVE_CACHE_TTL) {
     return liveCache;
   }
+  if (!forceRefresh) {
+    const stored = await extensionApi.storage.local.get([STORAGE_KEY, LIVE_CACHE_KEY, 'tfr_lastLiveUpdate']);
+    const storedState = stored?.[STORAGE_KEY] && typeof stored[STORAGE_KEY] === 'object'
+      ? stored[STORAGE_KEY]
+      : DEFAULT_STATE;
+    const cachedLiveData = stored?.[LIVE_CACHE_KEY] && typeof stored[LIVE_CACHE_KEY] === 'object'
+      ? stored[LIVE_CACHE_KEY]
+      : {};
+    const cachedSnapshot = {
+      favorites: cloneData(storedState.favorites || {}),
+      categories: cloneData(Array.isArray(storedState.categories) ? storedState.categories : []),
+      preferences: cloneData(storedState.preferences || DEFAULT_STATE.preferences),
+      liveData: cloneData(cachedLiveData),
+      timestamp: stored?.tfr_lastLiveUpdate || Date.now()
+    };
+    liveCache = cachedSnapshot;
+    liveCacheTimestamp = Date.now();
+    if (!refreshPromise) {
+      refreshPromise = evaluateLiveStatus('popup-background')
+        .catch((error) => {
+          console.error('[TFR] failed to refresh live snapshot', error);
+          return null;
+        })
+        .finally(() => {
+          refreshPromise = null;
+        });
+    }
+    return cachedSnapshot;
+  }
   if (!refreshPromise) {
     refreshPromise = evaluateLiveStatus('popup')
       .catch((error) => {

@@ -5,7 +5,7 @@ Twitch Favorites Sidebar is a browser extension and companion mobile app for peo
 
 The extension rebuilds the Twitch followed-channels sidebar with custom pinned favorites, nested groups, live filters, profile sync, VOD planning, and chat/moderation tools. The mobile app focuses on the same core library of groups, streamers, profiles, and VODs in a phone-friendly interface.
 
-Current release: v0.6.0
+Current release: v0.6.1
 
 ## English
 
@@ -56,6 +56,15 @@ The mobile app provides a compact companion experience:
 The APK is built from the Capacitor project in `mobile/` and `android/`.
 
 ### Release Timeline
+
+#### v0.6.1
+
+- Improved the Chrome side panel startup by showing the last cached live snapshot immediately, then refreshing Twitch data in the background.
+- Reduced sidebar rendering cost when multiple Twitch windows are open by skipping unchanged renders.
+- Reduced Twitch DOM observer work so chat/player mutations no longer trigger expensive sidebar checks.
+- Limited sidebar animations and layout measurements to real streamer list changes.
+- Kept the add-favorite button style unchanged while making the already-favorited state match Twitch's dark button style with a white star.
+- Updated the extension icons used by Chrome and Firefox builds.
 
 #### v0.6.0
 
@@ -198,6 +207,15 @@ L'application mobile permet de retrouver :
 - une notification quand une nouvelle version est disponible.
 
 ### Chronologie Des Versions
+
+#### v0.6.1
+
+- Ouverture plus rapide du side panel Chrome : le dernier cache live s'affiche tout de suite, puis les donnees Twitch se mettent a jour en arriere-plan.
+- Reduction du cout de rendu de la sidebar quand plusieurs fenetres Twitch sont ouvertes.
+- Reduction du travail des observers Twitch pour eviter que les mutations du chat/lecteur relancent des verifications lourdes.
+- Les animations et mesures de layout de la sidebar ne se lancent plus que lors de vrais changements dans la liste des streamers.
+- Le bouton d'ajout en favori garde son style d'origine, et l'etat deja favori adopte le style sombre Twitch avec etoile blanche.
+- Mise a jour des icones de l'extension pour les builds Chrome et Firefox.
 
 #### v0.6.0
 
