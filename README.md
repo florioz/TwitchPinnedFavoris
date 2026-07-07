@@ -5,7 +5,7 @@ Twitch Favorites Sidebar is a browser extension and companion mobile app for peo
 
 The extension rebuilds the Twitch followed-channels sidebar with custom pinned favorites, nested groups, live filters, profile sync, VOD planning, and chat/moderation tools. The mobile app focuses on the same core library of groups, streamers, profiles, and VODs in a phone-friendly interface.
 
-Current release: v0.6.1
+Current release: v0.6.2
 
 ## English
 
@@ -56,6 +56,12 @@ The mobile app provides a compact companion experience:
 The APK is built from the Capacitor project in `mobile/` and `android/`.
 
 ### Release Timeline
+
+#### v0.6.2
+
+- Fixed the Twitch channel favorite button placement on channel pages with the newer header layout.
+- Prevented the favorite star button from being merged into Twitch's `Follow` button group.
+- Kept the original favorite button styling while improving anchor selection around channel action buttons.
 
 #### v0.6.1
 
@@ -207,6 +213,12 @@ L'application mobile permet de retrouver :
 - une notification quand une nouvelle version est disponible.
 
 ### Chronologie Des Versions
+
+#### v0.6.2
+
+- Correction du placement du bouton favori sur les pages chaine avec le nouveau layout Twitch.
+- Le bouton etoile n'est plus injecte dans le meme groupe visuel que le bouton `Suivre`.
+- Le style original du bouton favori est conserve, avec une meilleure detection des boutons d'action de chaine.
 
 #### v0.6.1
 

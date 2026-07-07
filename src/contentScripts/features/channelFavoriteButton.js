@@ -76,7 +76,103 @@
       }, 1500);
     }
 
+    isUsableAnchor(node) {
+      if (!(node instanceof HTMLElement)) {
+        return false;
+      }
+      if (node === this.button || node.closest('.tfr-inline-button')) {
+        return false;
+      }
+      if (node.closest('nav, [role="navigation"], [role="tablist"], [data-a-target="channel-home-tab"]')) {
+        return false;
+      }
+      const rect = node.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) {
+        return false;
+      }
+      const style = window.getComputedStyle(node);
+      return style.display !== 'none' && style.visibility !== 'hidden';
+    }
+
+    getButtonText(button) {
+      return [
+        button.getAttribute('aria-label'),
+        button.getAttribute('title'),
+        button.textContent
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .trim()
+        .toLowerCase();
+    }
+
+    findChannelActionButton() {
+      const actionPatterns = [
+        /(^|\s)(suivre|follow)(\s|$)/i,
+        /s['’]?abonner|subscribe/i,
+        /abonnements?-cadeaux|gift/i,
+        /\bbits?\b/i
+      ];
+      const buttons = Array.from(document.querySelectorAll('main button, [data-a-target="channel-header-right"] button'));
+      const candidates = buttons
+        .filter((button) => this.isUsableAnchor(button))
+        .map((button) => ({
+          button,
+          text: this.getButtonText(button),
+          rect: button.getBoundingClientRect()
+        }))
+        .filter(({ text }) => actionPatterns.some((pattern) => pattern.test(text)));
+
+      if (!candidates.length) {
+        return null;
+      }
+
+      const followCandidate = candidates.find(({ text }) => /(^|\s)(suivre|follow)(\s|$)/i.test(text));
+      if (followCandidate) {
+        return followCandidate.button;
+      }
+
+      return candidates
+        .sort((a, b) => (a.rect.top - b.rect.top) || (b.rect.left - a.rect.left))[0]
+        .button;
+    }
+
+    isPrimaryFollowButton(node) {
+      if (!(node instanceof HTMLElement)) {
+        return false;
+      }
+      return /(^|\s)(suivre|follow)(\s|$)/i.test(this.getButtonText(node));
+    }
+
+    getMountPoint(anchor) {
+      if (!anchor?.parentElement) {
+        return null;
+      }
+      const group = anchor.parentElement;
+      const shouldEscapeButtonGroup = this.isPrimaryFollowButton(anchor)
+        && group instanceof HTMLElement
+        && group.children.length <= 3
+        && group.parentElement instanceof HTMLElement;
+
+      if (shouldEscapeButtonGroup) {
+        return {
+          parent: group.parentElement,
+          before: group.nextSibling
+        };
+      }
+
+      return {
+        parent: group,
+        before: null
+      };
+    }
+
     findAnchor() {
+      const channelAction = this.findChannelActionButton();
+      if (channelAction) {
+        return channelAction;
+      }
+
       const selectors = [
         '[data-a-target="player-overlay-notifications-toggle-button"]',
         '[data-a-target="player-notifications-toggle-button"]',
@@ -89,14 +185,14 @@
       ];
       for (const selector of selectors) {
         const node = document.querySelector(selector);
-        if (node && !node.closest('nav')) {
+        if (this.isUsableAnchor(node)) {
           return node;
         }
       }
       const buttons = Array.from(document.querySelectorAll('button[aria-label]'));
       const primary = buttons.find((btn) => {
         const label = (btn.getAttribute('aria-label') || '').toLowerCase();
-        return label.includes('notification') && !btn.closest('nav');
+        return label.includes('notification') && this.isUsableAnchor(btn);
       });
       if (primary) {
         return primary;
@@ -115,18 +211,13 @@
       for (const selector of containerSelectors) {
         const container = document.querySelector(selector);
         if (!container) continue;
+        if (container instanceof HTMLButtonElement && this.isUsableAnchor(container)) {
+          return container;
+        }
         const candidate = container.querySelector('button');
-        if (candidate && !candidate.closest('nav')) {
+        if (this.isUsableAnchor(candidate)) {
           return candidate;
         }
-      }
-      const channelHeading = document.querySelector('main h1, h1');
-      const headingActions = channelHeading?.closest('[class*="channel"]')?.querySelector('button');
-      if (headingActions && !headingActions.closest('nav')) {
-        return headingActions;
-      }
-      if (channelHeading?.parentElement && !channelHeading.closest('nav')) {
-        return channelHeading;
       }
       return null;
     }
@@ -138,7 +229,7 @@
       button.className = 'tfr-inline-button';
       button.setAttribute('aria-label', 'Ajouter ou retirer ce streamer des favoris Twitch');
       button.title = 'Ajouter ou retirer ce streamer des favoris Twitch';
-      button.style.marginLeft = '8px';
+      button.style.setProperty('margin-left', '8px', 'important');
       button.style.marginTop = '0';
       button.style.alignSelf = 'center';
       button.style.pointerEvents = 'auto';
@@ -173,13 +264,14 @@
         return;
       }
       const anchor = this.findAnchor();
-      if (!anchor || !anchor.parentElement) {
+      const mountPoint = this.getMountPoint(anchor);
+      if (!anchor || !mountPoint?.parent) {
         this.removeButton();
         return;
       }
       const button = this.ensureButton();
-      if (anchor.parentElement.contains(button)) return;
-      anchor.parentElement.appendChild(button);
+      if (button.parentElement === mountPoint.parent) return;
+      mountPoint.parent.insertBefore(button, mountPoint.before || null);
       this.updateButtonAppearance();
     }
 
