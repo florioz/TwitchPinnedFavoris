@@ -5,7 +5,7 @@ Twitch Favorites Sidebar is a browser extension and companion mobile app for peo
 
 The extension rebuilds the Twitch followed-channels sidebar with custom pinned favorites, nested groups, live filters, profile sync, VOD planning, and chat/moderation tools. The mobile app focuses on the same core library of groups, streamers, profiles, and VODs in a phone-friendly interface.
 
-Current release: v0.5.9
+Current release: v0.6.0
 
 ## English
 
@@ -31,10 +31,12 @@ The extension runs on Twitch and adds:
 - a top navigation shortcut to the VOD planner;
 - a Twitch channel favorite button;
 - a rebuilt favorites sidebar with live status;
-- a floating live panel available outside Twitch;
+- a Chrome side panel that keeps live favorites available from any website;
 - profile import/export and Google Drive sync;
 - chat history and moderation history tools;
 - update notifications and release awareness.
+
+For Chrome Web Store publication, see [CHROME_STORE_LISTING.md](CHROME_STORE_LISTING.md) and [PRIVACY.md](PRIVACY.md).
 
 Chrome, Edge, Brave, Opera and other Chromium browsers use the root `manifest.json`. Firefox uses the generated `firefox/` folder.
 
@@ -54,6 +56,15 @@ The mobile app provides a compact companion experience:
 The APK is built from the Capacitor project in `mobile/` and `android/`.
 
 ### Release Timeline
+
+#### v0.6.0
+
+- Migrated the global favorites access to the native Chrome side panel.
+- Removed broad all-sites host permissions and reduced the Chrome manifest to feature-specific hosts.
+- Added Chrome Web Store preparation docs, privacy policy, permission justifications, and a store-ready build script.
+- Improved live refresh performance with centralized background snapshots, fewer content-script refreshes, and limited concurrent Twitch requests.
+- Reduced sidebar/chat/moderation observer work to avoid periodic browser lag.
+- Hardened panel and toast rendering by escaping dynamic Twitch data before HTML injection.
 
 #### v0.5.9
 
@@ -187,6 +198,15 @@ L'application mobile permet de retrouver :
 - une notification quand une nouvelle version est disponible.
 
 ### Chronologie Des Versions
+
+#### v0.6.0
+
+- Migration de l'acces global aux favoris vers le side panel natif Chrome.
+- Suppression des permissions globales tous sites et reduction du manifest Chrome aux hosts vraiment utiles.
+- Ajout des documents de preparation Chrome Web Store, politique de confidentialite, justifications de permissions et script de build store-ready.
+- Optimisation des refresh live avec snapshots centralises en background, moins de refresh cote page Twitch et requetes Twitch limitees en parallele.
+- Reduction du travail des observers sidebar/chat/moderation pour limiter les micro-lags periodiques.
+- Securisation du rendu panel/toast en echappant les donnees Twitch dynamiques avant injection HTML.
 
 #### v0.5.9
 

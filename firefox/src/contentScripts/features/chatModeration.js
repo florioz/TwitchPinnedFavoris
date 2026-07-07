@@ -54,41 +54,49 @@
     }
 
     async fetchSevenTvEmotes(url, nested = false) {
-      const response = await fetch(url, { credentials: 'omit' });
-      if (!response.ok) return new Map();
-      const payload = await response.json().catch(() => null);
-      const emotes = nested ? payload?.emote_set?.emotes : payload?.emotes;
-      const result = new Map();
-      if (Array.isArray(emotes)) {
-        emotes.forEach((entry) => {
-          const name = entry?.name || entry?.data?.name;
-          const id = entry?.id || entry?.data?.id;
-          if (!name || !id) return;
-          result.set(name, {
-            name,
-            url: `https://cdn.7tv.app/emote/${id}/2x.webp`
+      try {
+        const response = await fetch(url, { credentials: 'omit' });
+        if (!response.ok) return new Map();
+        const payload = await response.json().catch(() => null);
+        const emotes = nested ? payload?.emote_set?.emotes : payload?.emotes;
+        const result = new Map();
+        if (Array.isArray(emotes)) {
+          emotes.forEach((entry) => {
+            const name = entry?.name || entry?.data?.name;
+            const id = entry?.id || entry?.data?.id;
+            if (!name || !id) return;
+            result.set(name, {
+              name,
+              url: `https://cdn.7tv.app/emote/${id}/2x.webp`
+            });
           });
-        });
+        }
+        return result;
+      } catch {
+        return new Map();
       }
-      return result;
     }
 
     async fetchTwitchUserId(login) {
-      const response = await fetch(TWITCH_GQL_ENDPOINT, {
-        method: 'POST',
-        headers: {
-          'Client-ID': TWITCH_CLIENT_ID,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          operationName: 'TfrChatUserId',
-          query: 'query TfrChatUserId($login: String!) { user(login: $login) { id } }',
-          variables: { login }
-        })
-      });
-      if (!response.ok) return '';
-      const payload = await response.json().catch(() => null);
-      return payload?.data?.user?.id || '';
+      try {
+        const response = await fetch(TWITCH_GQL_ENDPOINT, {
+          method: 'POST',
+          headers: {
+            'Client-ID': TWITCH_CLIENT_ID,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            operationName: 'TfrChatUserId',
+            query: 'query TfrChatUserId($login: String!) { user(login: $login) { id } }',
+            variables: { login }
+          })
+        });
+        if (!response.ok) return '';
+        const payload = await response.json().catch(() => null);
+        return payload?.data?.user?.id || '';
+      } catch {
+        return '';
+      }
     }
 
     enrichParts(parts) {
@@ -139,6 +147,10 @@
       this.retryTimer = null;
       this.listeners = new Set();
       this.containerCheckTimer = null;
+      this.pendingNodes = [];
+      this.pendingFrame = null;
+      this.pendingNodeSet = new Set();
+      this.processedPerFrame = 80;
     }
 
     normalizeLogin(login) {
@@ -147,7 +159,7 @@
     }
 
     init() {
-      thirdPartyEmotes.ensureLoaded().catch((error) => console.warn('[TFR] 7TV emotes unavailable', error));
+      thirdPartyEmotes.ensureLoaded().catch(() => {});
       this.observeChat(true);
       if (!this.containerCheckTimer) {
         this.containerCheckTimer = setInterval(() => {
@@ -169,6 +181,12 @@
         clearInterval(this.containerCheckTimer);
         this.containerCheckTimer = null;
       }
+      if (this.pendingFrame) {
+        cancelAnimationFrame(this.pendingFrame);
+        this.pendingFrame = null;
+      }
+      this.pendingNodes = [];
+      this.pendingNodeSet.clear();
       this.history.clear();
       this.listeners.clear();
     }
@@ -253,9 +271,38 @@
           if (node.nodeType !== Node.ELEMENT_NODE) {
             return;
           }
-          this.scanNode(node);
+          if (!this.pendingNodeSet.has(node)) {
+            this.pendingNodeSet.add(node);
+            this.pendingNodes.push(node);
+          }
         });
       });
+      this.schedulePendingScan();
+    }
+
+    schedulePendingScan() {
+      if (this.pendingFrame) {
+        return;
+      }
+      this.pendingFrame = requestAnimationFrame(() => {
+        this.pendingFrame = null;
+        this.processPendingNodes();
+      });
+    }
+
+    processPendingNodes() {
+      let processed = 0;
+      while (this.pendingNodes.length && processed < this.processedPerFrame) {
+        const node = this.pendingNodes.shift();
+        this.pendingNodeSet.delete(node);
+        if (node?.isConnected) {
+          this.scanNode(node);
+        }
+        processed += 1;
+      }
+      if (this.pendingNodes.length) {
+        this.schedulePendingScan();
+      }
     }
 
     scanNode(node) {
@@ -746,6 +793,7 @@
       this.messageSelector = CHAT_MESSAGE_SELECTOR;
       this.actionKeys = new Set();
       this.recentActionCache = new Map();
+      this.pendingMutations = [];
     }
 
     init() {
@@ -774,6 +822,7 @@
         cancelAnimationFrame(this.mutationFrame);
         this.mutationFrame = null;
       }
+      this.pendingMutations = [];
       this.container = null;
       this.actions = [];
       this.actionKeys.clear();
@@ -834,7 +883,6 @@
       this.observer.observe(container, {
         childList: true,
         subtree: true,
-        attributes: true,
         characterData: true
       });
       this.captureExisting(container);
@@ -846,15 +894,15 @@
     }
 
     handleMutations(mutations) {
-      if (this.mutationFrame) {
-        cancelAnimationFrame(this.mutationFrame);
-      }
+      this.pendingMutations.push(...mutations);
+      if (this.mutationFrame) return;
       this.mutationFrame = requestAnimationFrame(() => {
         this.mutationFrame = null;
-        mutations.forEach((mutation) => {
+        const pending = this.pendingMutations.splice(0, this.pendingMutations.length);
+        pending.forEach((mutation) => {
           if (mutation.type === 'childList') {
             mutation.addedNodes.forEach((node) => this.scanNode(node));
-          } else if (mutation.type === 'attributes' || mutation.type === 'characterData') {
+          } else if (mutation.type === 'characterData') {
             this.collectMessageElements(mutation.target).forEach((element) => this.captureAction(element));
           }
         });

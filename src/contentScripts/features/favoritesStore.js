@@ -2,12 +2,14 @@
   const createFavoritesStore = ({
     DEFAULT_STATE,
     STORAGE_KEY,
+    LIVE_CACHE_KEY,
     CHANGE_KIND,
     POLL_INTERVAL_MS,
     DEFAULT_AVATAR,
     deepCopy,
     t,
     sanitizeCategoryList,
+    sendExtensionMessage,
     fetchStreamerLiveData,
     getLiveDataEntry,
     inferCurrentPageLiveData,
@@ -50,6 +52,9 @@
       this.emitter = new EventEmitter();
       this.pollTimer = null;
       this.isRefreshing = false;
+      this.lastLiveRefreshAt = 0;
+      this.lastLiveStorageAt = 0;
+      this.liveRefreshCooldownMs = Math.max(15_000, Math.min(60_000, Math.floor(POLL_INTERVAL_MS / 2)));
 
       chrome.storage.onChanged.addListener((changes, area) => {
         if (area !== 'local') return;
@@ -61,11 +66,19 @@
             this.emitter.emit({ kind: CHANGE_KIND.STATE, state: this.getSnapshot() });
           }
         }
+        if (LIVE_CACHE_KEY && Object.prototype.hasOwnProperty.call(changes, LIVE_CACHE_KEY)) {
+          const nextLive = changes[LIVE_CACHE_KEY]?.newValue;
+          if (nextLive && typeof nextLive === 'object') {
+            this.liveData = { ...nextLive };
+            this.lastLiveStorageAt = Date.now();
+            this.emitter.emit({ kind: CHANGE_KIND.LIVE, liveData: this.getLiveData() });
+          }
+        }
       });
     }
 
     async init() {
-      const stored = await chrome.storage.local.get(STORAGE_KEY);
+      const stored = await chrome.storage.local.get(LIVE_CACHE_KEY ? [STORAGE_KEY, LIVE_CACHE_KEY] : STORAGE_KEY);
       if (stored && stored[STORAGE_KEY]) {
         this.state = deepCopy({ ...DEFAULT_STATE, ...stored[STORAGE_KEY] });
       } else {
@@ -79,9 +92,17 @@
         this.state.categories = [initialCategory];
         await this.persistState();
       }
+      if (LIVE_CACHE_KEY && stored?.[LIVE_CACHE_KEY] && typeof stored[LIVE_CACHE_KEY] === 'object') {
+        this.liveData = { ...stored[LIVE_CACHE_KEY] };
+        this.lastLiveStorageAt = Date.now();
+      }
       this.ensureStateIntegrity();
       this.emitter.emit({ kind: CHANGE_KIND.STATE, state: this.getSnapshot() });
-      await this.refreshLiveData();
+      if (Object.keys(this.liveData).length) {
+        this.emitter.emit({ kind: CHANGE_KIND.LIVE, liveData: this.getLiveData() });
+      } else {
+        await this.refreshLiveData();
+      }
       this.startPolling();
     }
 
@@ -441,7 +462,10 @@
     startPolling() {
       this.stopPolling();
       this.pollTimer = setInterval(() => {
-        this.refreshLiveData();
+        const staleAfterMs = Math.max(POLL_INTERVAL_MS * 2, 120_000);
+        if (!this.lastLiveStorageAt || Date.now() - this.lastLiveStorageAt > staleAfterMs) {
+          this.refreshLiveData();
+        }
       }, POLL_INTERVAL_MS);
     }
 
@@ -1717,8 +1741,27 @@
       });
     }
 
-    async refreshLiveData() {
+    async fetchBackgroundLiveSnapshot(forceRefresh = false) {
+      if (typeof sendExtensionMessage !== 'function') {
+        return null;
+      }
+      const response = await sendExtensionMessage({
+        type: 'TFR_GET_LIVE_SNAPSHOT',
+        forceRefresh: Boolean(forceRefresh)
+      });
+      if (!response || response.error) {
+        return null;
+      }
+      return response;
+    }
+
+    async refreshLiveData(options = {}) {
       if (this.isRefreshing) return;
+      const forceRefresh = Boolean(options.forceRefresh);
+      const now = Date.now();
+      if (!forceRefresh && this.lastLiveRefreshAt && now - this.lastLiveRefreshAt < this.liveRefreshCooldownMs) {
+        return;
+      }
       this.isRefreshing = true;
       try {
         const favorites = Object.keys(this.state.favorites);
@@ -1727,14 +1770,21 @@
           this.emitter.emit({ kind: CHANGE_KIND.LIVE, liveData: this.getLiveData() });
           return;
         }
-        const now = Date.now();
-        const updates = await Promise.all(favorites.map((login) => {
-          const previousLive = getLiveDataEntry(this.liveData, login);
-          return fetchStreamerLiveData(login, {
-            ...this.state.favorites[login],
-            ...(previousLive || {})
-          });
-        }));
+        this.lastLiveRefreshAt = now;
+        const snapshot = await this.fetchBackgroundLiveSnapshot(forceRefresh);
+        if (snapshot?.timestamp) {
+          this.lastLiveStorageAt = Number(snapshot.timestamp) || Date.now();
+        }
+        const snapshotLiveData = snapshot?.liveData && typeof snapshot.liveData === 'object' ? snapshot.liveData : null;
+        const updates = snapshotLiveData
+          ? favorites.map((login) => snapshotLiveData[login] || snapshotLiveData[login.toLowerCase()])
+          : await Promise.all(favorites.map((login) => {
+              const previousLive = getLiveDataEntry(this.liveData, login);
+              return fetchStreamerLiveData(login, {
+                ...this.state.favorites[login],
+                ...(previousLive || {})
+              });
+            }));
         const nextLive = {};
         const favoriteUpdates = {};
         updates.forEach((entry, index) => {

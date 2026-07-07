@@ -1,5 +1,6 @@
 (() => {
   const STORAGE_KEY = 'tfr_state';
+  const LIVE_CACHE_KEY = 'tfr_live_cache';
   const DEFAULT_STATE = {
     activeProfileId: 'default',
     profiles: {},
@@ -1115,12 +1116,14 @@
   const FavoritesStore = window.TFRFavoritesStore?.create?.({
     DEFAULT_STATE,
     STORAGE_KEY,
+    LIVE_CACHE_KEY,
     CHANGE_KIND,
     POLL_INTERVAL_MS,
     DEFAULT_AVATAR,
     deepCopy,
     t,
     sanitizeCategoryList,
+    sendExtensionMessage,
     fetchStreamerLiveData,
     getLiveDataEntry,
     inferCurrentPageLiveData,

@@ -19,6 +19,15 @@
 
   const REFRESH_INTERVAL = 90_000;
 
+  const escapeHtml = (value) =>
+    String(value ?? '').replace(/[&<>"']/g, (char) => ({
+      '&': '&amp;',
+      '<': '&lt;',
+      '>': '&gt;',
+      '"': '&quot;',
+      "'": '&#39;'
+    }[char]));
+
   const SOUND_PRESETS = {
     soft: [
       { frequency: 660, start: 0, duration: 0.11, type: 'sine' },
@@ -263,7 +272,7 @@
 
           <button class="tfr-panel__button" data-action="refresh">Actualiser</button>
 
-          <button class="tfr-panel__button" data-action="close">Fermer</button>
+          ${isStandaloneContext ? '' : '<button class="tfr-panel__button" data-action="close">Fermer</button>'}
 
         </div>
 
@@ -802,20 +811,21 @@
 
       const categoryName = group.category?.name || 'Sans catégorie';
       const categoryCount = group.favorites.length;
+      const safeCategoryId = escapeHtml(categoryId);
 
       header.innerHTML = `
 
         <div class="tfr-panel__groupHeaderTitle">
 
-          <button class="tfr-panel__groupToggle" data-action="toggleCategory" data-category-id="${categoryId}">
+          <button class="tfr-panel__groupToggle" data-action="toggleCategory" data-category-id="${safeCategoryId}">
 
             <span class="tfr-panel__groupToggleIcon">&#9662;</span>
 
           </button>
 
-          <span class="tfr-panel__groupLabel" data-action="toggleCategory" data-category-id="${categoryId}">
+          <span class="tfr-panel__groupLabel" data-action="toggleCategory" data-category-id="${safeCategoryId}">
 
-            <span class="tfr-panel__groupName">${categoryName}</span>
+            <span class="tfr-panel__groupName">${escapeHtml(categoryName)}</span>
 
             <span class="tfr-panel__groupBadge">${categoryCount}</span>
 
@@ -865,21 +875,21 @@
 
         card.innerHTML = `
 
-          <img class="tfr-panel__avatar" src="${live.avatarUrl || fav.avatarUrl || DEFAULT_AVATAR}" alt="" />
+          <img class="tfr-panel__avatar" src="${escapeHtml(live.avatarUrl || fav.avatarUrl || DEFAULT_AVATAR)}" alt="" />
 
           <div class="tfr-panel__details">
 
             <div class="tfr-panel__row">
 
-              <span class="tfr-panel__name">${live.displayName || fav.displayName || fav.login}</span>
+              <span class="tfr-panel__name">${escapeHtml(live.displayName || fav.displayName || fav.login)}</span>
 
               <span class="tfr-panel__viewers">${formatNumber(live.viewers)} spectateurs</span>
 
             </div>
 
-            <div class="tfr-panel__game">${live.game || 'Catégorie inconnue'}</div>
+            <div class="tfr-panel__game">${escapeHtml(live.game || 'Catégorie inconnue')}</div>
 
-            <div class="tfr-panel__titleLine">${live.title || 'Live sans titre'}</div>
+            <div class="tfr-panel__titleLine">${escapeHtml(live.title || 'Live sans titre')}</div>
 
           </div>
 
@@ -1031,13 +1041,13 @@
 
       toast.innerHTML = `
 
-        <img class="tfr-toast__thumb" src="${live.avatarUrl || fav.avatarUrl || DEFAULT_AVATAR}" alt="" />
+        <img class="tfr-toast__thumb" src="${escapeHtml(live.avatarUrl || fav.avatarUrl || DEFAULT_AVATAR)}" alt="" />
 
         <div class="tfr-toast__content">
 
-          <p class="tfr-toast__title">${live.displayName || fav.displayName || fav.login} est en live</p>
+          <p class="tfr-toast__title">${escapeHtml(live.displayName || fav.displayName || fav.login)} est en live</p>
 
-          <p class="tfr-toast__subtitle">${live.game || 'Live en cours'} &bull; ${formatNumber(live.viewers)} spectateurs</p>
+          <p class="tfr-toast__subtitle">${escapeHtml(live.game || 'Live en cours')} &bull; ${formatNumber(live.viewers)} spectateurs</p>
 
         </div>
 
@@ -1153,12 +1163,6 @@
   }
 
 })();
-
-
-
-
-
-
 
 
 

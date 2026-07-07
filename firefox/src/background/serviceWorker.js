@@ -74,7 +74,8 @@ const STREAM_STATE_QUERY = `
 const POLL_ALARM = 'tfr_live_poll';
 const UPDATE_ALARM = 'tfr_update_check';
 const POLL_INTERVAL_MINUTES = 2;
-const LIVE_CACHE_TTL = 60 * 1000;
+const LIVE_CACHE_TTL = 115 * 1000;
+const LIVE_FETCH_CONCURRENCY = 5;
 const MAX_NOTIFICATIONS = 2;
 const BADGE_COLOR = '#9147ff';
 const UPDATE_BADGE_COLOR = '#ef4444';
@@ -197,7 +198,7 @@ const getOverlayRecipients = async () => {
 
 const setSidePanelBehavior = () => {
   try {
-    extensionApi.sidePanel?.setPanelBehavior?.({ openPanelOnActionClick: false });
+    extensionApi.sidePanel?.setPanelBehavior?.({ openPanelOnActionClick: true });
   } catch (error) {
     console.warn('[TFR] unable to set side panel behavior', error);
   }
@@ -208,17 +209,17 @@ const isSidePanelGestureError = (error) => {
   return message.includes('user gesture') || message.includes('may only be called in response');
 };
 
-const openSidePanel = async (tabId) => {
-  if (!extensionApi.sidePanel?.setOptions || !extensionApi.sidePanel?.open) {
+const openSidePanel = async (tab = null) => {
+  if (!extensionApi.sidePanel?.open) {
     return false;
   }
   try {
-    await extensionApi.sidePanel.setOptions({
-      tabId,
-      path: SIDE_PANEL_PATH,
-      enabled: true
-    });
-    await extensionApi.sidePanel.open({ tabId });
+    const openOptions = Number.isInteger(tab?.windowId)
+      ? { windowId: tab.windowId }
+      : Number.isInteger(tab?.id)
+      ? { tabId: tab.id }
+      : {};
+    await extensionApi.sidePanel.open(openOptions);
     return true;
   } catch (error) {
     if (!isSidePanelGestureError(error)) {
@@ -236,18 +237,15 @@ const openInjectedPanel = async (tabId) => {
   return Boolean(result?.ok);
 };
 
-const openPrimaryPanel = async (tabId) => {
-  if (!Number.isInteger(tabId)) {
+const openPrimaryPanel = async (tab = null) => {
+  if (!Number.isInteger(tab?.id)) {
     return;
   }
-  const injectedOpened = await openInjectedPanel(tabId);
-  if (injectedOpened) {
-    return;
-  }
-  const sidePanelOpened = tabId ? await openSidePanel(tabId) : false;
+  const sidePanelOpened = await openSidePanel(tab);
   if (sidePanelOpened) {
     return;
   }
+  await openInjectedPanel(tab.id);
 };
 
 const broadcastOverlayState = (snapshot) => {
@@ -285,6 +283,60 @@ const cloneData = (value) => {
     console.warn('[TFR] failed to clone data', error);
     return {};
   }
+};
+
+const mapWithConcurrency = async (items, limit, mapper) => {
+  const results = new Array(items.length);
+  let cursor = 0;
+  const workerCount = Math.max(1, Math.min(limit, items.length));
+  const workers = Array.from({ length: workerCount }, async () => {
+    while (cursor < items.length) {
+      const index = cursor;
+      cursor += 1;
+      try {
+        results[index] = {
+          status: 'fulfilled',
+          value: await mapper(items[index], index)
+        };
+      } catch (reason) {
+        results[index] = {
+          status: 'rejected',
+          reason
+        };
+      }
+    }
+  });
+  await Promise.all(workers);
+  return results;
+};
+
+const createLiveDataSignature = (liveData = {}) => {
+  const entries = Object.keys(liveData)
+    .sort()
+    .map((login) => {
+      const live = liveData[login] || {};
+      return [
+        login,
+        live.isLive ? 1 : 0,
+        live.streamId || '',
+        live.title || '',
+        live.game || '',
+        Number(live.viewers || 0),
+        live.startedAt || '',
+        live.fetchFailed ? 1 : 0
+      ].join('|');
+    });
+  return entries.join('\n');
+};
+
+const createNotifiedStreamsSignature = (notifiedStreams = {}) => {
+  const entries = Object.keys(notifiedStreams)
+    .sort()
+    .map((login) => {
+      const entry = notifiedStreams[login] || {};
+      return `${login}|${entry.key || ''}`;
+    });
+  return entries.join('\n');
 };
 
 const isDriveConfigured = () => {
@@ -961,10 +1013,10 @@ const evaluateLiveStatus = async (reason = 'manual') => {
 
   const liveData = {};
   if (logins.length) {
-    const results = await Promise.allSettled(logins.map((login) => fetchStreamerLiveData(login, {
+    const results = await mapWithConcurrency(logins, LIVE_FETCH_CONCURRENCY, (login) => fetchStreamerLiveData(login, {
       ...favorites[login],
       ...(previousLiveData[login] || {})
-    })));
+    }));
     results.forEach((result, index) => {
       const login = logins[index];
       if (result.status === 'fulfilled' && result.value) {
@@ -974,6 +1026,10 @@ const evaluateLiveStatus = async (reason = 'manual') => {
       }
     });
   }
+
+  const previousLiveSignature = createLiveDataSignature(previousLiveData);
+  const nextLiveSignature = createLiveDataSignature(liveData);
+  const previousNotifiedSignature = createNotifiedStreamsSignature(previousNotifiedStreams);
 
   const currentlyLive = [];
   const notificationCandidates = [];
@@ -1014,11 +1070,14 @@ const evaluateLiveStatus = async (reason = 'manual') => {
     });
   }
 
-  await extensionApi.storage.local.set({
-    [LIVE_CACHE_KEY]: liveData,
-    [NOTIFIED_STREAMS_KEY]: nextNotifiedStreams,
-    tfr_lastLiveUpdate: now
-  });
+  const nextNotifiedSignature = createNotifiedStreamsSignature(nextNotifiedStreams);
+  if (previousLiveSignature !== nextLiveSignature || previousNotifiedSignature !== nextNotifiedSignature) {
+    await extensionApi.storage.local.set({
+      [LIVE_CACHE_KEY]: liveData,
+      [NOTIFIED_STREAMS_KEY]: nextNotifiedStreams,
+      tfr_lastLiveUpdate: now
+    });
+  }
 
   const snapshot = {
     favorites: cloneData(favorites),
@@ -1073,7 +1132,7 @@ extensionApi.runtime.onStartup.addListener(async () => {
 
 if (actionApi?.onClicked) {
   actionApi.onClicked.addListener((tab) => {
-    openPrimaryPanel(tab?.id ?? null);
+    openPrimaryPanel(tab ?? null);
   });
 }
 
@@ -1117,6 +1176,22 @@ extensionApi.runtime.onMessage.addListener((message, sender, sendResponse) => {
       })
       .catch((error) => {
         sendResponse({ error: true, message: error?.message || 'unknown error' });
+    });
+    return true;
+  } else if (message?.type === 'TFR_GET_LIVE_SNAPSHOT') {
+    ensureLiveSnapshot(Boolean(message.forceRefresh))
+      .then((snapshot) => {
+        sendResponse({
+          ok: true,
+          favorites: snapshot?.favorites || {},
+          categories: snapshot?.categories || [],
+          preferences: snapshot?.preferences || {},
+          liveData: snapshot?.liveData || {},
+          timestamp: snapshot?.timestamp || Date.now()
+        });
+      })
+      .catch((error) => {
+        sendResponse({ ok: false, error: true, message: error?.message || 'live snapshot failed' });
       });
     return true;
   } else if (message?.type === 'TFR_FETCH_LIVE_DATA') {

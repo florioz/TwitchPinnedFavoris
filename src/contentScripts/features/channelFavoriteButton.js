@@ -4,6 +4,9 @@
     LocationWatcher,
     getChannelFromLocation
   }) => {
+  const FAVORITE_ICON =
+    '<svg class="tfr-inline-button__icon" width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 17.27L18.18 21 16.54 13.97 22 9.24 14.81 8.63 12 2 9.19 8.63 2 9.24 7.46 13.97 5.82 21z"></path></svg>';
+
   class ChannelFavoriteButton {
     constructor(store) {
       this.store = store;
@@ -12,6 +15,7 @@
       this.unsubscribe = null;
       this.domObserver = null;
       this.refreshTimer = null;
+      this.mountFrame = null;
       this.locationWatcher = new LocationWatcher(() => this.handleLocationChange());
     }
 
@@ -25,6 +29,10 @@
     dispose() {
       this.unsubscribe?.();
       this.domObserver?.disconnect();
+      if (this.mountFrame) {
+        cancelAnimationFrame(this.mountFrame);
+        this.mountFrame = null;
+      }
       if (this.refreshTimer) {
         clearTimeout(this.refreshTimer);
         this.refreshTimer = null;
@@ -35,10 +43,20 @@
     observeDom() {
       this.domObserver?.disconnect();
       this.domObserver = new MutationObserver(() => {
-        this.tryMountButton();
+        this.scheduleMountButton();
       });
       this.domObserver.observe(document.body, { childList: true, subtree: true });
       this.tryMountButton();
+    }
+
+    scheduleMountButton() {
+      if (this.mountFrame) {
+        return;
+      }
+      this.mountFrame = requestAnimationFrame(() => {
+        this.mountFrame = null;
+        this.tryMountButton();
+      });
     }
 
     handleLocationChange() {
@@ -125,7 +143,7 @@
       button.style.alignSelf = 'center';
       button.style.pointerEvents = 'auto';
       button.textContent = '';
-      button.innerHTML = '<svg class="tfr-inline-button__icon" width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 17.27L18.18 21 16.54 13.97 22 9.24 14.81 8.63 12 2 9.19 8.63 2 9.24 7.46 13.97 5.82 21z"></path></svg>';
+      button.innerHTML = FAVORITE_ICON;
       const stopHoverPropagation = (event) => {
         event.stopPropagation();
       };
@@ -183,13 +201,8 @@
       const normalized = this.currentLogin.toLowerCase();
       const isFavorite = Boolean(this.store.getState().favorites[normalized]);
       button.disabled = false;
-        if (isFavorite) {
-          button.classList.add('is-remove');
-          button.innerHTML = '<svg class="tfr-inline-button__icon" width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 17.27L18.18 21 16.54 13.97 22 9.24 14.81 8.63 12 2 9.19 8.63 2 9.24 7.46 13.97 5.82 21z"></path></svg>';
-        } else {
-          button.classList.remove('is-remove');
-          button.innerHTML = '<svg class="tfr-inline-button__icon" width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 17.27L18.18 21 16.54 13.97 22 9.24 14.81 8.63 12 2 9.19 8.63 2 9.24 7.46 13.97 5.82 21z"></path></svg>';
-        }
+      button.classList.toggle('is-remove', isFavorite);
+      button.innerHTML = FAVORITE_ICON;
     }
   }
 

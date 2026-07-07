@@ -1,9 +1,10 @@
 {
   "name": "twitch-pinned-favoris",
-  "version": "0.5.9",
+  "version": "0.6.0",
   "private": true,
   "description": "Twitch Favorites Sidebar browser extension.",
   "scripts": {
+    "build:chrome": "node scripts/build-chrome.js",
     "check": "node scripts/check.js",
     "configure:mobile-oauth": "node scripts/configure-mobile-oauth.js",
     "configure:web-oauth": "node scripts/configure-web-oauth.js",

@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Twitch Favorites Sidebar",
   "description": "Pin favorite Twitch streamers with live viewer counts, smart categories, and quick management tools.",
-  "version": "0.5.9",
+  "version": "0.6.0",
   "icons": {
     "16": "assets/icon16.png",
     "48": "assets/icon48.png",
@@ -12,7 +12,6 @@
     "storage",
     "alarms",
     "tabs",
-    "scripting",
     "sidePanel",
     "identity"
   ],
@@ -22,8 +21,8 @@
     "https://twitch.tv/*",
     "https://api.github.com/*",
     "https://www.googleapis.com/*",
-    "https://*/*",
-    "http://*/*"
+    "https://7tv.io/*",
+    "https://cdn.7tv.app/*"
   ],
   "oauth2": {
     "client_id": "242719267292-93m70p6erqagao3ctngd98pi02vg7rcf.apps.googleusercontent.com",
@@ -47,24 +46,13 @@
         "src/contentScripts/features/channelFavoriteButton.js",
         "src/contentScripts/features/favoritesOverlay.js",
         "src/contentScripts/features/featureController.js",
-        "src/contentScripts/main.js"
+        "src/contentScripts/main.js",
+        "src/contentScripts/overlayPanel.js"
       ],
       "css": [
         "styles/sidebar.css",
         "styles/overlay.css",
-        "styles/buttons.css"
-      ],
-      "run_at": "document_idle"
-    },
-    {
-      "matches": [
-        "https://*/*",
-        "http://*/*"
-      ],
-      "js": [
-        "src/contentScripts/overlayPanel.js"
-      ],
-      "css": [
+        "styles/buttons.css",
         "styles/panelOverlay.css"
       ],
       "run_at": "document_idle"

@@ -16,6 +16,8 @@
       this.isAutoCompact = false;
       this.autoCompactLevel = 0;
       this.autoCompactFrame = null;
+      this.renderFrame = null;
+      this.sideNavFrame = null;
       this.previousVisibleLogins = null;
       this.previousCompactLevels = new Map();
       this.previewTimer = null;
@@ -25,20 +27,20 @@
         if (!this.isSidebarHovering) {
           this.isSidebarHovering = true;
           this.suppressAnimationsOnce = true;
-          this.render();
+          this.scheduleRender();
         }
       };
       this.boundMouseLeave = () => {
         if (this.isSidebarHovering) {
           this.isSidebarHovering = false;
           this.suppressAnimationsOnce = true;
-          this.render();
+          this.scheduleRender();
         }
       };
     }
 
     init() {
-      this.unsubscribe = this.store.subscribe(() => this.render());
+      this.unsubscribe = this.store.subscribe(() => this.scheduleRender());
       this.observeSideNav();
       window.addEventListener('tfr:previewSidebarAnimation', this.boundPreviewAnimation);
       this.render();
@@ -52,10 +54,28 @@
         cancelAnimationFrame(this.autoCompactFrame);
         this.autoCompactFrame = null;
       }
+      if (this.renderFrame) {
+        cancelAnimationFrame(this.renderFrame);
+        this.renderFrame = null;
+      }
+      if (this.sideNavFrame) {
+        cancelAnimationFrame(this.sideNavFrame);
+        this.sideNavFrame = null;
+      }
       if (this.previewTimer) {
         clearTimeout(this.previewTimer);
         this.previewTimer = null;
       }
+    }
+
+    scheduleRender() {
+      if (this.renderFrame) {
+        return;
+      }
+      this.renderFrame = requestAnimationFrame(() => {
+        this.renderFrame = null;
+        this.render();
+      });
     }
 
     scheduleAutoCompactCheck(enabled) {
@@ -375,10 +395,20 @@
     observeSideNav() {
       this.sideNavObserver?.disconnect();
       this.sideNavObserver = new MutationObserver(() => {
-        this.ensureContainer();
+        this.scheduleEnsureContainer();
       });
       this.sideNavObserver.observe(document.body, { childList: true, subtree: true });
       this.ensureContainer();
+    }
+
+    scheduleEnsureContainer() {
+      if (this.sideNavFrame) {
+        return;
+      }
+      this.sideNavFrame = requestAnimationFrame(() => {
+        this.sideNavFrame = null;
+        this.ensureContainer();
+      });
     }
 
     getNav() {

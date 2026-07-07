@@ -7,7 +7,7 @@
     <link rel="stylesheet" href="../styles/panelOverlay.css" />
     <style>
       :root {
-        background: transparent;
+        background: #0d0714;
       }
       html,
       body {
@@ -15,15 +15,17 @@
         height: 100%;
         margin: 0;
         padding: 0;
-        background: transparent !important;
+        background: #0d0714 !important;
       }
       body {
         display: flex !important;
         flex-direction: column;
         align-items: stretch;
         justify-content: flex-start;
-        background: linear-gradient(155deg, rgba(16, 10, 26, 0.94) 0%, rgba(26, 18, 44, 0.9) 60%) !important;
-        border-radius: 22px;
+        background:
+          radial-gradient(circle at 20% 0%, rgba(145, 71, 255, 0.22), transparent 34%),
+          linear-gradient(155deg, rgba(16, 10, 26, 0.98) 0%, rgba(26, 18, 44, 0.96) 60%) !important;
+        border-radius: 0;
         padding: 0;
         overflow: hidden;
       }
@@ -41,6 +43,10 @@
         flex: 1 1 auto !important;
         display: flex !important;
         flex-direction: column !important;
+        border: 0 !important;
+        box-shadow: none !important;
+        border-radius: 0 !important;
+        background: transparent !important;
       }
       .tfr-panel__sections {
         max-height: none !important;
