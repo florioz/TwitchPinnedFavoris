@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Twitch Favorites Sidebar",
   "description": "Pin favorite Twitch streamers with live viewer counts, smart categories, and quick management tools.",
-  "version": "0.6.2",
+  "version": "0.6.3",
   "icons": {
     "16": "assets/icon16.png",
     "48": "assets/icon48.png",
@@ -25,7 +25,7 @@
     "https://cdn.7tv.app/*"
   ],
   "oauth2": {
-    "client_id": "242719267292-93m70p6erqagao3ctngd98pi02vg7rcf.apps.googleusercontent.com",
+    "client_id": "242719267292-arhg90e921qqvgshlh1t35d7stk6n044.apps.googleusercontent.com",
     "scopes": [
       "https://www.googleapis.com/auth/drive.file"
     ]

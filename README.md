@@ -5,7 +5,7 @@ Twitch Favorites Sidebar is a browser extension and companion mobile app for peo
 
 The extension rebuilds the Twitch followed-channels sidebar with custom pinned favorites, nested groups, live filters, profile sync, VOD planning, and chat/moderation tools. The mobile app focuses on the same core library of groups, streamers, profiles, and VODs in a phone-friendly interface.
 
-Current release: v0.6.2
+Current release: v0.6.3
 
 ## English
 
@@ -56,6 +56,12 @@ The mobile app provides a compact companion experience:
 The APK is built from the Capacitor project in `mobile/` and `android/`.
 
 ### Release Timeline
+
+#### v0.6.3
+
+- Updated Google Drive OAuth clients for the Chrome Web Store extension ID.
+- Added clearer Drive debug details showing the extension ID, Chrome OAuth client, Web OAuth client, and redirect URI.
+- Improved Google OAuth error messages to include the Web client ID used by the fallback flow.
 
 #### v0.6.2
 
@@ -213,6 +219,12 @@ L'application mobile permet de retrouver :
 - une notification quand une nouvelle version est disponible.
 
 ### Chronologie Des Versions
+
+#### v0.6.3
+
+- Mise a jour des clients OAuth Google Drive pour l'ID de l'extension publiee sur le Chrome Web Store.
+- Ajout d'un debug Drive plus clair avec l'ID extension, le client OAuth Chrome, le client OAuth Web et l'URI de redirection.
+- Les erreurs OAuth Google indiquent maintenant aussi le client Web utilise par le fallback.
 
 #### v0.6.2
 

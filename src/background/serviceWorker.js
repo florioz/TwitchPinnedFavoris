@@ -49,7 +49,7 @@ const DRIVE_LEGACY_APPDATA_SPACE = 'appDataFolder';
 const DRIVE_SYNC_STATE_KEY = 'tfr_drive_sync_state';
 const WEB_AUTH_DRIVE_TOKEN_KEY = 'tfr_web_auth_drive_token';
 const DRIVE_AUTH_MODE_KEY = 'tfr_drive_auth_mode';
-const WEB_AUTH_CLIENT_ID = '242719267292-idbv4ualavd40nl8rsq4ea2pj0cii1r1.apps.googleusercontent.com';
+const WEB_AUTH_CLIENT_ID = '242719267292-3ndk2kr40kplv9n8ldqslcmbkthpvk1b.apps.googleusercontent.com';
 const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.file';
 const STREAM_STATE_QUERY = `
   query ($login: String!) {
@@ -345,6 +345,11 @@ const isDriveConfigured = () => {
   return Boolean(extensionApi.identity?.getAuthToken && clientId && !clientId.includes('replacewithgoogleoauthclientid'));
 };
 
+const getChromeOAuthClientId = () => {
+  const manifest = extensionApi.runtime?.getManifest?.() || {};
+  return manifest.oauth2?.client_id || '';
+};
+
 const isWebAuthFlowAvailable = () => Boolean(extensionApi.identity?.launchWebAuthFlow && extensionApi.identity?.getRedirectURL);
 
 const getWebAuthClientId = () => WEB_AUTH_CLIENT_ID.trim();
@@ -445,7 +450,7 @@ const getWebAuthDriveToken = async (interactive = false, options = {}) => {
     extensionApi.identity.launchWebAuthFlow({ url: authUrl.toString(), interactive: true }, (resultUrl) => {
       const error = extensionApi.runtime?.lastError;
       if (error) {
-        reject(new Error(`${error.message || 'Google web auth failed'} Redirect URI: ${redirectUri}`));
+        reject(new Error(`${error.message || 'Google web auth failed'} Web client ID: ${clientId} Redirect URI: ${redirectUri}`));
         return;
       }
       if (!resultUrl) {
@@ -585,6 +590,9 @@ const getDriveSyncStatus = async () => {
   return {
     configured: chromeIdentityConfigured || webAuthAvailable,
     chromeIdentityConfigured,
+    extensionId: extensionApi.runtime?.id || '',
+    chromeOAuthClientId: getChromeOAuthClientId(),
+    webAuthClientId: getWebAuthClientId(),
     webAuthAvailable,
     webAuthRedirectUri: getWebAuthRedirectUri(),
     authMode: await getDriveAuthMode(),

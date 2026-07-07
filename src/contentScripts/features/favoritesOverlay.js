@@ -2265,13 +2265,18 @@ class FavoritesOverlay {
       `;
       wrapper.appendChild(wizard);
     }
-    if (this.driveDebugVisible && this.driveStatus?.webAuthRedirectUri) {
+    if (this.driveDebugVisible && this.driveStatus) {
       const redirectHint = document.createElement('div');
       redirectHint.className = 'tfr-drive-wizard tfr-drive-wizard--debug';
       const label = document.createElement('strong');
       label.textContent = 'Debug Drive';
       const value = document.createElement('code');
-      value.textContent = this.driveStatus.webAuthRedirectUri;
+      value.textContent = [
+        `Extension ID: ${this.driveStatus.extensionId || ''}`,
+        `Chrome OAuth client: ${this.driveStatus.chromeOAuthClientId || ''}`,
+        `Web OAuth client: ${this.driveStatus.webAuthClientId || ''}`,
+        `Redirect URI: ${this.driveStatus.webAuthRedirectUri || ''}`
+      ].join('\n');
       const testToastButton = document.createElement('button');
       testToastButton.type = 'button';
       testToastButton.className = 'tfr-button tfr-button--ghost';
