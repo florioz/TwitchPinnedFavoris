@@ -9,6 +9,8 @@ import {
   mapWithConcurrency
 } from './twitchClient.mjs';
 import { createLiveSnapshotCoordinator } from './liveSnapshotCoordinator.mjs';
+import { createLiveNotificationService } from './liveNotificationService.mjs';
+import { createBadgeManager } from './badgeManager.mjs';
 
 const extensionApi = globalThis.chrome ?? globalThis.browser;
 
@@ -66,7 +68,6 @@ const UPDATE_ALARM = 'tfr_update_check';
 const POLL_INTERVAL_MINUTES = 2;
 const LIVE_CACHE_TTL = 115 * 1000;
 const LIVE_FETCH_CONCURRENCY = 5;
-const MAX_NOTIFICATIONS = 2;
 const BADGE_COLOR = '#9147ff';
 const UPDATE_BADGE_COLOR = '#ef4444';
 const UPDATE_STORAGE_KEY = 'tfr_update_state';
@@ -77,8 +78,6 @@ const UPDATE_REPO_URL = 'https://github.com/florioz/TwitchPinnedFavoris';
 const overlayTabs = new Set();
 const SIDE_PANEL_PATH = 'panel/sidepanel.html';
 
-let liveBadgeCount = 0;
-let updateBadgeAvailable = false;
 const { fetchStreamerLiveData } = createTwitchClient();
 
 const sendMessageToTab = (tabId, payload) =>
@@ -247,6 +246,17 @@ const broadcastOverlayToast = async (entries, options = {}) => {
   );
   return results.some((result) => result?.ok);
 };
+
+const badgeManager = createBadgeManager({
+  actionApi,
+  liveColor: BADGE_COLOR,
+  updateColor: UPDATE_BADGE_COLOR
+});
+const liveNotificationService = createLiveNotificationService({
+  storage: extensionApi.storage.local,
+  notifiedStreamsKey: NOTIFIED_STREAMS_KEY,
+  broadcastToast: broadcastOverlayToast
+});
 
 const cloneData = (value) => {
   try {
@@ -645,8 +655,7 @@ const canShowUpdateBadge = (state = {}, now = Date.now()) => {
 const refreshBadgeFromUpdateState = async () => {
   const stored = await extensionApi.storage.local.get(UPDATE_STORAGE_KEY).catch(() => ({}));
   const updateState = stored?.[UPDATE_STORAGE_KEY] || {};
-  updateBadgeAvailable = canShowUpdateBadge(updateState);
-  await updateBadge(liveBadgeCount);
+  await badgeManager.setUpdateAvailable(canShowUpdateBadge(updateState));
 };
 
 const checkForExtensionUpdate = async (force = false) => {
@@ -656,8 +665,7 @@ const checkForExtensionUpdate = async (force = false) => {
     ? stored[UPDATE_STORAGE_KEY]
     : {};
   if (!force && state.lastCheck && now - state.lastCheck < UPDATE_CHECK_INTERVAL_MS) {
-    updateBadgeAvailable = canShowUpdateBadge(state, now);
-    await updateBadge(liveBadgeCount);
+    await badgeManager.setUpdateAvailable(canShowUpdateBadge(state, now));
     return state;
   }
   try {
@@ -682,100 +690,13 @@ const checkForExtensionUpdate = async (force = false) => {
       nextState.snoozeUntil = null;
     }
     await extensionApi.storage.local.set({ [UPDATE_STORAGE_KEY]: nextState });
-    updateBadgeAvailable = canShowUpdateBadge(nextState, now);
-    await updateBadge(liveBadgeCount);
+    await badgeManager.setUpdateAvailable(canShowUpdateBadge(nextState, now));
     return nextState;
   } catch (error) {
     console.warn('[TFR] background update check failed', error);
-    updateBadgeAvailable = canShowUpdateBadge(state, now);
-    await updateBadge(liveBadgeCount);
+    await badgeManager.setUpdateAvailable(canShowUpdateBadge(state, now));
     return state;
   }
-};
-
-const updateBadge = async (count = liveBadgeCount) => {
-  if (!actionApi?.setBadgeText) {
-    return;
-  }
-  try {
-    liveBadgeCount = Number(count) || 0;
-    if (updateBadgeAvailable) {
-      if (actionApi.setBadgeBackgroundColor) {
-        await actionApi.setBadgeBackgroundColor({ color: UPDATE_BADGE_COLOR });
-      }
-      await actionApi.setBadgeText({ text: '!' });
-      await actionApi.setTitle?.({ title: 'Nouvelle mise a jour disponible' });
-      return;
-    }
-    if (actionApi.setBadgeBackgroundColor) {
-      await actionApi.setBadgeBackgroundColor({ color: BADGE_COLOR });
-    }
-    await actionApi.setBadgeText({ text: liveBadgeCount > 0 ? String(Math.min(liveBadgeCount, 99)) : '' });
-    await actionApi.setTitle?.({ title: 'Afficher les favoris Twitch' });
-  } catch (error) {
-    console.warn('[TFR] unable to update badge text', error);
-  }
-};
-
-const markLiveNotificationHandled = async (login, notificationKey) => {
-  if (!login || !notificationKey) {
-    return {};
-  }
-  const stored = await extensionApi.storage.local.get(NOTIFIED_STREAMS_KEY);
-  const notifiedStreams =
-    stored?.[NOTIFIED_STREAMS_KEY] && typeof stored[NOTIFIED_STREAMS_KEY] === 'object'
-      ? stored[NOTIFIED_STREAMS_KEY]
-      : {};
-  const next = {
-    ...notifiedStreams,
-    [login]: {
-      key: notificationKey,
-      notifiedAt: Date.now()
-    }
-  };
-  await extensionApi.storage.local.set({ [NOTIFIED_STREAMS_KEY]: next });
-  return next;
-};
-
-const notifyNewLives = async (entries, preferences = {}) => {
-  const prefs = preferences || {};
-  const wantsToast = prefs.toastEnabled !== false;
-  const wantsSound = prefs.toastSoundEnabled === true;
-  if (!wantsToast && !wantsSound) {
-    return [];
-  }
-  const eligible = entries.filter(({ fav }) => fav?.recentHighlightEnabled !== false);
-  if (!eligible.length) {
-    return [];
-  }
-  const selected = eligible.slice(0, MAX_NOTIFICATIONS);
-  const toastEntries = selected.map(({ login, fav, live, notificationKey }) => ({
-    login,
-    notificationKey,
-    fav: {
-      login: fav.login,
-      displayName: fav.displayName,
-      avatarUrl: fav.avatarUrl
-    },
-    live: {
-      login: live.login,
-      displayName: live.displayName,
-      avatarUrl: live.avatarUrl,
-      viewers: live.viewers,
-      game: live.game,
-      title: live.title,
-      streamId: live.streamId,
-      startedAt: live.startedAt
-    }
-  }));
-  const delivered = await broadcastOverlayToast(toastEntries, {
-    showToast: wantsToast,
-    playSound: wantsSound,
-    soundId: prefs.toastSoundId,
-    soundVolume: prefs.toastSoundVolume,
-    customSoundDataUrl: prefs.toastCustomSoundDataUrl
-  });
-  return delivered ? selected : [];
 };
 
 const performLiveStatusEvaluation = async (reason = 'manual') => {
@@ -825,9 +746,9 @@ const performLiveStatusEvaluation = async (reason = 'manual') => {
     now
   });
 
-  await updateBadge(currentlyLive.length);
+  await badgeManager.setLiveCount(currentlyLive.length);
   if (notificationCandidates.length) {
-    const sent = await notifyNewLives(notificationCandidates, preferences);
+    const sent = await liveNotificationService.notify(notificationCandidates, preferences);
     sent.forEach(({ login, fav, live, notificationKey }) => {
       const storageLogin = login || fav?.login || live?.login;
       if (!storageLogin || !notificationKey) return;
@@ -994,7 +915,7 @@ extensionApi.runtime.onMessage.addListener((message, sender, sendResponse) => {
     sendResponse({ ok: Boolean(url) });
     return true;
   } else if (message?.type === 'TFR_DISMISS_LIVE_TOAST') {
-    markLiveNotificationHandled(message.login, message.notificationKey)
+    liveNotificationService.markHandled(message.login, message.notificationKey)
       .then(() => sendResponse({ ok: true }))
       .catch((error) => sendResponse({ ok: false, message: error?.message || 'dismiss failed' }));
     return true;
@@ -1066,7 +987,11 @@ extensionApi.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   } else if (message?.type === 'TFR_CHECK_EXTENSION_UPDATE') {
     checkForExtensionUpdate(Boolean(message.force))
-      .then((state) => sendResponse({ ok: true, state, badgeAvailable: updateBadgeAvailable }))
+      .then((state) => sendResponse({
+        ok: true,
+        state,
+        badgeAvailable: badgeManager.getUpdateAvailable()
+      }))
       .catch((error) => sendResponse({ ok: false, message: error?.message || 'Update check failed' }));
     return true;
   }
