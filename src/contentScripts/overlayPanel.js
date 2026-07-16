@@ -17,7 +17,7 @@
 
   const DEFAULT_TOAST_DURATION = 5000;
 
-  const REFRESH_INTERVAL = 90_000;
+  const REFRESH_INTERVAL = 30_000;
 
   const escapeHtml = (value) =>
     String(value ?? '').replace(/[&<>"']/g, (char) => ({
@@ -272,7 +272,7 @@
 
           <button class="tfr-panel__button" data-action="refresh">Actualiser</button>
 
-          ${isStandaloneContext ? '' : '<button class="tfr-panel__button" data-action="close">Fermer</button>'}
+          <button class="tfr-panel__button tfr-panel__close" data-action="close" type="button" aria-label="Fermer le panneau" title="Fermer">&times;</button>
 
         </div>
 
@@ -963,7 +963,10 @@
 
     clearRefreshInterval();
 
-    state.refreshTimer = setInterval(() => refreshSnapshot(false), REFRESH_INTERVAL);
+    state.refreshTimer = setInterval(
+      () => refreshSnapshot(isStandaloneContext, { showLoading: false }),
+      REFRESH_INTERVAL
+    );
 
   };
 
@@ -1172,7 +1175,6 @@
   }
 
 })();
-
 
 
 

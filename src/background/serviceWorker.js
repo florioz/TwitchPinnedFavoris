@@ -90,6 +90,7 @@ const SIDE_PANEL_PATH = 'panel/sidepanel.html';
 let liveCache = null;
 let liveCacheTimestamp = 0;
 let refreshPromise = null;
+let evaluationPromise = null;
 let liveBadgeCount = 0;
 let updateBadgeAvailable = false;
 
@@ -169,7 +170,6 @@ const getOverlayRecipientTabIds = async () => {
 };
 
 const getOverlayRecipients = async () => {
-  const tabIds = new Set(overlayTabs);
   const activeTabs = await queryTabs({
     active: true,
     currentWindow: true
@@ -177,12 +177,6 @@ const getOverlayRecipients = async () => {
   const twitchTabs = await queryTabs({
     url: ['https://www.twitch.tv/*', 'https://twitch.tv/*']
   });
-  [...activeTabs, ...twitchTabs].forEach((tab) => {
-    if (Number.isInteger(tab?.id)) {
-      tabIds.add(tab.id);
-    }
-  });
-
   const focusedActiveTwitch = activeTabs.find((tab) => (
     Number.isInteger(tab?.id) &&
     typeof tab.url === 'string' &&
@@ -191,7 +185,7 @@ const getOverlayRecipients = async () => {
   const soundTabId = focusedActiveTwitch?.id ?? twitchTabs.find((tab) => Number.isInteger(tab?.id))?.id ?? null;
 
   return {
-    tabIds: Array.from(tabIds),
+    tabIds: Number.isInteger(soundTabId) ? [soundTabId] : [],
     soundTabId
   };
 };
@@ -1005,7 +999,7 @@ const notifyNewLives = async (entries, preferences = {}) => {
   return delivered ? selected : [];
 };
 
-const evaluateLiveStatus = async (reason = 'manual') => {
+const performLiveStatusEvaluation = async (reason = 'manual') => {
   const now = Date.now();
   const stored = await extensionApi.storage.local.get([STORAGE_KEY, LIVE_CACHE_KEY, NOTIFIED_STREAMS_KEY]);
   const state = stored?.[STORAGE_KEY] && typeof stored[STORAGE_KEY] === 'object' ? stored[STORAGE_KEY] : DEFAULT_STATE;
@@ -1099,6 +1093,16 @@ const evaluateLiveStatus = async (reason = 'manual') => {
   liveCacheTimestamp = now;
   broadcastOverlayState(snapshot);
   return snapshot;
+};
+
+const evaluateLiveStatus = (reason = 'manual') => {
+  if (!evaluationPromise) {
+    evaluationPromise = performLiveStatusEvaluation(reason)
+      .finally(() => {
+        evaluationPromise = null;
+      });
+  }
+  return evaluationPromise;
 };
 
 const ensureLiveSnapshot = async (forceRefresh = false) => {

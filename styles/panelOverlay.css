@@ -23,6 +23,7 @@
 }
 
 .tfr-panel {
+  box-sizing: border-box;
   position: fixed;
   top: 0;
   right: 8px;
@@ -92,6 +93,7 @@
 }
 
 .tfr-panel__header {
+  flex: 0 0 auto;
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
@@ -122,8 +124,21 @@
 
 .tfr-panel__actions {
   display: flex;
+  align-items: center;
   gap: 10px;
   padding-right: 4px;
+}
+
+.tfr-panel__close {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  font-size: 21px;
+  line-height: 1;
 }
 
 .tfr-panel__button {
@@ -155,6 +170,7 @@
 }
 
 .tfr-panel__sections {
+  min-height: 0;
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -353,6 +369,7 @@
 }
 
 .tfr-panel__footer {
+  flex: 0 0 auto;
   display: flex;
   justify-content: space-between;
   font-size: 10px;
