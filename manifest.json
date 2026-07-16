@@ -47,6 +47,7 @@
         "src/contentScripts/features/favoritesOverlay.js",
         "src/contentScripts/features/featureController.js",
         "src/contentScripts/main.js",
+        "src/contentScripts/panelModel.js",
         "src/contentScripts/overlayPanel.js"
       ],
       "css": [

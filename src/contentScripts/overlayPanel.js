@@ -9,6 +9,15 @@
 
   }
 
+  const panelModel = globalThis.__TFR_PANEL_MODEL__;
+  if (!panelModel) {
+    console.error('[TFR overlay] panel model unavailable');
+    return;
+  }
+  const {
+    buildCategoryGroups: buildPanelCategoryGroups,
+    escapeHtml
+  } = panelModel;
 
 
   const DEFAULT_AVATAR = 'https://static-cdn.jtvnw.net/jtv_user_pictures/404_user_70x70.png';
@@ -18,15 +27,6 @@
   const DEFAULT_TOAST_DURATION = 5000;
 
   const REFRESH_INTERVAL = 30_000;
-
-  const escapeHtml = (value) =>
-    String(value ?? '').replace(/[&<>"']/g, (char) => ({
-      '&': '&amp;',
-      '<': '&lt;',
-      '>': '&gt;',
-      '"': '&quot;',
-      "'": '&#39;'
-    }[char]));
 
   const SOUND_PRESETS = {
     soft: [
@@ -51,90 +51,6 @@
       { frequency: 880, start: 0, duration: 0.09, type: 'sawtooth' },
       { frequency: 740, start: 0.1, duration: 0.1, type: 'sawtooth' }
     ]
-  };
-
-
-
-  const normalizeCategoryName = (value) => {
-
-    if (!value) return '';
-
-    let output = String(value).trim().toLocaleLowerCase();
-
-    if (typeof output.normalize === 'function') {
-
-      output = output.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-
-    }
-
-    return output;
-
-  };
-
-
-
-  const shouldDisplayFavorite = (favoriteEntry, liveEntry) => {
-
-    if (!liveEntry || !liveEntry.isLive) {
-
-      return false;
-
-    }
-
-    const filter = favoriteEntry?.categoryFilter;
-
-    if (!filter || !filter.enabled) {
-
-      return true;
-
-    }
-
-    const categories = Array.isArray(filter.categories)
-
-      ? filter.categories
-
-      : typeof filter.category === 'string'
-
-      ? [filter.category]
-
-      : [];
-
-    if (!categories.length) {
-
-      return true;
-
-    }
-
-    const requiredSet = new Set();
-
-    categories.forEach((category) => {
-
-      const normalized = normalizeCategoryName(category);
-
-      if (normalized) {
-
-        requiredSet.add(normalized);
-
-      }
-
-    });
-
-    if (!requiredSet.size) {
-
-      return true;
-
-    }
-
-    const currentCategory = normalizeCategoryName(liveEntry.game);
-
-    if (!currentCategory) {
-
-      return false;
-
-    }
-
-    return requiredSet.has(currentCategory);
-
   };
 
 
@@ -755,7 +671,12 @@
       : '';
     applyToastPosition();
 
-    const { groups, totalLive, totalFavorites } = buildCategoryGroups(favorites, liveData, categories);
+    const { groups, totalLive, totalFavorites } = buildPanelCategoryGroups({
+      favorites,
+      liveData,
+      categories,
+      categoryCollapse: state.categoryCollapse
+    });
 
 
 
@@ -1175,9 +1096,6 @@
   }
 
 })();
-
-
-
 
 
 

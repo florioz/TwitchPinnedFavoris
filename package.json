@@ -6,7 +6,7 @@
   "scripts": {
     "build:chrome": "node scripts/build-chrome.js",
     "check": "node scripts/check.js",
-    "test": "node --test tests/*.test.mjs",
+    "test": "node --test tests/*.test.mjs tests/*.test.cjs",
     "configure:mobile-oauth": "node scripts/configure-mobile-oauth.js",
     "configure:web-oauth": "node scripts/configure-web-oauth.js",
     "mobile:serve": "node scripts/serve-mobile.js",

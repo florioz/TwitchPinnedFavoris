@@ -12,6 +12,7 @@ const files = [
   'src/background/twitchClient.mjs',
   'src/background/updateService.mjs',
   'src/contentScripts/main.js',
+  'src/contentScripts/panelModel.js',
   'src/contentScripts/overlayPanel.js',
   'panel/bootstrap.js',
   'panel/vods.js',
