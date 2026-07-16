@@ -17,7 +17,8 @@
   const panelViewApi = globalThis.__TFR_PANEL_VIEW__;
   const panelLifecycleApi = globalThis.__TFR_PANEL_LIFECYCLE__;
   const panelSnapshotApi = globalThis.__TFR_PANEL_SNAPSHOT_CONTROLLER__;
-  if (!panelModel || !toastPreferences || !toastAudioApi || !toastStackApi || !panelRendererApi || !panelViewApi || !panelLifecycleApi || !panelSnapshotApi) {
+  const panelPresenterApi = globalThis.__TFR_PANEL_SNAPSHOT_PRESENTER__;
+  if (!panelModel || !toastPreferences || !toastAudioApi || !toastStackApi || !panelRendererApi || !panelViewApi || !panelLifecycleApi || !panelSnapshotApi || !panelPresenterApi) {
     console.error('[TFR overlay] panel dependencies unavailable');
     return;
   }
@@ -46,24 +47,6 @@
   const DEFAULT_TOAST_DURATION = 5000;
 
   const REFRESH_INTERVAL = 30_000;
-
-
-
-  const state = {
-
-    snapshot: { favorites: {}, categories: [], preferences: {}, liveData: {}, timestamp: Date.now() },
-
-    toastDurationMs: DEFAULT_TOAST_DURATION,
-    toastEnabled: true,
-    toastPosition: 'top-right',
-    toastSoundEnabled: false,
-    toastSoundId: 'soft',
-    toastSoundVolume: 35,
-    toastCustomSoundDataUrl: '',
-
-    categoryCollapse: new Map()
-
-  };
 
 
 
@@ -135,7 +118,7 @@
         panelLifecycle.setOpen(false);
       }
     },
-    onToggleCategory: (categoryId) => toggleCategoryCollapse(categoryId),
+    onToggleCategory: (categoryId) => panelSnapshotPresenter.toggleCategory(categoryId),
     onOpenChannel: (login) => openChannel(login)
   });
 
@@ -148,75 +131,18 @@
 
 
 
-  const syncCollapsedState = (categories = []) => {
-
-    const known = state.categoryCollapse;
-
-    const seen = new Set();
-
-    categories.forEach((category) => {
-
-      if (!category?.id) return;
-
-      seen.add(category.id);
-
-      if (!known.has(category.id)) {
-
-        known.set(category.id, Boolean(category.collapsed));
-
-      }
-
-    });
-
-    if (!known.has('uncategorized')) {
-
-      known.set('uncategorized', false);
-
-    }
-
-    seen.add('uncategorized');
-
-    Array.from(known.keys()).forEach((id) => {
-
-      if (!seen.has(id)) {
-
-        known.delete(id);
-
-      }
-
-    });
-
-  };
-
-
-
-  const toggleCategoryCollapse = (categoryId) => {
-
-    if (!categoryId) return;
-
-    const current = state.categoryCollapse.get(categoryId) || false;
-
-    state.categoryCollapse.set(categoryId, !current);
-
-    renderSnapshot(state.snapshot);
-
-  };
-
-
-
-
-
   const playNotificationSound = async (options = {}) => {
-    const volume = sanitizeSoundVolume(options.volume ?? state.toastSoundVolume);
-    const soundId = sanitizeSoundId(options.soundId ?? state.toastSoundId);
+    const preferences = panelSnapshotPresenter.getToastPreferences();
+    const volume = sanitizeSoundVolume(options.volume ?? preferences.soundVolume);
+    const soundId = sanitizeSoundId(options.soundId ?? preferences.soundId);
     const customSoundDataUrl = typeof options.customSoundDataUrl === 'string' && options.customSoundDataUrl
       ? options.customSoundDataUrl
-      : state.toastCustomSoundDataUrl;
+      : preferences.customSoundDataUrl;
     return toastAudio.play({ soundId, volume, customSoundDataUrl });
   };
 
-  const applyToastPosition = () => {
-    toastStackController.setPosition(sanitizeToastPosition(state.toastPosition));
+  const applyToastPosition = (position) => {
+    toastStackController.setPosition(sanitizeToastPosition(position));
   };
 
 
@@ -236,79 +162,16 @@
 
 
 
-  const renderSnapshot = (snapshot) => {
-
-    if (!snapshot) return;
-
-    state.snapshot = snapshot;
-
-    if (!panelView.getElements()) {
-
-      ensurePanelElements();
-
-    }
-    const panelElements = panelView.getElements();
-
-    const { favorites = {}, liveData = {}, categories = [], preferences = {} } = snapshot;
-
-    syncCollapsedState(categories);
-
-    const toastPrefs = normalizeToastPreferences(preferences, DEFAULT_TOAST_DURATION);
-    state.toastDurationMs = toastPrefs.durationMs;
-    state.toastEnabled = toastPrefs.enabled;
-    state.toastPosition = toastPrefs.position;
-    state.toastSoundEnabled = toastPrefs.soundEnabled;
-    state.toastSoundId = toastPrefs.soundId;
-    state.toastSoundVolume = toastPrefs.soundVolume;
-    state.toastCustomSoundDataUrl = toastPrefs.customSoundDataUrl;
-    applyToastPosition();
-
-    const { groups, totalLive, totalFavorites } = buildPanelCategoryGroups({
-      favorites,
-      liveData,
-      categories,
-      categoryCollapse: state.categoryCollapse
-    });
-
-
-
-    const emptyEl = panelElements.empty;
-
-
-
-    if (!totalFavorites) {
-
-      emptyEl.textContent = 'Aucun favori enregistré.';
-
-      emptyEl.classList.remove('tfr-hidden');
-
-      panelElements.subtitle.textContent = 'Ajoutez des favoris depuis Twitch.';
-
-    } else if (!totalLive) {
-
-      emptyEl.textContent = 'Aucun favori en live pour le moment.';
-
-      emptyEl.classList.remove('tfr-hidden');
-
-      panelElements.subtitle.textContent = 'Tout est calme.';
-
-    } else {
-
-      emptyEl.classList.add('tfr-hidden');
-
-      panelElements.subtitle.textContent = `${totalLive} favori(s) en live.`;
-
-    }
-
-
-
-    panelRenderer.renderGroups(panelElements.sections, groups);
-
-
-
-    panelElements.timestamp.textContent = formatPanelTimestamp(snapshot.timestamp);
-
-  };
+  const panelSnapshotPresenter = panelPresenterApi.createPanelSnapshotPresenter({
+    ensurePanel: ensurePanelElements,
+    getPanelElements: () => panelView.getElements(),
+    normalizeToastPreferences,
+    defaultToastDurationMs: DEFAULT_TOAST_DURATION,
+    buildCategoryGroups: buildPanelCategoryGroups,
+    renderGroups: (container, groups) => panelRenderer.renderGroups(container, groups),
+    formatTimestamp: formatPanelTimestamp,
+    applyToastPosition
+  });
 
 
 
@@ -317,10 +180,10 @@
       type: 'TFR_GET_POPUP_STATE',
       forceRefresh
     }),
-    renderSnapshot,
+    renderSnapshot: panelSnapshotPresenter.render,
     getPanelRoot: () => panelView.getElements()?.root,
     getSubtitle: () => panelView.getElements()?.subtitle,
-    hasLiveData: () => Boolean(Object.keys(state.snapshot?.liveData || {}).length)
+    hasLiveData: panelSnapshotPresenter.hasLiveData
   });
   const panelLifecycle = panelLifecycleApi.createPanelLifecycle({
     documentRef: document,
@@ -337,8 +200,9 @@
 
     if (!entries.length) return false;
 
-    const shouldPlaySound = options.playSound === true || (state.toastSoundEnabled && options.playSound !== false);
-    const shouldShowToast = options.showToast !== false && (state.toastEnabled || options.force);
+    const preferences = panelSnapshotPresenter.getToastPreferences();
+    const shouldPlaySound = options.playSound === true || (preferences.soundEnabled && options.playSound !== false);
+    const shouldShowToast = options.showToast !== false && (preferences.enabled || options.force);
 
     if (shouldPlaySound) {
       playNotificationSound({
@@ -352,11 +216,11 @@
       return shouldPlaySound;
     }
 
-    const duration = state.toastDurationMs || DEFAULT_TOAST_DURATION;
+    const duration = preferences.durationMs || DEFAULT_TOAST_DURATION;
     return toastStackController.render(entries, {
       host: document.body || document.documentElement,
       durationMs: duration,
-      position: sanitizeToastPosition(state.toastPosition)
+      position: sanitizeToastPosition(preferences.position)
     });
   };
 
@@ -375,7 +239,7 @@
 
     } else if (message.type === 'TFR_STATE_PUSH') {
 
-      renderSnapshot(message);
+      panelSnapshotPresenter.render(message);
 
     } else if (message.type === 'TFR_OVERLAY_TOAST') {
 

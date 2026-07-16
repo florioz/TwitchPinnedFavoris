@@ -55,6 +55,7 @@
         "src/contentScripts/panelView.js",
         "src/contentScripts/panelLifecycle.js",
         "src/contentScripts/panelSnapshotController.js",
+        "src/contentScripts/panelSnapshotPresenter.js",
         "src/contentScripts/overlayPanel.js"
       ],
       "css": [
