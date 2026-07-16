@@ -15,7 +15,8 @@
   const toastStackApi = globalThis.__TFR_TOAST_STACK__;
   const panelRendererApi = globalThis.__TFR_PANEL_RENDERER__;
   const panelViewApi = globalThis.__TFR_PANEL_VIEW__;
-  if (!panelModel || !toastPreferences || !toastAudioApi || !toastStackApi || !panelRendererApi || !panelViewApi) {
+  const panelLifecycleApi = globalThis.__TFR_PANEL_LIFECYCLE__;
+  if (!panelModel || !toastPreferences || !toastAudioApi || !toastStackApi || !panelRendererApi || !panelViewApi || !panelLifecycleApi) {
     console.error('[TFR overlay] panel dependencies unavailable');
     return;
   }
@@ -49,11 +50,7 @@
 
   const state = {
 
-    isOpen: false,
-
     snapshot: { favorites: {}, categories: [], preferences: {}, liveData: {}, timestamp: Date.now() },
-
-    refreshTimer: null,
 
     toastDurationMs: DEFAULT_TOAST_DURATION,
     toastEnabled: true,
@@ -134,7 +131,7 @@
       if (isStandaloneContext && typeof window.close === 'function') {
         window.close();
       } else {
-        setPanelOpen(false);
+        panelLifecycle.setOpen(false);
       }
     },
     onToggleCategory: (categoryId) => toggleCategoryCollapse(categoryId),
@@ -230,8 +227,7 @@
     extensionApi.runtime.sendMessage({ type: 'TFR_OPEN_CHANNEL_TAB', login });
 
     if (!isStandaloneContext) {
-
-      setPanelOpen(false);
+      panelLifecycle.setOpen(false);
 
     }
 
@@ -342,82 +338,14 @@
     }
 
   };
-
-
-
-  const clearRefreshInterval = () => {
-
-    if (state.refreshTimer) {
-
-      clearInterval(state.refreshTimer);
-
-      state.refreshTimer = null;
-
-    }
-
-  };
-
-
-
-  const scheduleRefreshInterval = () => {
-
-    clearRefreshInterval();
-
-    state.refreshTimer = setInterval(
-      () => refreshSnapshot(isStandaloneContext, { showLoading: false }),
-      REFRESH_INTERVAL
-    );
-
-  };
-
-
-
-  const setPanelOpen = (open) => {
-
-    ensurePanelElements();
-
-    state.isOpen = open;
-
-    panelView.getElements().root.classList.toggle('tfr-open', open);
-
-    if (open) {
-
-      refreshSnapshot(false, { showLoading: false });
-      setTimeout(() => refreshSnapshot(true, { showLoading: false }), 150);
-
-      scheduleRefreshInterval();
-
-      document.addEventListener('pointerdown', handleOutsidePointerDown, true);
-
-    } else {
-
-      clearRefreshInterval();
-
-      document.removeEventListener('pointerdown', handleOutsidePointerDown, true);
-
-    }
-
-  };
-
-
-
-  const handleOutsidePointerDown = (event) => {
-
-    if (!state.isOpen || isStandaloneContext) {
-
-      return;
-
-    }
-
-    if (panelView.getElements()?.root.contains(event.target)) {
-
-      return;
-
-    }
-
-    setPanelOpen(false);
-
-  };
+  const panelLifecycle = panelLifecycleApi.createPanelLifecycle({
+    documentRef: document,
+    standalone: isStandaloneContext,
+    refreshIntervalMs: REFRESH_INTERVAL,
+    ensurePanel: ensurePanelElements,
+    getPanelRoot: () => panelView.getElements()?.root,
+    refresh: refreshSnapshot
+  });
 
 
 
@@ -459,7 +387,7 @@
 
     if (message.type === 'TFR_TOGGLE_PANEL') {
 
-      setPanelOpen(!state.isOpen);
+      panelLifecycle.toggle();
 
     } else if (message.type === 'TFR_STATE_PUSH') {
 
@@ -489,7 +417,7 @@
   window.__TFR_OVERLAY_PANEL__ = true;
   if (isStandaloneContext) {
 
-    setPanelOpen(true);
+    panelLifecycle.setOpen(true);
 
   } else {
 
