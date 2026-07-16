@@ -11,6 +11,7 @@ import {
 import { createLiveSnapshotCoordinator } from './liveSnapshotCoordinator.mjs';
 import { createLiveNotificationService } from './liveNotificationService.mjs';
 import { createBadgeManager } from './badgeManager.mjs';
+import { createUpdateService } from './updateService.mjs';
 
 const extensionApi = globalThis.chrome ?? globalThis.browser;
 
@@ -256,6 +257,15 @@ const liveNotificationService = createLiveNotificationService({
   storage: extensionApi.storage.local,
   notifiedStreamsKey: NOTIFIED_STREAMS_KEY,
   broadcastToast: broadcastOverlayToast
+});
+const updateService = createUpdateService({
+  storage: extensionApi.storage.local,
+  storageKey: UPDATE_STORAGE_KEY,
+  apiUrl: UPDATE_REPO_API_URL,
+  repoUrl: UPDATE_REPO_URL,
+  currentVersion: extensionApi.runtime?.getManifest?.().version || '0.0.0',
+  checkIntervalMs: UPDATE_CHECK_INTERVAL_MS,
+  setBadgeAvailable: (available) => badgeManager.setUpdateAvailable(available)
 });
 
 const cloneData = (value) => {
@@ -610,95 +620,6 @@ const seedDefaultStateIfNeeded = async () => {
   }
 };
 
-const normalizeVersion = (version) =>
-  String(version || '')
-    .trim()
-    .replace(/^v/i, '');
-
-const parseVersion = (version) => {
-  const cleaned = normalizeVersion(version);
-  if (!cleaned) return [0];
-  return cleaned.split('.').map((part) => {
-    const match = String(part).match(/\d+/);
-    return match ? Number(match[0]) : 0;
-  });
-};
-
-const isVersionNewer = (remote, local) => {
-  const remoteParts = parseVersion(remote);
-  const localParts = parseVersion(local);
-  const length = Math.max(remoteParts.length, localParts.length);
-  for (let index = 0; index < length; index += 1) {
-    const remoteValue = remoteParts[index] ?? 0;
-    const localValue = localParts[index] ?? 0;
-    if (remoteValue > localValue) return true;
-    if (remoteValue < localValue) return false;
-  }
-  return false;
-};
-
-const canShowUpdateBadge = (state = {}, now = Date.now()) => {
-  const currentVersion = extensionApi.runtime?.getManifest?.().version || '0.0.0';
-  const latestVersion = normalizeVersion(state.latestVersion);
-  if (!latestVersion || !isVersionNewer(latestVersion, currentVersion)) {
-    return false;
-  }
-  if (state.dismissedVersion === latestVersion) {
-    return false;
-  }
-  if (state.snoozeUntil && now < state.snoozeUntil) {
-    return false;
-  }
-  return true;
-};
-
-const refreshBadgeFromUpdateState = async () => {
-  const stored = await extensionApi.storage.local.get(UPDATE_STORAGE_KEY).catch(() => ({}));
-  const updateState = stored?.[UPDATE_STORAGE_KEY] || {};
-  await badgeManager.setUpdateAvailable(canShowUpdateBadge(updateState));
-};
-
-const checkForExtensionUpdate = async (force = false) => {
-  const now = Date.now();
-  const stored = await extensionApi.storage.local.get(UPDATE_STORAGE_KEY).catch(() => ({}));
-  const state = stored?.[UPDATE_STORAGE_KEY] && typeof stored[UPDATE_STORAGE_KEY] === 'object'
-    ? stored[UPDATE_STORAGE_KEY]
-    : {};
-  if (!force && state.lastCheck && now - state.lastCheck < UPDATE_CHECK_INTERVAL_MS) {
-    await badgeManager.setUpdateAvailable(canShowUpdateBadge(state, now));
-    return state;
-  }
-  try {
-    const response = await fetch(UPDATE_REPO_API_URL, {
-      headers: { Accept: 'application/vnd.github+json' },
-      cache: 'no-cache'
-    });
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
-    }
-    const payload = await response.json();
-    const remoteVersion = normalizeVersion(payload?.tag_name || payload?.name);
-    const nextState = {
-      ...state,
-      lastCheck: now,
-      latestVersion: remoteVersion,
-      releaseUrl: payload?.html_url || UPDATE_REPO_URL,
-      releaseNotes: (payload?.body || '').trim()
-    };
-    if (state.latestVersion !== remoteVersion) {
-      nextState.dismissedVersion = null;
-      nextState.snoozeUntil = null;
-    }
-    await extensionApi.storage.local.set({ [UPDATE_STORAGE_KEY]: nextState });
-    await badgeManager.setUpdateAvailable(canShowUpdateBadge(nextState, now));
-    return nextState;
-  } catch (error) {
-    console.warn('[TFR] background update check failed', error);
-    await badgeManager.setUpdateAvailable(canShowUpdateBadge(state, now));
-    return state;
-  }
-};
-
 const performLiveStatusEvaluation = async (reason = 'manual') => {
   const now = Date.now();
   const stored = await extensionApi.storage.local.get([STORAGE_KEY, LIVE_CACHE_KEY, NOTIFIED_STREAMS_KEY]);
@@ -814,14 +735,14 @@ extensionApi.runtime.onInstalled.addListener(async () => {
   await seedDefaultStateIfNeeded();
   scheduleAlarm();
   setSidePanelBehavior();
-  await checkForExtensionUpdate(true);
+  await updateService.check(true);
   await evaluateLiveStatus('install');
 });
 
 extensionApi.runtime.onStartup.addListener(async () => {
   scheduleAlarm();
   setSidePanelBehavior();
-  await checkForExtensionUpdate(false);
+  await updateService.check(false);
   await evaluateLiveStatus('startup');
 });
 
@@ -841,7 +762,7 @@ extensionApi.alarms.onAlarm.addListener((alarm) => {
   if (alarm?.name === POLL_ALARM) {
     evaluateLiveStatus('alarm');
   } else if (alarm?.name === UPDATE_ALARM) {
-    checkForExtensionUpdate(false);
+    updateService.check(false);
   }
 });
 
@@ -850,7 +771,7 @@ extensionApi.storage.onChanged.addListener((changes, areaName) => {
     evaluateLiveStatus('favorites-change');
   }
   if (areaName === 'local' && Object.prototype.hasOwnProperty.call(changes, UPDATE_STORAGE_KEY)) {
-    refreshBadgeFromUpdateState();
+    updateService.refreshBadge();
   }
 });
 
@@ -986,7 +907,7 @@ extensionApi.runtime.onMessage.addListener((message, sender, sendResponse) => {
       .catch((error) => sendResponse({ ok: false, message: error?.message || 'Google sign out failed' }));
     return true;
   } else if (message?.type === 'TFR_CHECK_EXTENSION_UPDATE') {
-    checkForExtensionUpdate(Boolean(message.force))
+    updateService.check(Boolean(message.force))
       .then((state) => sendResponse({
         ok: true,
         state,

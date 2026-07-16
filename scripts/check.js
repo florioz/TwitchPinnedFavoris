@@ -10,6 +10,7 @@ const files = [
   'src/background/liveNotificationService.mjs',
   'src/background/badgeManager.mjs',
   'src/background/twitchClient.mjs',
+  'src/background/updateService.mjs',
   'src/contentScripts/main.js',
   'src/contentScripts/overlayPanel.js',
   'panel/bootstrap.js',
