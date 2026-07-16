@@ -10,14 +10,23 @@
   }
 
   const panelModel = globalThis.__TFR_PANEL_MODEL__;
-  if (!panelModel) {
-    console.error('[TFR overlay] panel model unavailable');
+  const toastPreferences = globalThis.__TFR_TOAST_PREFERENCES__;
+  if (!panelModel || !toastPreferences) {
+    console.error('[TFR overlay] panel dependencies unavailable');
     return;
   }
   const {
     buildCategoryGroups: buildPanelCategoryGroups,
-    escapeHtml
+    escapeHtml,
+    formatNumber: formatPanelNumber,
+    formatTimestamp: formatPanelTimestamp
   } = panelModel;
+  const {
+    normalizeToastPreferences,
+    sanitizeSoundId,
+    sanitizeSoundVolume,
+    sanitizeToastPosition
+  } = toastPreferences;
 
 
   const DEFAULT_AVATAR = 'https://static-cdn.jtvnw.net/jtv_user_pictures/404_user_70x70.png';
@@ -341,27 +350,6 @@
 
   };
 
-  const sanitizeToastPosition = (position) => {
-    const allowed = new Set([
-      'top-left',
-      'top-center',
-      'top-right',
-      'bottom-left',
-      'bottom-center',
-      'bottom-right'
-    ]);
-    return allowed.has(position) ? position : 'top-right';
-  };
-
-  const sanitizeSoundId = (soundId) => (
-    soundId === 'custom' || Object.prototype.hasOwnProperty.call(SOUND_PRESETS, soundId) ? soundId : 'soft'
-  );
-
-  const sanitizeSoundVolume = (volume) => {
-    const numeric = Number(volume);
-    return Number.isFinite(numeric) ? Math.max(0, Math.min(100, Math.round(numeric))) : 35;
-  };
-
   const getAudioContext = async () => {
     const AudioContextConstructor = window.AudioContext || window.webkitAudioContext;
     if (!AudioContextConstructor) {
@@ -654,21 +642,14 @@
 
     syncCollapsedState(categories);
 
-    const toastSeconds = Number(preferences.toastDurationSeconds);
-
-    state.toastDurationMs = Number.isFinite(toastSeconds)
-
-      ? Math.max(2000, Math.min(60000, Math.round(toastSeconds * 1000)))
-
-      : DEFAULT_TOAST_DURATION;
-    state.toastEnabled = preferences.toastEnabled !== false;
-    state.toastPosition = sanitizeToastPosition(preferences.toastPosition);
-    state.toastSoundEnabled = preferences.toastSoundEnabled === true;
-    state.toastSoundId = sanitizeSoundId(preferences.toastSoundId);
-    state.toastSoundVolume = sanitizeSoundVolume(preferences.toastSoundVolume);
-    state.toastCustomSoundDataUrl = typeof preferences.toastCustomSoundDataUrl === 'string'
-      ? preferences.toastCustomSoundDataUrl
-      : '';
+    const toastPrefs = normalizeToastPreferences(preferences, DEFAULT_TOAST_DURATION);
+    state.toastDurationMs = toastPrefs.durationMs;
+    state.toastEnabled = toastPrefs.enabled;
+    state.toastPosition = toastPrefs.position;
+    state.toastSoundEnabled = toastPrefs.soundEnabled;
+    state.toastSoundId = toastPrefs.soundId;
+    state.toastSoundVolume = toastPrefs.soundVolume;
+    state.toastCustomSoundDataUrl = toastPrefs.customSoundDataUrl;
     applyToastPosition();
 
     const { groups, totalLive, totalFavorites } = buildPanelCategoryGroups({
@@ -804,7 +785,7 @@
 
               <span class="tfr-panel__name">${escapeHtml(live.displayName || fav.displayName || fav.login)}</span>
 
-              <span class="tfr-panel__viewers">${formatNumber(live.viewers)} spectateurs</span>
+              <span class="tfr-panel__viewers">${formatPanelNumber(live.viewers)} spectateurs</span>
 
             </div>
 
@@ -830,7 +811,7 @@
 
 
 
-    state.footerTimestampEl.textContent = formatTimestamp(snapshot.timestamp);
+    state.footerTimestampEl.textContent = formatPanelTimestamp(snapshot.timestamp);
 
   };
 
@@ -980,7 +961,7 @@
 
           <p class="tfr-toast__title">${escapeHtml(live.displayName || fav.displayName || fav.login)} est en live</p>
 
-          <p class="tfr-toast__subtitle">${escapeHtml(live.game || 'Live en cours')} &bull; ${formatNumber(live.viewers)} spectateurs</p>
+          <p class="tfr-toast__subtitle">${escapeHtml(live.game || 'Live en cours')} &bull; ${formatPanelNumber(live.viewers)} spectateurs</p>
 
         </div>
 
@@ -1096,7 +1077,6 @@
   }
 
 })();
-
 
 
 

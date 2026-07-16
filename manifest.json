@@ -48,6 +48,7 @@
         "src/contentScripts/features/featureController.js",
         "src/contentScripts/main.js",
         "src/contentScripts/panelModel.js",
+        "src/contentScripts/toastPreferences.js",
         "src/contentScripts/overlayPanel.js"
       ],
       "css": [
