@@ -14,7 +14,8 @@
   const toastAudioApi = globalThis.__TFR_TOAST_AUDIO__;
   const toastStackApi = globalThis.__TFR_TOAST_STACK__;
   const panelRendererApi = globalThis.__TFR_PANEL_RENDERER__;
-  if (!panelModel || !toastPreferences || !toastAudioApi || !toastStackApi || !panelRendererApi) {
+  const panelViewApi = globalThis.__TFR_PANEL_VIEW__;
+  if (!panelModel || !toastPreferences || !toastAudioApi || !toastStackApi || !panelRendererApi || !panelViewApi) {
     console.error('[TFR overlay] panel dependencies unavailable');
     return;
   }
@@ -51,14 +52,6 @@
     isOpen: false,
 
     snapshot: { favorites: {}, categories: [], preferences: {}, liveData: {}, timestamp: Date.now() },
-
-    panelEl: null,
-
-    sectionsEl: null,
-
-    subtitleEl: null,
-
-    footerTimestampEl: null,
 
     refreshTimer: null,
 
@@ -133,109 +126,26 @@
     formatNumber: formatPanelNumber,
     defaultAvatar: DEFAULT_AVATAR
   });
+  const panelView = panelViewApi.createPanelView({
+    documentRef: document,
+    standalone: isStandaloneContext,
+    onRefresh: () => refreshSnapshot(true),
+    onClose: () => {
+      if (isStandaloneContext && typeof window.close === 'function') {
+        window.close();
+      } else {
+        setPanelOpen(false);
+      }
+    },
+    onToggleCategory: (categoryId) => toggleCategoryCollapse(categoryId),
+    onOpenChannel: (login) => openChannel(login)
+  });
 
 
 
   const ensurePanelElements = () => {
-
-    if (state.panelEl) return;
-
-    const container = document.createElement('div');
-
-    container.className = 'tfr-panel';
-    container.classList.add(isStandaloneContext ? 'tfr-panel--standalone' : 'tfr-panel--overlay');
-
-    container.innerHTML = `
-
-      <div class="tfr-panel__header">
-
-        <div>
-
-          <p class="tfr-panel__eyebrow">Twitch Favoris</p>
-
-          <h2 class="tfr-panel__title">Favoris en live</h2>
-
-          <p class="tfr-panel__subtitle">Chargement...</p>
-
-        </div>
-
-        <div class="tfr-panel__actions">
-
-          <button class="tfr-panel__button" data-action="refresh">Actualiser</button>
-
-          <button class="tfr-panel__button tfr-panel__close" data-action="close" type="button" aria-label="Fermer le panneau" title="Fermer">&times;</button>
-
-        </div>
-
-      </div>
-
-      <div class="tfr-panel__empty">Aucun favori enregistré.</div>
-
-      <div class="tfr-panel__sections"></div>
-
-      <div class="tfr-panel__footer">
-
-        <a href="https://www.twitch.tv/directory/following/live" target="_blank" rel="noreferrer">Ouvrir Twitch</a>
-
-        <span class="tfr-panel__timestamp"></span>
-
-      </div>
-
-    `;
-
     const host = document.body || document.documentElement;
-    host.appendChild(container);
-
-
-
-    state.panelEl = container;
-
-    state.sectionsEl = container.querySelector('.tfr-panel__sections');
-
-    state.subtitleEl = container.querySelector('.tfr-panel__subtitle');
-
-    state.footerTimestampEl = container.querySelector('.tfr-panel__timestamp');
-
-
-
-    container.addEventListener('click', (event) => {
-
-      const actionTarget = event.target?.closest('[data-action]');
-
-      const action = actionTarget?.dataset?.action;
-
-      if (action === 'refresh') {
-
-        refreshSnapshot(true);
-
-      } else if (action === 'close') {
-
-        if (isStandaloneContext && typeof window.close === 'function') {
-          window.close();
-        } else {
-          setPanelOpen(false);
-        }
-
-      } else if (action === 'toggleCategory') {
-
-        const targetId = actionTarget?.dataset?.categoryId;
-
-        toggleCategoryCollapse(targetId);
-
-      } else if (event.target?.matches('.tfr-panel__card, .tfr-panel__card *')) {
-
-        const card = event.target.closest('.tfr-panel__card');
-
-        if (card?.dataset?.login) {
-
-          openChannel(card.dataset.login);
-
-        }
-
-      }
-
-    });
-
+    panelView.ensure(host);
   };
 
 
@@ -335,11 +245,12 @@
 
     state.snapshot = snapshot;
 
-    if (!state.panelEl) {
+    if (!panelView.getElements()) {
 
       ensurePanelElements();
 
     }
+    const panelElements = panelView.getElements();
 
     const { favorites = {}, liveData = {}, categories = [], preferences = {} } = snapshot;
 
@@ -364,7 +275,7 @@
 
 
 
-    const emptyEl = state.panelEl.querySelector('.tfr-panel__empty');
+    const emptyEl = panelElements.empty;
 
 
 
@@ -374,7 +285,7 @@
 
       emptyEl.classList.remove('tfr-hidden');
 
-      state.subtitleEl.textContent = 'Ajoutez des favoris depuis Twitch.';
+      panelElements.subtitle.textContent = 'Ajoutez des favoris depuis Twitch.';
 
     } else if (!totalLive) {
 
@@ -382,23 +293,23 @@
 
       emptyEl.classList.remove('tfr-hidden');
 
-      state.subtitleEl.textContent = 'Tout est calme.';
+      panelElements.subtitle.textContent = 'Tout est calme.';
 
     } else {
 
       emptyEl.classList.add('tfr-hidden');
 
-      state.subtitleEl.textContent = `${totalLive} favori(s) en live.`;
+      panelElements.subtitle.textContent = `${totalLive} favori(s) en live.`;
 
     }
 
 
 
-    panelRenderer.renderGroups(state.sectionsEl, groups);
+    panelRenderer.renderGroups(panelElements.sections, groups);
 
 
 
-    state.footerTimestampEl.textContent = formatPanelTimestamp(snapshot.timestamp);
+    panelElements.timestamp.textContent = formatPanelTimestamp(snapshot.timestamp);
 
   };
 
@@ -411,13 +322,13 @@
     );
 
     if (showLoading) {
-      state.panelEl?.classList.add('tfr-panel--loading');
+      panelView.getElements()?.root.classList.add('tfr-panel--loading');
     }
 
     const snapshot = await sendMessage({ type: 'TFR_GET_POPUP_STATE', forceRefresh });
 
     if (showLoading) {
-      state.panelEl?.classList.remove('tfr-panel--loading');
+      panelView.getElements()?.root.classList.remove('tfr-panel--loading');
     }
 
     if (snapshot && !snapshot.error) {
@@ -426,7 +337,7 @@
 
     } else {
 
-      state.subtitleEl.textContent = 'Impossible de récupérer les favoris.';
+      panelView.getElements().subtitle.textContent = 'Impossible de récupérer les favoris.';
 
     }
 
@@ -467,7 +378,7 @@
 
     state.isOpen = open;
 
-    state.panelEl.classList.toggle('tfr-open', open);
+    panelView.getElements().root.classList.toggle('tfr-open', open);
 
     if (open) {
 
@@ -498,7 +409,7 @@
 
     }
 
-    if (state.panelEl?.contains(event.target)) {
+    if (panelView.getElements()?.root.contains(event.target)) {
 
       return;
 
