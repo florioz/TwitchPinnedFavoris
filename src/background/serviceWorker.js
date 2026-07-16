@@ -1,9 +1,7 @@
 import {
-  cleanupNotifiedStreams,
   createLiveDataSignature,
   createNotifiedStreamsSignature,
-  getNotificationKey,
-  isRecentLiveStart
+  deriveLiveEvaluation
 } from './liveState.mjs';
 import {
   createOfflineLiveData,
@@ -248,15 +246,6 @@ const broadcastOverlayToast = async (entries, options = {}) => {
     }))
   );
   return results.some((result) => result?.ok);
-};
-
-const normalizeCategoryName = (value) => {
-  if (!value) return '';
-  let output = String(value).trim().toLocaleLowerCase();
-  if (typeof output.normalize === 'function') {
-    output = output.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-  }
-  return output;
 };
 
 const cloneData = (value) => {
@@ -589,39 +578,6 @@ const pullBackupFromDrive = async () => {
   return { ok: true, payload, file, syncState };
 };
 
-const shouldDisplayFavorite = (favoriteEntry, liveEntry) => {
-  if (!liveEntry || !liveEntry.isLive) {
-    return false;
-  }
-  const filter = favoriteEntry?.categoryFilter;
-  if (!filter || !filter.enabled) {
-    return true;
-  }
-  const categories = Array.isArray(filter.categories)
-    ? filter.categories
-    : typeof filter.category === 'string'
-    ? [filter.category]
-    : [];
-  if (!categories.length) {
-    return true;
-  }
-  const requiredSet = new Set();
-  categories.forEach((category) => {
-    const normalized = normalizeCategoryName(category);
-    if (normalized) {
-      requiredSet.add(normalized);
-    }
-  });
-  if (!requiredSet.size) {
-    return true;
-  }
-  const currentCategory = normalizeCategoryName(liveEntry.game);
-  if (!currentCategory) {
-    return false;
-  }
-  return requiredSet.has(currentCategory);
-};
-
 const seedDefaultStateIfNeeded = async () => {
   try {
     const stored = await extensionApi.storage.local.get(STORAGE_KEY);
@@ -856,30 +812,17 @@ const performLiveStatusEvaluation = async (reason = 'manual') => {
   const nextLiveSignature = createLiveDataSignature(liveData);
   const previousNotifiedSignature = createNotifiedStreamsSignature(previousNotifiedStreams);
 
-  const currentlyLive = [];
-  const notificationCandidates = [];
-  const nextNotifiedStreams = cleanupNotifiedStreams(previousNotifiedStreams, liveData, now);
-  logins.forEach((login) => {
-    const fav = favorites[login];
-    const live = liveData[login];
-    if (!fav || !live) return;
-    const matchesFilter = shouldDisplayFavorite(fav, live);
-    const isLive = Boolean(live.isLive && matchesFilter);
-    if (isLive) {
-      currentlyLive.push({ fav, live });
-    }
-    const notificationKey = getNotificationKey(login, live);
-    const alreadyNotified = Boolean(notificationKey && previousNotifiedStreams?.[login]?.key === notificationKey);
-    if (
-      isLive &&
-      notificationKey &&
-      fav.recentHighlightEnabled !== false &&
-      !alreadyNotified &&
-      isRecentLiveStart(live, preferences, now) &&
-      reason !== 'install'
-    ) {
-      notificationCandidates.push({ login, fav, live, notificationKey });
-    }
+  const {
+    currentlyLive,
+    notificationCandidates,
+    nextNotifiedStreams
+  } = deriveLiveEvaluation({
+    favorites,
+    liveData,
+    previousNotifiedStreams,
+    preferences,
+    reason,
+    now
   });
 
   await updateBadge(currentlyLive.length);
