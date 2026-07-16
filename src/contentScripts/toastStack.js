@@ -12,7 +12,8 @@
     defaultAvatar,
     maxVisible = 3,
     schedule = setTimeout,
-    dismissEntry
+    dismissEntry,
+    t = (key) => key
   }) => {
     let stack = null;
 
@@ -45,10 +46,10 @@
         toast.innerHTML = `
           <img class="tfr-toast__thumb" src="${escapeHtml(live.avatarUrl || fav.avatarUrl || defaultAvatar)}" alt="" />
           <div class="tfr-toast__content">
-            <p class="tfr-toast__title">${escapeHtml(live.displayName || fav.displayName || fav.login)} est en live</p>
-            <p class="tfr-toast__subtitle">${escapeHtml(live.game || 'Live en cours')} &bull; ${formatNumber(live.viewers)} spectateurs</p>
+            <p class="tfr-toast__title">${escapeHtml(t('toast.live', { name: live.displayName || fav.displayName || fav.login }))}</p>
+            <p class="tfr-toast__subtitle">${escapeHtml(t('toast.subtitle', { game: live.game || t('toast.liveFallback'), count: formatNumber(live.viewers) }))}</p>
           </div>
-          <button class="tfr-toast__close" type="button" aria-label="Fermer la notification">×</button>
+          <button class="tfr-toast__close" type="button" aria-label="${escapeHtml(t('toast.close'))}">×</button>
         `;
 
         let dismissed = false;

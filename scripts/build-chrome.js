@@ -9,6 +9,7 @@ const zipPath = join(distDir, 'TwitchFavoritesSidebar-chrome-store.zip');
 
 const include = [
   'manifest.json',
+  '_locales',
   'assets',
   'panel',
   'src',

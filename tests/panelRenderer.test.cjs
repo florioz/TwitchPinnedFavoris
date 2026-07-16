@@ -42,7 +42,13 @@ const createRenderer = () => createPanelRenderer({
     .replaceAll('<', '&lt;')
     .replaceAll('>', '&gt;'),
   formatNumber: (value) => `#${value}`,
-  defaultAvatar: 'default.png'
+  defaultAvatar: 'default.png',
+  t: (key, params = {}) => ({
+    'panel.viewers': `${params.count} spectateurs`,
+    'panel.uncategorized': 'Sans catégorie',
+    'panel.unknownCategory': 'Catégorie inconnue',
+    'panel.untitled': 'Live sans titre'
+  })[key] || key
 });
 
 test('renderer creates collapsed groups and streamer cards', () => {

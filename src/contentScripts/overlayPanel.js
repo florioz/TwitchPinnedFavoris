@@ -10,6 +10,7 @@
   }
 
   const panelModel = globalThis.__TFR_PANEL_MODEL__;
+  const i18n = globalThis.__TFR_I18N__;
   const toastPreferences = globalThis.__TFR_TOAST_PREFERENCES__;
   const toastAudioApi = globalThis.__TFR_TOAST_AUDIO__;
   const toastStackApi = globalThis.__TFR_TOAST_STACK__;
@@ -20,7 +21,7 @@
   const panelPresenterApi = globalThis.__TFR_PANEL_SNAPSHOT_PRESENTER__;
   const runtimeClientApi = globalThis.__TFR_EXTENSION_RUNTIME_CLIENT__;
   const panelMessageRouterApi = globalThis.__TFR_PANEL_MESSAGE_ROUTER__;
-  if (!panelModel || !toastPreferences || !toastAudioApi || !toastStackApi || !panelRendererApi || !panelViewApi || !panelLifecycleApi || !panelSnapshotApi || !panelPresenterApi || !runtimeClientApi || !panelMessageRouterApi) {
+  if (!i18n || !panelModel || !toastPreferences || !toastAudioApi || !toastStackApi || !panelRendererApi || !panelViewApi || !panelLifecycleApi || !panelSnapshotApi || !panelPresenterApi || !runtimeClientApi || !panelMessageRouterApi) {
     console.error('[TFR overlay] panel dependencies unavailable');
     return;
   }
@@ -36,6 +37,7 @@
     sanitizeSoundVolume,
     sanitizeToastPosition
   } = toastPreferences;
+  const { t } = i18n;
   const toastAudio = toastAudioApi.createToastAudio({
     AudioContextConstructor: window.AudioContext || window.webkitAudioContext,
     AudioConstructor: window.Audio
@@ -59,9 +61,10 @@
   const toastStackController = toastStackApi.createToastStackController({
     documentRef: document,
     escapeHtml,
-    formatNumber: formatPanelNumber,
+    formatNumber: i18n.formatNumber,
     defaultAvatar: DEFAULT_AVATAR,
     maxVisible: MAX_VISIBLE_TOASTS,
+    t,
     dismissEntry: ({ login, notificationKey }) =>
       runtimeClient.dismissToast(login, notificationKey)
   });
@@ -69,11 +72,13 @@
     documentRef: document,
     escapeHtml,
     formatNumber: formatPanelNumber,
-    defaultAvatar: DEFAULT_AVATAR
+    defaultAvatar: DEFAULT_AVATAR,
+    t
   });
   const panelView = panelViewApi.createPanelView({
     documentRef: document,
     standalone: isStandaloneContext,
+    t,
     onRefresh: () => panelSnapshotController.refresh(true),
     onClose: () => {
       if (isStandaloneContext && typeof window.close === 'function') {
@@ -133,7 +138,14 @@
     defaultToastDurationMs: DEFAULT_TOAST_DURATION,
     buildCategoryGroups: buildPanelCategoryGroups,
     renderGroups: (container, groups) => panelRenderer.renderGroups(container, groups),
-    formatTimestamp: formatPanelTimestamp,
+    formatTimestamp: (timestamp) => {
+      const date = new Date(timestamp);
+      if (!timestamp || Number.isNaN(date.getTime())) return '';
+      return t('panel.updatedAt', {
+        time: i18n.formatDate(date, { hour: '2-digit', minute: '2-digit' })
+      });
+    },
+    t,
     applyToastPosition
   });
 
@@ -144,7 +156,8 @@
     renderSnapshot: panelSnapshotPresenter.render,
     getPanelRoot: () => panelView.getElements()?.root,
     getSubtitle: () => panelView.getElements()?.subtitle,
-    hasLiveData: panelSnapshotPresenter.hasLiveData
+    hasLiveData: panelSnapshotPresenter.hasLiveData,
+    errorMessage: t('panel.error')
   });
   const panelLifecycle = panelLifecycleApi.createPanelLifecycle({
     documentRef: document,

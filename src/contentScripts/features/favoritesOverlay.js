@@ -29,6 +29,11 @@ class FavoritesOverlay {
     this.selectedFavorites = new Set();
     this.activeFavoriteLogin = null;
     this.categorySuggestionCache = new Map();
+    this.appearanceWizardStep = 0;
+    this.appearanceRadialState = {};
+    this.appearanceWizardOpen = false;
+    this.appearanceAdvancedOpen = false;
+    this.dataToolsOpen = false;
     this.unsubscribe = this.store.subscribe(() => {
       if (this.isOpen) {
         this.render();
@@ -311,29 +316,29 @@ class FavoritesOverlay {
     });
     controls.appendChild(searchInput);
     controls.appendChild(sortSelect);
-    controls.appendChild(this.renderBackupControls());
-    controls.appendChild(this.renderDriveControls());
     content.appendChild(controls);
+
+    const dataTools = document.createElement('details');
+    dataTools.className = 'tfr-data-tools';
+    dataTools.open = this.dataToolsOpen;
+    dataTools.addEventListener('toggle', () => {
+      this.dataToolsOpen = dataTools.open;
+    });
+    const dataToolsSummary = document.createElement('summary');
+    dataToolsSummary.textContent = t('backup.tools');
+    dataTools.appendChild(dataToolsSummary);
+    const dataToolsBody = document.createElement('div');
+    dataToolsBody.className = 'tfr-data-tools__body';
+    dataToolsBody.append(this.renderBackupControls(), this.renderDriveControls());
+    dataTools.appendChild(dataToolsBody);
+    content.appendChild(dataTools);
 
     const recentSettings = this.renderRecentLiveSettings(state);
     if (recentSettings) {
       content.appendChild(recentSettings);
     }
 
-    const categoryAppearanceSettings = this.renderCategoryAppearanceSettings(state);
-    if (categoryAppearanceSettings) {
-      content.appendChild(categoryAppearanceSettings);
-    }
-
-    const streamerAppearanceSettings = this.renderStreamerAppearanceSettings(state);
-    if (streamerAppearanceSettings) {
-      content.appendChild(streamerAppearanceSettings);
-    }
-
-    const sidebarSurfaceSettings = this.renderSidebarSurfaceSettings(state);
-    if (sidebarSurfaceSettings) {
-      content.appendChild(sidebarSurfaceSettings);
-    }
+    content.appendChild(this.renderSidebarAppearanceWizard(state));
 
     const toastSettings = this.renderToastSettings(state);
     if (toastSettings) {
@@ -468,6 +473,29 @@ class FavoritesOverlay {
     });
     actions.appendChild(renameButton);
 
+    const exportProfileButton = document.createElement('button');
+    exportProfileButton.type = 'button';
+    exportProfileButton.className = 'tfr-button tfr-button--ghost';
+    exportProfileButton.textContent = t('profiles.export');
+    exportProfileButton.addEventListener('click', () => this.handleExportProfile());
+    actions.appendChild(exportProfileButton);
+
+    const importProfileInput = document.createElement('input');
+    importProfileInput.type = 'file';
+    importProfileInput.accept = 'application/json';
+    importProfileInput.className = 'tfr-backup-file-input';
+    importProfileInput.addEventListener('change', (event) => {
+      const file = event.target.files?.[0];
+      event.target.value = '';
+      if (file) this.importProfileFromFile(file);
+    });
+    const importProfileButton = document.createElement('button');
+    importProfileButton.type = 'button';
+    importProfileButton.className = 'tfr-button tfr-button--ghost';
+    importProfileButton.textContent = t('profiles.import');
+    importProfileButton.addEventListener('click', () => importProfileInput.click());
+    actions.append(importProfileButton, importProfileInput);
+
     const deleteButton = document.createElement('button');
     deleteButton.type = 'button';
     deleteButton.className = 'tfr-button tfr-button--danger';
@@ -484,6 +512,46 @@ class FavoritesOverlay {
 
     wrapper.appendChild(actions);
     return wrapper;
+  }
+
+  downloadJson(payload, filename) {
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = filename;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  handleExportProfile() {
+    try {
+      const payload = this.store.getActiveProfileExportData();
+      const safeName = String(payload.profile?.name || 'profil')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z0-9_-]+/gi, '-')
+        .replace(/^-+|-+$/g, '')
+        .toLowerCase() || 'profil';
+      this.downloadJson(payload, `twitch-favoris-profil-${safeName}.json`);
+    } catch (error) {
+      console.error('[TFR] Profile export error', error);
+      window.alert(t('profiles.exportError'));
+    }
+  }
+
+  async importProfileFromFile(file) {
+    try {
+      const parsed = JSON.parse(await file.text());
+      await this.store.importProfile(parsed);
+      window.alert(t('profiles.importSuccess'));
+      this.render();
+    } catch (error) {
+      console.error('[TFR] Profile import error', error);
+      window.alert(t('profiles.importError'));
+    }
   }
 
   renderRecentLiveSettings(state) {
@@ -556,6 +624,222 @@ class FavoritesOverlay {
       this.render();
     });
 
+    return wrapper;
+  }
+
+  renderSidebarAppearanceWizard(state) {
+    const prefs = state.preferences || {};
+    const categoryValues = [
+      'gradient', 'solid', 'stripe', 'glow', 'glass', 'outline', 'minimal', 'dot',
+      'rail', 'double', 'soft-card', 'soft-neon', 'ribbon', 'count-badge', 'ink',
+      'compact', 'parent-accent'
+    ];
+    const streamerValues = [
+      'default', 'compact', 'card', 'soft-card', 'outline', 'left-line',
+      'avatar-ring', 'avatar-square', 'neon', 'viewer-badge', 'game-focus',
+      'title-focus', 'glass', 'minimal', 'avatar-grid'
+    ];
+    const surfaceValues = [
+      'default', 'full', 'panel', 'glow', 'rail', 'connected', 'layers', 'canvas',
+      'edge', 'spectrum', 'pulse', 'poster', 'arcade'
+    ];
+    const steps = [
+      {
+        kind: 'category',
+        label: t('appearance.wizard.groups'),
+        value: this.store.sanitizeCategoryColorStyle?.(prefs.categoryColorStyle) || 'gradient',
+        values: categoryValues,
+        labelFor: (style) => t(`categoryAppearance.style.${style}`),
+        descriptionFor: (style) => t(
+          ['gradient', 'rail', 'soft-card', 'outline', 'minimal', 'parent-accent'].includes(style)
+            ? `appearance.description.category.${style}`
+            : 'appearance.description.category.other'
+        ),
+        apply: (style) => this.store.setCategoryColorStyle(style)
+      },
+      {
+        kind: 'streamer',
+        label: t('appearance.wizard.streamers'),
+        value: this.store.sanitizeStreamerItemStyle?.(prefs.streamerItemStyle) || 'default',
+        values: streamerValues,
+        labelFor: (style) => t(`streamerAppearance.style.${style}`),
+        descriptionFor: (style) => t(
+          ['default', 'soft-card', 'compact', 'minimal', 'avatar-ring', 'avatar-grid'].includes(style)
+            ? `appearance.description.streamer.${style}`
+            : 'appearance.description.streamer.other'
+        ),
+        apply: (style) => this.store.setStreamerItemStyle(style)
+      },
+      {
+        kind: 'surface',
+        label: t('appearance.wizard.surface'),
+        value: this.store.sanitizeSidebarSurfaceStyle?.(prefs.sidebarSurfaceStyle) || 'default',
+        values: surfaceValues,
+        labelFor: (style) => t(`sidebarSurface.style.${style}`),
+        descriptionFor: (style) => t(
+          ['default', 'panel', 'rail', 'full', 'glow', 'canvas'].includes(style)
+            ? `appearance.description.surface.${style}`
+            : 'appearance.description.surface.other'
+        ),
+        apply: (style) => this.store.setSidebarSurfaceStyle(style)
+      }
+    ];
+    this.appearanceWizardStep = Math.max(0, Math.min(steps.length - 1, this.appearanceWizardStep));
+    const activeStep = steps[this.appearanceWizardStep];
+
+    const wrapper = document.createElement('section');
+    wrapper.className = 'tfr-appearance-wizard';
+    const header = document.createElement('div');
+    header.className = 'tfr-appearance-wizard__header';
+    const heading = document.createElement('div');
+    const title = document.createElement('h3');
+    title.textContent = t('appearance.wizard.title');
+    const subtitle = document.createElement('p');
+    subtitle.textContent = t('appearance.wizard.subtitle');
+    heading.append(title, subtitle);
+    header.appendChild(heading);
+    const openButton = document.createElement('button');
+    openButton.type = 'button';
+    openButton.className = 'tfr-appearance-wizard__toggle';
+    openButton.setAttribute('aria-expanded', String(this.appearanceWizardOpen));
+    openButton.innerHTML = this.appearanceWizardOpen
+      ? `${t('appearance.wizard.hide')} <span aria-hidden="true">\u2212</span>`
+      : `${t('appearance.wizard.open')} <span aria-hidden="true">\u2726</span>`;
+    openButton.addEventListener('click', () => {
+      this.appearanceWizardOpen = !this.appearanceWizardOpen;
+      this.render();
+    });
+    header.appendChild(openButton);
+    wrapper.appendChild(header);
+
+    const summary = document.createElement('div');
+    summary.className = 'tfr-appearance-wizard__selection-summary';
+    steps.forEach((step) => {
+      const item = document.createElement('span');
+      item.innerHTML = `<small>${step.label}</small><strong>${step.labelFor(step.value)}</strong>`;
+      summary.appendChild(item);
+    });
+    wrapper.appendChild(summary);
+
+    const body = document.createElement('div');
+    body.className = 'tfr-appearance-wizard__body';
+    body.hidden = !this.appearanceWizardOpen;
+
+    const progress = document.createElement('div');
+    progress.className = 'tfr-appearance-wizard__progress';
+    steps.forEach((step, index) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'tfr-appearance-wizard__step';
+      button.classList.toggle('is-active', index === this.appearanceWizardStep);
+      button.classList.toggle('is-complete', index < this.appearanceWizardStep);
+      button.innerHTML = `<span>${index + 1}</span>${step.label}`;
+      button.addEventListener('click', () => {
+        this.appearanceWizardStep = index;
+        this.render();
+      });
+      progress.appendChild(button);
+    });
+    body.appendChild(progress);
+
+    const stageHeading = document.createElement('div');
+    stageHeading.className = 'tfr-appearance-wizard__stage-heading';
+    stageHeading.innerHTML = `<span>${t('appearance.wizard.step', {
+      current: this.appearanceWizardStep + 1,
+      total: steps.length
+    })}</span><strong>${activeStep.label}</strong>`;
+    body.appendChild(stageHeading);
+
+    body.appendChild(this.renderVisualStylePicker({
+      kind: activeStep.kind,
+      value: activeStep.value,
+      values: activeStep.values,
+      families: this.createAppearanceFamilies(activeStep.kind, activeStep.values),
+      labelFor: activeStep.labelFor,
+      descriptionFor: activeStep.descriptionFor,
+      onChange: async (style) => {
+        await activeStep.apply(style);
+      }
+    }));
+
+    const navigation = document.createElement('div');
+    navigation.className = 'tfr-appearance-wizard__navigation';
+    const previous = document.createElement('button');
+    previous.type = 'button';
+    previous.className = 'tfr-secondary-button';
+    previous.textContent = t('appearance.wizard.previous');
+    previous.disabled = this.appearanceWizardStep === 0;
+    previous.addEventListener('click', () => {
+      this.appearanceWizardStep = Math.max(0, this.appearanceWizardStep - 1);
+      this.render();
+    });
+    const next = document.createElement('button');
+    next.type = 'button';
+    next.className = 'tfr-button';
+    next.textContent = this.appearanceWizardStep === steps.length - 1
+      ? t('appearance.wizard.finish')
+      : t('appearance.wizard.next');
+    next.addEventListener('click', () => {
+      this.appearanceWizardStep = this.appearanceWizardStep === steps.length - 1
+        ? 0
+        : this.appearanceWizardStep + 1;
+      this.render();
+    });
+    navigation.append(previous, next);
+    body.appendChild(navigation);
+
+    const advanced = document.createElement('details');
+    advanced.className = 'tfr-appearance-wizard__advanced';
+    advanced.open = this.appearanceAdvancedOpen;
+    advanced.addEventListener('toggle', () => {
+      this.appearanceAdvancedOpen = advanced.open;
+    });
+    const advancedSummary = document.createElement('summary');
+    advancedSummary.textContent = t('streamerAppearance.advanced');
+    advanced.appendChild(advancedSummary);
+    const legacySettings = document.createElement('div');
+    legacySettings.className = 'tfr-appearance-wizard__legacy-settings';
+    const categorySettings = this.renderCategoryAppearanceSettings(state);
+    const streamerSettings = this.renderStreamerAppearanceSettings(state);
+    const surfaceSettings = this.renderSidebarSurfaceSettings(state);
+    const decorateAdvancedSection = (section, titleKey, descriptionKey, className) => {
+      section.classList.add('tfr-appearance-wizard__advanced-card', className);
+      const header = document.createElement('div');
+      header.className = 'tfr-appearance-wizard__advanced-card-header';
+      const title = document.createElement('strong');
+      title.textContent = t(titleKey);
+      const description = document.createElement('p');
+      description.textContent = t(descriptionKey);
+      header.append(title, description);
+      section.prepend(header);
+    };
+    decorateAdvancedSection(
+      categorySettings,
+      'appearance.advanced.groups.title',
+      'appearance.advanced.groups.description',
+      'tfr-appearance-wizard__advanced-card--groups'
+    );
+    decorateAdvancedSection(
+      streamerSettings,
+      'appearance.advanced.behavior.title',
+      'appearance.advanced.behavior.description',
+      'tfr-appearance-wizard__advanced-card--behavior'
+    );
+    decorateAdvancedSection(
+      surfaceSettings,
+      'appearance.advanced.color.title',
+      'appearance.advanced.color.description',
+      'tfr-appearance-wizard__advanced-card--color'
+    );
+    const nestedAdvanced = streamerSettings.querySelector('.tfr-appearance-advanced');
+    if (nestedAdvanced) {
+      nestedAdvanced.open = true;
+      nestedAdvanced.classList.add('tfr-appearance-advanced--embedded');
+    }
+    legacySettings.append(categorySettings, streamerSettings, surfaceSettings);
+    advanced.appendChild(legacySettings);
+    body.appendChild(advanced);
+    wrapper.appendChild(body);
     return wrapper;
   }
 
@@ -642,25 +926,20 @@ class FavoritesOverlay {
       'compact',
       'parent-accent'
     ];
-    const styleSelect = document.createElement('select');
-    styleSelect.id = 'tfr-category-color-style';
-    styleSelect.className = 'tfr-category-appearance-settings__select';
-    categoryStyleValues.forEach((style) => {
-      const option = document.createElement('option');
-      option.value = style;
-      option.textContent = t(`categoryAppearance.style.${style}`);
-      styleSelect.appendChild(option);
-    });
-    styleSelect.value = colorStyle;
-    styleSelect.addEventListener('change', async (event) => {
-      await this.store.setCategoryColorStyle(event.target.value);
-      this.render();
-    });
-    styleField.appendChild(this.renderStyleStepper(
-      styleSelect,
-      categoryStyleValues,
-      (nextValue) => this.store.setCategoryColorStyle(nextValue)
-    ));
+    styleField.classList.add('tfr-category-appearance-settings__field--visual');
+    styleField.appendChild(this.renderVisualStylePicker({
+      kind: 'category',
+      value: colorStyle,
+      values: categoryStyleValues,
+      families: this.createAppearanceFamilies('category', categoryStyleValues),
+      labelFor: (style) => t(`categoryAppearance.style.${style}`),
+      descriptionFor: (style) => t(
+        ['gradient', 'rail', 'soft-card', 'outline', 'minimal', 'parent-accent'].includes(style)
+          ? `appearance.description.category.${style}`
+          : 'appearance.description.category.other'
+      ),
+      onChange: (nextValue) => this.store.setCategoryColorStyle(nextValue)
+    }));
     controls.appendChild(styleField);
 
     controls.appendChild(createSlider({
@@ -751,6 +1030,197 @@ class FavoritesOverlay {
     return wrapper;
   }
 
+  renderVisualStylePicker({
+    kind,
+    value,
+    values,
+    families = [],
+    labelFor,
+    descriptionFor,
+    onChange
+  }) {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'tfr-radial-style-picker';
+    const persistedState = this.appearanceRadialState[kind] || {};
+    let activeFamily = families.find((family) => family.id === persistedState.familyId)
+      || families.find((family) => family.values.includes(value))
+      || families[0];
+    let activeMode = persistedState.mode === 'styles' ? 'styles' : 'families';
+    let previewValue = value;
+
+    const radial = document.createElement('div');
+    radial.className = 'tfr-radial-style-picker__stage';
+    const orbit = document.createElement('div');
+    orbit.className = 'tfr-radial-style-picker__orbit';
+    const center = document.createElement('div');
+    center.className = 'tfr-radial-style-picker__center';
+    center.tabIndex = 0;
+    const centerKicker = document.createElement('span');
+    centerKicker.className = 'tfr-radial-style-picker__kicker';
+    const centerTitle = document.createElement('strong');
+    centerTitle.className = 'tfr-radial-style-picker__title';
+    const centerDescription = document.createElement('span');
+    centerDescription.className = 'tfr-radial-style-picker__description';
+    center.append(centerKicker, centerTitle, centerDescription);
+    radial.append(orbit, center);
+    wrapper.appendChild(radial);
+
+    const updateCenter = (style = previewValue) => {
+      centerKicker.textContent = activeFamily?.label || '';
+      centerTitle.textContent = labelFor(style);
+      centerDescription.textContent = descriptionFor(style);
+    };
+
+    const renderOrbit = (mode = 'families') => {
+      orbit.textContent = '';
+      const items = mode === 'families'
+        ? families.map((family) => ({
+            id: family.id,
+            label: family.label,
+            role: 'submenu',
+            icon: '\u203A',
+            selected: family === activeFamily,
+            onClick: () => {
+              activeFamily = family;
+              activeMode = 'styles';
+              this.appearanceRadialState[kind] = {
+                familyId: family.id,
+                mode: activeMode
+              };
+              previewValue = family.values.includes(value) ? value : family.values[0];
+              updateCenter(previewValue);
+              renderOrbit(activeMode);
+            },
+            onPreview: () => {
+              centerKicker.textContent = t('appearance.radial.family');
+              centerTitle.textContent = family.label;
+              centerDescription.textContent = family.description;
+            }
+          }))
+        : [
+            {
+              id: 'back',
+              label: t('appearance.radial.back'),
+              role: 'navigation',
+              icon: '\u2190',
+              selected: false,
+              onClick: () => {
+                activeMode = 'families';
+                this.appearanceRadialState[kind] = {
+                  familyId: activeFamily.id,
+                  mode: activeMode
+                };
+                updateCenter(value);
+                renderOrbit(activeMode);
+              },
+              onPreview: () => updateCenter(value)
+            },
+            ...activeFamily.values.map((style) => ({
+              id: style,
+              label: labelFor(style),
+              role: 'action',
+              icon: style === value ? '\u2713' : '\u2192',
+              selected: style === value,
+              onClick: async () => {
+                if (style === value) return;
+                this.appearanceRadialState[kind] = {
+                  familyId: activeFamily.id,
+                  mode: 'styles'
+                };
+                await onChange(style);
+                this.render();
+              },
+              onPreview: () => updateCenter(style)
+            }))
+          ];
+
+      items.forEach((item, index) => {
+        const angle = (360 / items.length) * index - 90;
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'tfr-radial-style-picker__item';
+        button.dataset.kind = kind;
+        button.dataset.value = item.id;
+        button.dataset.role = item.role;
+        button.classList.toggle('is-selected', item.selected);
+        button.style.setProperty('--tfr-radial-angle', `${angle}deg`);
+        button.setAttribute('aria-pressed', String(item.selected));
+        const label = document.createElement('span');
+        label.className = 'tfr-radial-style-picker__item-label';
+        label.textContent = item.label;
+        const icon = document.createElement('span');
+        icon.className = 'tfr-radial-style-picker__item-icon';
+        icon.textContent = item.icon;
+        icon.setAttribute('aria-hidden', 'true');
+        button.append(label, icon);
+        button.addEventListener('mouseenter', item.onPreview);
+        button.addEventListener('focus', item.onPreview);
+        button.addEventListener('mouseleave', () => updateCenter(previewValue));
+        button.addEventListener('click', item.onClick);
+        orbit.appendChild(button);
+      });
+    };
+
+    const fallback = document.createElement('select');
+    fallback.className = 'tfr-radial-style-picker__fallback tfr-streamer-appearance-settings__select';
+    fallback.setAttribute('aria-label', t('appearance.radial.fallback'));
+    values.forEach((style) => {
+      const option = document.createElement('option');
+      option.value = style;
+      option.textContent = labelFor(style);
+      fallback.appendChild(option);
+    });
+    fallback.value = value;
+    fallback.addEventListener('change', async (event) => {
+      await onChange(event.target.value);
+      this.render();
+    });
+    wrapper.appendChild(fallback);
+
+    const legend = document.createElement('div');
+    legend.className = 'tfr-radial-style-picker__legend';
+    legend.innerHTML = `
+      <span data-role="submenu"><i></i>${t('appearance.radial.legend.submenu')}</span>
+      <span data-role="action"><i></i>${t('appearance.radial.legend.apply')}</span>
+      <span data-role="navigation"><i></i>${t('appearance.radial.legend.navigation')}</span>
+    `;
+    wrapper.appendChild(legend);
+
+    updateCenter(value);
+    renderOrbit(activeMode);
+    return wrapper;
+  }
+
+  createAppearanceFamilies(kind, values) {
+    const definitions = {
+      category: [
+        ['classic', ['gradient', 'solid', 'soft-card', 'glass']],
+        ['lines', ['stripe', 'outline', 'rail', 'double']],
+        ['light', ['minimal', 'dot', 'compact', 'count-badge']],
+        ['effects', ['glow', 'soft-neon', 'ribbon', 'ink', 'parent-accent']]
+      ],
+      streamer: [
+        ['classic', ['default', 'card', 'soft-card', 'glass']],
+        ['compact', ['compact', 'minimal', 'viewer-badge']],
+        ['avatar', ['avatar-ring', 'avatar-square', 'avatar-grid']],
+        ['focus', ['game-focus', 'title-focus', 'left-line', 'outline']],
+        ['effects', ['neon']]
+      ],
+      surface: [
+        ['classic', ['default', 'full', 'panel', 'connected']],
+        ['lines', ['rail', 'edge']],
+        ['depth', ['layers', 'canvas', 'poster']],
+        ['effects', ['glow', 'spectrum', 'pulse', 'arcade']]
+      ]
+    };
+    return (definitions[kind] || []).map(([id, familyValues]) => ({
+      id,
+      label: t(`appearance.family.${id}`),
+      description: t(`appearance.family.${id}.description`),
+      values: familyValues.filter((style) => values.includes(style))
+    })).filter((family) => family.values.length);
+  }
+
   renderSpecialCategoryColorControl({ key, label, color }) {
     const wrapper = document.createElement('div');
     wrapper.className = 'tfr-special-category-color';
@@ -805,26 +1275,27 @@ class FavoritesOverlay {
       'minimal',
       'avatar-grid'
     ];
-    const select = document.createElement('select');
-    select.id = 'tfr-streamer-item-style';
-    select.className = 'tfr-streamer-appearance-settings__select';
-    streamerStyleValues.forEach((style) => {
-      const option = document.createElement('option');
-      option.value = style;
-      option.textContent = t(`streamerAppearance.style.${style}`);
-      select.appendChild(option);
-    });
-    select.value = streamerStyle;
-    select.addEventListener('change', async (event) => {
-      await this.store.setStreamerItemStyle(event.target.value);
-      this.render();
-    });
-    field.appendChild(this.renderStyleStepper(
-      select,
-      streamerStyleValues,
-      (nextValue) => this.store.setStreamerItemStyle(nextValue)
-    ));
+    field.classList.add('tfr-streamer-appearance-settings__field--visual');
+    field.appendChild(this.renderVisualStylePicker({
+      kind: 'streamer',
+      value: streamerStyle,
+      values: streamerStyleValues,
+      families: this.createAppearanceFamilies('streamer', streamerStyleValues),
+      labelFor: (style) => t(`streamerAppearance.style.${style}`),
+      descriptionFor: (style) => t(
+        ['default', 'soft-card', 'compact', 'minimal', 'avatar-ring', 'avatar-grid'].includes(style)
+          ? `appearance.description.streamer.${style}`
+          : 'appearance.description.streamer.other'
+      ),
+      onChange: (nextValue) => this.store.setStreamerItemStyle(nextValue)
+    }));
     wrapper.appendChild(field);
+
+    const advanced = document.createElement('details');
+    advanced.className = 'tfr-appearance-advanced';
+    const advancedSummary = document.createElement('summary');
+    advancedSummary.textContent = t('streamerAppearance.advanced');
+    advanced.appendChild(advancedSummary);
 
     const compactField = document.createElement('label');
     compactField.className = 'tfr-streamer-appearance-settings__field';
@@ -855,7 +1326,17 @@ class FavoritesOverlay {
       streamerStyleValues,
       (nextValue) => this.store.setAutoCompactStreamerStyle(nextValue)
     ));
-    wrapper.appendChild(compactField);
+    const compactHint = document.createElement('small');
+    compactHint.className = 'tfr-appearance-field-hint';
+    compactHint.textContent = t(
+      autoCompactStyle === 'avatar-grid'
+        ? 'appearance.advanced.compact.avatarGridHint'
+        : autoCompactStyle === 'compact'
+          ? 'appearance.advanced.compact.compactHint'
+          : 'appearance.advanced.compact.hint'
+    );
+    compactField.appendChild(compactHint);
+    advanced.appendChild(compactField);
 
     const compactGroupField = document.createElement('label');
     compactGroupField.className = 'tfr-streamer-appearance-settings__field';
@@ -887,7 +1368,11 @@ class FavoritesOverlay {
       compactGroupValues,
       (nextValue) => this.store.setAutoCompactGroupStyle(nextValue)
     ));
-    wrapper.appendChild(compactGroupField);
+    const compactGroupHint = document.createElement('small');
+    compactGroupHint.className = 'tfr-appearance-field-hint';
+    compactGroupHint.textContent = t('appearance.advanced.groupLayout.hint');
+    compactGroupField.appendChild(compactGroupHint);
+    advanced.appendChild(compactGroupField);
 
     const animationField = document.createElement('label');
     animationField.className = 'tfr-streamer-appearance-settings__field';
@@ -923,14 +1408,19 @@ class FavoritesOverlay {
         this.previewSidebarAnimation();
       }
     ));
-    wrapper.appendChild(animationField);
+    const animationHint = document.createElement('small');
+    animationHint.className = 'tfr-appearance-field-hint';
+    animationHint.textContent = t('appearance.advanced.animation.hint');
+    animationField.appendChild(animationHint);
+    advanced.appendChild(animationField);
 
     const previewButton = document.createElement('button');
     previewButton.type = 'button';
     previewButton.className = 'tfr-secondary-button';
     previewButton.textContent = t('streamerAppearance.animationPreview');
     previewButton.addEventListener('click', () => this.previewSidebarAnimation());
-    wrapper.appendChild(previewButton);
+    advanced.appendChild(previewButton);
+    wrapper.appendChild(advanced);
 
     const hint = document.createElement('p');
     hint.className = 'tfr-streamer-appearance-settings__hint';
@@ -981,25 +1471,20 @@ class FavoritesOverlay {
       'poster',
       'arcade'
     ];
-    const select = document.createElement('select');
-    select.id = 'tfr-sidebar-surface-style';
-    select.className = 'tfr-streamer-appearance-settings__select';
-    surfaceStyleValues.forEach((style) => {
-      const option = document.createElement('option');
-      option.value = style;
-      option.textContent = t(`sidebarSurface.style.${style}`);
-      select.appendChild(option);
-    });
-    select.value = surfaceStyle;
-    select.addEventListener('change', async (event) => {
-      await this.store.setSidebarSurfaceStyle(event.target.value);
-      this.render();
-    });
-    field.appendChild(this.renderStyleStepper(
-      select,
-      surfaceStyleValues,
-      (nextValue) => this.store.setSidebarSurfaceStyle(nextValue)
-    ));
+    field.classList.add('tfr-streamer-appearance-settings__field--visual');
+    field.appendChild(this.renderVisualStylePicker({
+      kind: 'surface',
+      value: surfaceStyle,
+      values: surfaceStyleValues,
+      families: this.createAppearanceFamilies('surface', surfaceStyleValues),
+      labelFor: (style) => t(`sidebarSurface.style.${style}`),
+      descriptionFor: (style) => t(
+        ['default', 'panel', 'rail', 'full', 'glow', 'canvas'].includes(style)
+          ? `appearance.description.surface.${style}`
+          : 'appearance.description.surface.other'
+      ),
+      onChange: (nextValue) => this.store.setSidebarSurfaceStyle(nextValue)
+    }));
     wrapper.appendChild(field);
 
     wrapper.appendChild(this.renderCategoryColorPickerControl({

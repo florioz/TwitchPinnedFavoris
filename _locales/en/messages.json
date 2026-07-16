@@ -1,0 +1,11 @@
+{
+  "extensionName": {
+    "message": "Twitch Favorites Sidebar"
+  },
+  "extensionDescription": {
+    "message": "Pin favorite Twitch streamers with live viewer counts, smart categories, and quick management tools."
+  },
+  "actionTitle": {
+    "message": "Show Twitch favorites"
+  }
+}

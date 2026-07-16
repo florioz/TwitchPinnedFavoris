@@ -1,5 +1,8 @@
 ﻿(() => {
   const extensionApi = globalThis.chrome ?? globalThis.browser;
+  const i18n = globalThis.__TFR_I18N__;
+  const { formatDate, formatNumber, locale, t } = i18n;
+  i18n.applyDocument(document);
   const STORAGE_KEY = 'tfr_state';
   const TWITCH_GRAPHQL_ENDPOINT = 'https://gql.twitch.tv/gql';
   const TWITCH_CLIENT_ID = 'kimne78kx3ncx6brgo4mv6wki5h1ko';
@@ -133,22 +136,22 @@
     if (!Number.isFinite(date.getTime())) {
       return '';
     }
-    return new Intl.DateTimeFormat('fr-FR', {
+    return formatDate(date, {
       weekday: 'short',
       day: '2-digit',
       month: 'short',
       hour: '2-digit',
       minute: '2-digit'
-    }).format(date);
+    });
   }
 
   function formatDayLabel(timestamp) {
     const date = new Date(timestamp);
-    return new Intl.DateTimeFormat('fr-FR', {
+    return formatDate(date, {
       weekday: 'long',
       day: '2-digit',
       month: 'short'
-    }).format(date);
+    });
   }
 
   function formatDateValue(timestamp) {
@@ -201,7 +204,7 @@
       if (!category || typeof category.id !== 'string') return;
       byId.set(category.id, {
         id: category.id,
-        name: typeof category.name === 'string' && category.name.trim() ? category.name.trim() : 'Groupe',
+        name: typeof category.name === 'string' && category.name.trim() ? category.name.trim() : t('vods.group'),
         parentId: typeof category.parentId === 'string' && category.parentId.trim() ? category.parentId : null,
         sortOrder: Number.isFinite(category.sortOrder) ? category.sortOrder : 0,
         children: []
@@ -219,7 +222,7 @@
     const sortTree = (nodes) => {
       nodes.sort((a, b) => {
         if (a.sortOrder !== b.sortOrder) return a.sortOrder - b.sortOrder;
-        return a.name.localeCompare(b.name, 'fr');
+        return a.name.localeCompare(b.name, locale);
       });
       nodes.forEach((node) => sortTree(node.children));
     };
@@ -475,7 +478,7 @@
   }
 
   function compareRows(a, b, key) {
-    const byName = a.metrics.name.localeCompare(b.metrics.name, 'fr', { sensitivity: 'base' });
+    const byName = a.metrics.name.localeCompare(b.metrics.name, locale, { sensitivity: 'base' });
     if (key === 'name') {
       return byName || a.metrics.firstStart - b.metrics.firstStart;
     }
@@ -511,7 +514,7 @@
     const direction = state.sortDirection === 'asc' ? 1 : -1;
     return [...rows].sort((a, b) => {
       const result = compareRows(a, b, state.sortKey);
-      return result * direction || a.login.localeCompare(b.login, 'fr', { sensitivity: 'base' });
+      return result * direction || a.login.localeCompare(b.login, locale, { sensitivity: 'base' });
     });
   }
 
@@ -622,7 +625,7 @@
     } catch (error) {
       console.warn('[TFR VODs] clips fetch failed', channel.login, video.id, error);
       state.clipsByVideoId.set(video.id, []);
-      state.clipsError = 'Impossible de charger les clips associes pour le moment.';
+      state.clipsError = t('vods.clipsLoadError');
     } finally {
       if (state.clipsLoadingVideoId === video.id) {
         state.clipsLoadingVideoId = null;
@@ -642,8 +645,8 @@
     const currentGroup = state.selectedCategoryId;
     elements.groupSelect.innerHTML = '';
     [
-      { id: 'all', name: 'Tous les groupes', depth: 0 },
-      { id: 'uncategorized', name: 'Sans groupe', depth: 0 },
+      { id: 'all', name: t('vods.allGroups'), depth: 0 },
+      { id: 'uncategorized', name: t('vods.noGroup'), depth: 0 },
       ...flattenCategories(sanitizeCategories(state.categories))
     ].forEach((category) => {
       const option = document.createElement('option');
@@ -674,13 +677,13 @@
     if (elements.sortDirectionButton) {
       const isAsc = state.sortDirection === 'asc';
       elements.sortDirectionButton.textContent = isAsc ? '\u2191' : '\u2193';
-      elements.sortDirectionButton.title = isAsc ? 'Tri croissant' : 'Tri decroissant';
-      elements.sortDirectionButton.setAttribute('aria-label', isAsc ? 'Tri croissant' : 'Tri decroissant');
+      elements.sortDirectionButton.title = t(isAsc ? 'vods.ascending' : 'vods.descending');
+      elements.sortDirectionButton.setAttribute('aria-label', t(isAsc ? 'vods.ascending' : 'vods.descending'));
     }
     const count = dayCounts.get(Number(state.selectedDay)) || 0;
     elements.dayHint.textContent = count
-      ? `${formatDayLabel(state.selectedDay)} - ${count} VOD${count > 1 ? 's' : ''}`
-      : `${formatDayLabel(state.selectedDay)} - aucune VOD visible`;
+      ? t('vods.dayWithVods', { day: formatDayLabel(state.selectedDay), count })
+      : t('vods.dayWithoutVods', { day: formatDayLabel(state.selectedDay) });
   }
 
   function renderTimeline() {
@@ -703,7 +706,7 @@
         <img src="${escapeHtml(channel.avatarUrl || DEFAULT_AVATAR)}" alt="" />
         <span class="tfr-vods-streamer__text">
           <strong>${escapeHtml(channel.displayName)}</strong>
-          <small>${channel.metrics.videoCount} VOD${channel.metrics.videoCount > 1 ? 's' : ''} - ${channel.metrics.totalViews.toLocaleString('fr-FR')} vues - ${escapeHtml(formatDuration(channel.metrics.totalDuration))}</small>
+          <small>${t('vods.vodCount', { count: channel.metrics.videoCount })} - ${t('vods.views', { count: formatNumber(channel.metrics.totalViews) })} - ${escapeHtml(formatDuration(channel.metrics.totalDuration))}</small>
         </span>
       `;
       row.appendChild(streamer);
@@ -713,8 +716,8 @@
       channel.videos.forEach((video) => {
         const start = new Date(video.createdAt);
         const end = new Date(start.getTime() + Math.max(0, Number(video.lengthSeconds) || 0) * 1000);
-        const startTime = start.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
-        const endTime = end.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+        const startTime = formatDate(start, { hour: '2-digit', minute: '2-digit' });
+        const endTime = formatDate(end, { hour: '2-digit', minute: '2-digit' });
         const card = document.createElement('button');
         card.className = 'tfr-vods-card';
         card.type = 'button';
@@ -723,7 +726,7 @@
         }
         card.innerHTML = `
           <span class="tfr-vods-card__start">
-            <small>D&eacute;but</small>
+            <small>${t('vods.start')}</small>
             <strong>${escapeHtml(startTime)}</strong>
           </span>
           <span class="tfr-vods-card__media">
@@ -731,17 +734,17 @@
             <img class="tfr-vods-card__avatar" src="${escapeHtml(channel.avatarUrl || DEFAULT_AVATAR)}" alt="" />
           </span>
           <span class="tfr-vods-card__duration">
-            <small>Dur&eacute;e VOD</small>
+            <small>${t('vods.duration')}</small>
             <strong>${escapeHtml(formatDuration(video.lengthSeconds))}</strong>
           </span>
           <span class="tfr-vods-card__body">
             <span class="tfr-vods-card__title">${escapeHtml(video.title)}</span>
-            <span class="tfr-vods-card__meta"><b>Streamer</b>${escapeHtml(channel.displayName)}</span>
-            <span class="tfr-vods-card__meta"><b>Vues</b>${Number(video.viewCount || 0).toLocaleString('fr-FR')}</span>
-            ${video.game ? `<span class="tfr-vods-card__meta"><b>Cat&eacute;gorie</b>${escapeHtml(video.game)}</span>` : ''}
+            <span class="tfr-vods-card__meta"><b>${t('vods.streamer')}</b>${escapeHtml(channel.displayName)}</span>
+            <span class="tfr-vods-card__meta"><b>${t('vods.views', { count: '' }).trim()}</b>${formatNumber(video.viewCount)}</span>
+            ${video.game ? `<span class="tfr-vods-card__meta"><b>${t('vods.category')}</b>${escapeHtml(video.game)}</span>` : ''}
           </span>
           <span class="tfr-vods-card__end">
-            <small>Fin VOD</small>
+            <small>${t('vods.end')}</small>
             <strong>${escapeHtml(endTime)}</strong>
           </span>
         `;
@@ -772,11 +775,11 @@
       const done = Number(state.loadingProgress?.done) || 0;
       const total = Number(state.loadingProgress?.total) || 0;
       elements.summary.textContent = total
-        ? `Chargement des VODs Twitch... ${done}/${total} streamers analyses`
-        : 'Chargement des VODs Twitch...';
+        ? t('vods.loadingProgress', { done, total })
+        : t('vods.loadingData');
       return;
     }
-    elements.summary.textContent = `${rows.length} streamer${rows.length > 1 ? 's' : ''} - ${totalVideos} VOD${totalVideos > 1 ? 's' : ''}`;
+    elements.summary.textContent = t('vods.streamerSummary', { streamers: rows.length, vods: totalVideos });
   }
 
   function buildClipSegments(clips, duration) {
@@ -838,14 +841,14 @@
         <div class="tfr-vods-inspector__identity">
           <img src="${escapeHtml(channel.avatarUrl || DEFAULT_AVATAR)}" alt="" />
           <div>
-            <p class="tfr-vods-kicker">Analyse VOD</p>
+            <p class="tfr-vods-kicker">${t('vods.analysisTitle')}</p>
             <h2>${escapeHtml(video.title)}</h2>
             <span>${escapeHtml(channel.displayName)} - ${escapeHtml(formatLongDateTime(video.createdAt))}</span>
           </div>
         </div>
         <div class="tfr-vods-inspector__actions">
-          <a class="tfr-vods-button tfr-vods-button--ghost" href="${escapeHtml(video.url)}" target="_blank" rel="noopener noreferrer">Ouvrir Twitch</a>
-          <button class="tfr-vods-icon-button" id="closeInspectorButton" type="button">Fermer</button>
+          <a class="tfr-vods-button tfr-vods-button--ghost" href="${escapeHtml(video.url)}" target="_blank" rel="noopener noreferrer">${t('vods.openTwitch')}</a>
+          <button class="tfr-vods-icon-button" id="closeInspectorButton" type="button">${t('vods.close')}</button>
         </div>
       </div>
 
@@ -853,17 +856,17 @@
         <article class="tfr-vods-inspector__preview">
           ${video.thumbnailUrl ? `<img src="${escapeHtml(video.thumbnailUrl)}" alt="" />` : '<div class="tfr-vods-inspector__placeholder"></div>'}
           <div class="tfr-vods-inspector__stats">
-            <span><strong>${escapeHtml(formatDuration(video.lengthSeconds))}</strong>Dur&eacute;e</span>
-            <span><strong>${Number(video.viewCount || 0).toLocaleString('fr-FR')}</strong>Vues</span>
-            <span><strong>${clips.length}</strong>Clips detectes</span>
-            <span><strong>${escapeHtml(video.game || 'Inconnue')}</strong>Cat&eacute;gorie</span>
+            <span><strong>${escapeHtml(formatDuration(video.lengthSeconds))}</strong>${t('vods.duration')}</span>
+            <span><strong>${formatNumber(video.viewCount)}</strong>${t('vods.views', { count: '' }).trim()}</span>
+            <span><strong>${clips.length}</strong>${t('vods.clipsDetected')}</span>
+            <span><strong>${escapeHtml(video.game || t('vods.unknown'))}</strong>${t('vods.category')}</span>
           </div>
         </article>
 
         <article class="tfr-vods-inspector__timeline-card">
           <div class="tfr-vods-inspector__timeline-head">
-            <strong>Timeline de la VOD</strong>
-            <span>${escapeHtml(start.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }))} - ${escapeHtml(end.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }))}</span>
+            <strong>${t('vods.timeline')}</strong>
+            <span>${escapeHtml(formatDate(start, { hour: '2-digit', minute: '2-digit' }))} - ${escapeHtml(formatDate(end, { hour: '2-digit', minute: '2-digit' }))}</span>
           </div>
           <div class="tfr-vods-detail-timeline" aria-label="Timeline interne de la VOD">
             <div class="tfr-vods-detail-timeline__segments">
@@ -878,7 +881,7 @@
             </div>
             ${markerClips.map((clip) => {
               const left = Math.min(100, Math.max(0, (clip.offsetSeconds / duration) * 100));
-              return `<a class="tfr-vods-detail-timeline__marker" href="${escapeHtml(clip.url)}" target="_blank" rel="noopener noreferrer" style="left:${left}%" title="${escapeHtml(`${formatDuration(clip.offsetSeconds)} - ${clip.title} - ${Number(clip.viewCount || 0).toLocaleString('fr-FR')} vues`)}"></a>`;
+              return `<a class="tfr-vods-detail-timeline__marker" href="${escapeHtml(clip.url)}" target="_blank" rel="noopener noreferrer" style="left:${left}%" title="${escapeHtml(`${formatDuration(clip.offsetSeconds)} - ${clip.title} - ${t('vods.views', { count: formatNumber(clip.viewCount) })}`)}"></a>`;
             }).join('')}
           </div>
           <div class="tfr-vods-detail-timeline__labels">
@@ -892,43 +895,43 @@
                 <a class="tfr-vods-highlight-chip" href="${escapeHtml(clip.url)}" target="_blank" rel="noopener noreferrer">
                   <span>${escapeHtml(formatDuration(clip.offsetSeconds))}</span>
                   <strong>${escapeHtml(clip.title)}</strong>
-                  <small>${Number(clip.viewCount || 0).toLocaleString('fr-FR')} vues</small>
+                  <small>${t('vods.views', { count: formatNumber(clip.viewCount) })}</small>
                 </a>
               `).join('')
-              : '<span class="tfr-vods-muted">Aucun temps fort clippe charge pour cette VOD.</span>'}
+              : `<span class="tfr-vods-muted">${t('vods.noClips')}</span>`}
           </div>
         </article>
       </div>
 
       <section class="tfr-vods-clips">
         <div class="tfr-vods-clips__header">
-          <h3>Temps forts et clips associ&eacute;s</h3>
-          <span>${isLoading ? 'Chargement des clips...' : `${clips.length} clip${clips.length > 1 ? 's' : ''}`}</span>
+          <h3>${t('vods.highlights')}</h3>
+          <span>${isLoading ? t('vods.loadingClips') : `${clips.length} clip${clips.length > 1 ? 's' : ''}`}</span>
         </div>
         ${state.clipsError ? `<p class="tfr-vods-clips__notice">${escapeHtml(state.clipsError)}</p>` : ''}
         ${clips.length
           ? `
-            <div class="tfr-vods-clips__grid" aria-label="Clips les plus vus">
+            <div class="tfr-vods-clips__grid" aria-label="${t('vods.topClips')}">
               ${topClips.map((clip) => `
                 <a class="tfr-vods-clip-card" href="${escapeHtml(clip.url)}" target="_blank" rel="noopener noreferrer">
                   ${clip.thumbnailUrl ? `<img src="${escapeHtml(clip.thumbnailUrl)}" alt="" />` : ''}
                   <span class="tfr-vods-clip-card__time">${escapeHtml(formatDuration(clip.offsetSeconds))}</span>
                   <strong>${escapeHtml(clip.title)}</strong>
-                  <small>${Number(clip.viewCount || 0).toLocaleString('fr-FR')} vues${clip.curator ? ` - ${escapeHtml(clip.curator)}` : ''}</small>
+                  <small>${t('vods.views', { count: formatNumber(clip.viewCount) })}${clip.curator ? ` - ${escapeHtml(clip.curator)}` : ''}</small>
                 </a>
               `).join('')}
             </div>
-            <div class="tfr-vods-clips__list" aria-label="Tous les clips de la VOD">
+            <div class="tfr-vods-clips__list" aria-label="${t('vods.allClips')}">
               ${clips.map((clip) => `
                 <a class="tfr-vods-clip-row" href="${escapeHtml(clip.url)}" target="_blank" rel="noopener noreferrer">
                   <span>${escapeHtml(formatDuration(clip.offsetSeconds))}</span>
                   <strong>${escapeHtml(clip.title)}</strong>
-                  <small>${Number(clip.viewCount || 0).toLocaleString('fr-FR')} vues${clip.curator ? ` - ${escapeHtml(clip.curator)}` : ''}</small>
+                  <small>${t('vods.views', { count: formatNumber(clip.viewCount) })}${clip.curator ? ` - ${escapeHtml(clip.curator)}` : ''}</small>
                 </a>
               `).join('')}
             </div>
           `
-          : `<p class="tfr-vods-clips__notice">${isLoading ? 'Recherche des clips en cours...' : 'Aucun clip associe trouve sur la fenetre de cette VOD.'}</p>`}
+          : `<p class="tfr-vods-clips__notice">${isLoading ? t('vods.searchingClips') : t('vods.noClips')}</p>`}
       </section>
     `;
     elements.vodInspector.querySelector('#closeInspectorButton')?.addEventListener('click', closeInspector);
@@ -938,7 +941,7 @@
     state.isLoading = true;
     state.loadingProgress = { done: 0, total: 0 };
     elements.refreshButton.disabled = true;
-    elements.refreshButton.textContent = 'Chargement...';
+    elements.refreshButton.textContent = t('vods.loading');
     renderTimeline();
     await readStoredState();
     renderFilters();
@@ -958,7 +961,7 @@
     state.isLoading = false;
     state.loadingProgress = { done: 0, total: 0 };
     elements.refreshButton.disabled = false;
-    elements.refreshButton.textContent = 'Actualiser les VODs';
+    elements.refreshButton.textContent = t('vods.refresh');
     ensureSelectedDayHasContent();
     renderFilters();
     renderTimeline();

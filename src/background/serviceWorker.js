@@ -624,17 +624,19 @@ const performLiveStatusEvaluation = async (reason = 'manual') => {
   const now = Date.now();
   const stored = await extensionApi.storage.local.get([STORAGE_KEY, LIVE_CACHE_KEY, NOTIFIED_STREAMS_KEY]);
   const state = stored?.[STORAGE_KEY] && typeof stored[STORAGE_KEY] === 'object' ? stored[STORAGE_KEY] : DEFAULT_STATE;
-  const favorites = state.favorites || {};
+  let favorites = state.favorites || {};
   const categories = Array.isArray(state.categories) ? state.categories : [];
   const preferences = state.preferences || DEFAULT_STATE.preferences;
   const logins = Object.keys(favorites);
   const previousLiveData = stored?.[LIVE_CACHE_KEY] && typeof stored[LIVE_CACHE_KEY] === 'object' ? stored[LIVE_CACHE_KEY] : {};
-  const previousNotifiedStreams =
+  let previousNotifiedStreams =
     stored?.[NOTIFIED_STREAMS_KEY] && typeof stored[NOTIFIED_STREAMS_KEY] === 'object'
       ? stored[NOTIFIED_STREAMS_KEY]
       : {};
 
   const liveData = {};
+  const renamedFavorites = new Map();
+  const favoriteMetadataUpdates = new Map();
   if (logins.length) {
     const results = await mapWithConcurrency(logins, LIVE_FETCH_CONCURRENCY, (login) => fetchStreamerLiveData(login, {
       ...favorites[login],
@@ -643,10 +645,60 @@ const performLiveStatusEvaluation = async (reason = 'manual') => {
     results.forEach((result, index) => {
       const login = logins[index];
       if (result.status === 'fulfilled' && result.value) {
-        liveData[login] = result.value;
+        const live = result.value;
+        const resolvedLogin = String(live.login || login).toLowerCase();
+        liveData[resolvedLogin] = live;
+        if (resolvedLogin !== login) {
+          renamedFavorites.set(login, resolvedLogin);
+        }
+        const favorite = favorites[login];
+        if (favorite) {
+          const updatedFavorite = {
+            ...favorite,
+            userId: String(live.userId || favorite.userId || ''),
+            login: resolvedLogin,
+            displayName: live.displayName || favorite.displayName,
+            avatarUrl: live.avatarUrl || favorite.avatarUrl
+          };
+          if (
+            resolvedLogin !== login
+            || updatedFavorite.userId !== String(favorite.userId || '')
+            || updatedFavorite.displayName !== favorite.displayName
+            || updatedFavorite.avatarUrl !== favorite.avatarUrl
+          ) {
+            favoriteMetadataUpdates.set(resolvedLogin, updatedFavorite);
+          }
+        }
       } else {
         liveData[login] = createOfflineLiveData(login, favorites[login]);
       }
+    });
+  }
+
+  if (favoriteMetadataUpdates.size) {
+    const nextFavorites = { ...favorites };
+    const nextNotifiedStreams = { ...previousNotifiedStreams };
+    renamedFavorites.forEach((nextLogin, previousLogin) => {
+      delete nextFavorites[previousLogin];
+      if (nextNotifiedStreams[previousLogin] && !nextNotifiedStreams[nextLogin]) {
+        nextNotifiedStreams[nextLogin] = nextNotifiedStreams[previousLogin];
+      }
+      delete nextNotifiedStreams[previousLogin];
+    });
+    favoriteMetadataUpdates.forEach((favorite, login) => {
+      nextFavorites[login] = favorite;
+    });
+    favorites = nextFavorites;
+    previousNotifiedStreams = nextNotifiedStreams;
+    state.favorites = nextFavorites;
+    const activeProfileId = state.activeProfileId;
+    if (activeProfileId && state.profiles?.[activeProfileId]) {
+      state.profiles[activeProfileId].favorites = nextFavorites;
+      state.profiles[activeProfileId].updatedAt = now;
+    }
+    await extensionApi.storage.local.set({
+      [STORAGE_KEY]: state,
+      [NOTIFIED_STREAMS_KEY]: nextNotifiedStreams
     });
   }
 

@@ -21,6 +21,48 @@ test('notification key remains stable for the same Twitch stream', () => {
   assert.equal(getNotificationKey('streamer', { ...live, viewers: 500 }), 'streamer:stream-123');
 });
 
+test('notification key survives a Twitch login change when user id is known', () => {
+  const live = {
+    userId: 'user-7',
+    isLive: true,
+    streamId: 'stream-123'
+  };
+
+  assert.equal(getNotificationKey('old_name', live), 'user-7:stream-123');
+  assert.equal(getNotificationKey('new_name', live), 'user-7:stream-123');
+});
+
+test('legacy login notification key does not duplicate after user id migration', () => {
+  const now = Date.parse('2026-07-16T10:05:00.000Z');
+  const result = deriveLiveEvaluation({
+    favorites: {
+      new_name: {
+        userId: 'user-7',
+        login: 'new_name',
+        recentHighlightEnabled: true
+      }
+    },
+    liveData: {
+      new_name: {
+        userId: 'user-7',
+        login: 'new_name',
+        isLive: true,
+        streamId: 'stream-123',
+        startedAt: '2026-07-16T10:00:00.000Z'
+      }
+    },
+    previousNotifiedStreams: {
+      new_name: {
+        key: 'old_name:stream-123',
+        notifiedAt: now - 60_000
+      }
+    },
+    now
+  });
+
+  assert.equal(result.notificationCandidates.length, 0);
+});
+
 test('notification cleanup keeps only the matching active stream', () => {
   const now = Date.parse('2026-07-16T10:05:00.000Z');
   const liveData = {

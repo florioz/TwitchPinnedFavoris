@@ -1,0 +1,11 @@
+{
+  "extensionName": {
+    "message": "Favoris Twitch - Panneau latéral"
+  },
+  "extensionDescription": {
+    "message": "Épingle tes streamers Twitch favoris avec le nombre de spectateurs en direct, des catégories et des outils de gestion rapides."
+  },
+  "actionTitle": {
+    "message": "Afficher les favoris Twitch"
+  }
+}

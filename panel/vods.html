@@ -1,5 +1,5 @@
 ﻿<!doctype html>
-<html lang="fr">
+<html lang="en" data-i18n-title="vods.pageTitle">
   <head>
     <meta charset="utf-8" />
     <title>Planning VODs - Twitch Favorites Sidebar</title>
@@ -11,31 +11,31 @@
       <header class="tfr-vods-header">
         <div>
           <p class="tfr-vods-kicker">Twitch Favorites Sidebar</p>
-          <h1>Planning VODs</h1>
+          <h1 data-i18n="vods.title">VOD Schedule</h1>
         </div>
         <div class="tfr-vods-header__actions">
-          <button class="tfr-vods-button tfr-vods-button--ghost" id="refreshButton" type="button">Actualiser les VODs</button>
+          <button class="tfr-vods-button tfr-vods-button--ghost" id="refreshButton" type="button" data-i18n="vods.refresh">Refresh VODs</button>
         </div>
       </header>
 
-      <section class="tfr-vods-toolbar" aria-label="Filtres du planning">
+      <section class="tfr-vods-toolbar" aria-label="Schedule filters" data-i18n-aria-label="vods.filters">
         <label class="tfr-vods-field tfr-vods-field--search">
-          <span>Recherche</span>
-          <input id="searchInput" type="search" placeholder="Streamer ou titre de VOD" />
+          <span data-i18n="vods.searchLabel">Search</span>
+          <input id="searchInput" type="search" placeholder="Streamer or VOD title" data-i18n-placeholder="vods.search" />
         </label>
         <label class="tfr-vods-field">
-          <span>Groupe</span>
+          <span data-i18n="vods.group">Group</span>
           <select id="groupSelect"></select>
         </label>
         <label class="tfr-vods-field">
-          <span>Trier par</span>
+          <span data-i18n="vods.sort">Sort by</span>
           <div class="tfr-vods-sort-control">
             <select id="sortSelect">
-              <option value="time">Heure de VOD</option>
-              <option value="name">Nom du streamer</option>
-              <option value="views">Nombre de vues</option>
-              <option value="duration">Dur&eacute;e des VODs</option>
-              <option value="videos">Nombre de VODs</option>
+              <option value="time" data-i18n="vods.sort.time">VOD time</option>
+              <option value="name" data-i18n="vods.sort.name">Streamer name</option>
+              <option value="views" data-i18n="vods.sort.views">View count</option>
+              <option value="duration" data-i18n="vods.sort.duration">VOD duration</option>
+              <option value="videos" data-i18n="vods.sort.videos">VOD count</option>
             </select>
             <button id="sortDirectionButton" class="tfr-vods-icon-button" type="button" aria-label="Inverser le tri" title="Inverser le tri">&darr;</button>
           </div>
@@ -60,11 +60,12 @@
       <section class="tfr-vods-inspector" id="vodInspector" aria-label="Analyse de la VOD" hidden></section>
 
       <section class="tfr-vods-empty" id="emptyState" hidden>
-        <h2>Aucune VOD &agrave; afficher</h2>
-        <p>Essaie un autre jour, un autre groupe, ou actualise les donn&eacute;es Twitch.</p>
+        <h2 data-i18n="vods.empty">No VODs to display</h2>
+        <p data-i18n="vods.emptyHint">Try another day or group, or refresh Twitch data.</p>
       </section>
     </main>
 
+    <script src="../src/contentScripts/extensionI18n.js"></script>
     <script src="./vods.js"></script>
   </body>
 </html>

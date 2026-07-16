@@ -7,6 +7,14 @@ const {
   syncCategoryCollapse
 } = require('../src/contentScripts/panelSnapshotPresenter.js');
 
+const t = (key, params = {}) => ({
+  'panel.empty.saved': 'Aucun favori enregistré.',
+  'panel.empty.savedHint': 'Ajoutez des favoris depuis Twitch.',
+  'panel.empty.live': 'Aucun favori en live pour le moment.',
+  'panel.empty.liveHint': 'Tout est calme.',
+  'panel.liveCount': `${params.count} favori(s) en live.`
+})[key] || key;
+
 test('category collapse state adds new categories and removes deleted ones', () => {
   const collapse = new Map([['deleted', true]]);
   syncCategoryCollapse(collapse, [
@@ -22,9 +30,9 @@ test('category collapse state adds new categories and removes deleted ones', () 
 });
 
 test('panel summary covers no favorites, no lives and active lives', () => {
-  assert.equal(getPanelSummary(0, 0).subtitle, 'Ajoutez des favoris depuis Twitch.');
-  assert.equal(getPanelSummary(3, 0).subtitle, 'Tout est calme.');
-  assert.deepEqual(getPanelSummary(3, 2), {
+  assert.equal(getPanelSummary(0, 0, t).subtitle, 'Ajoutez des favoris depuis Twitch.');
+  assert.equal(getPanelSummary(3, 0, t).subtitle, 'Tout est calme.');
+  assert.deepEqual(getPanelSummary(3, 2, t), {
     empty: false,
     emptyText: '',
     subtitle: '2 favori(s) en live.'
@@ -62,7 +70,8 @@ test('presenter applies preferences, summary, groups and timestamp', () => {
     }),
     renderGroups: (_container, groups) => renderedGroups.push(groups),
     formatTimestamp: (timestamp) => `time:${timestamp}`,
-    applyToastPosition: (position) => positions.push(position)
+    applyToastPosition: (position) => positions.push(position),
+    t
   });
 
   presenter.render({

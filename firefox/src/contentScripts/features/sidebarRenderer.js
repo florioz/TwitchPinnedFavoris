@@ -16,6 +16,8 @@
       this.isAutoCompact = false;
       this.autoCompactLevel = 0;
       this.autoCompactFrame = null;
+      this.autoCompactActivationHeight = 0;
+      this.resizeFrame = null;
       this.ensureContainerTimer = null;
       this.renderFrame = null;
       this.sideNavFrame = null;
@@ -28,7 +30,18 @@
       this.boundPreviewAnimation = () => this.previewSidebarAnimation();
       this.boundResize = () => {
         this.lastAutoCompactSignature = '';
-        this.scheduleRender();
+        if (this.resizeFrame) {
+          cancelAnimationFrame(this.resizeFrame);
+        }
+        this.resizeFrame = requestAnimationFrame(() => {
+          this.resizeFrame = requestAnimationFrame(() => {
+            this.resizeFrame = null;
+            const enabled = Boolean(
+              this.store.getState()?.preferences?.autoCompactSidebarEnabled
+            );
+            this.scheduleAutoCompactCheck(enabled);
+          });
+        });
       };
       this.boundMouseEnter = () => {
         if (!this.isSidebarHovering) {
@@ -68,6 +81,10 @@
       if (this.autoCompactFrame) {
         cancelAnimationFrame(this.autoCompactFrame);
         this.autoCompactFrame = null;
+      }
+      if (this.resizeFrame) {
+        cancelAnimationFrame(this.resizeFrame);
+        this.resizeFrame = null;
       }
       if (this.renderFrame) {
         cancelAnimationFrame(this.renderFrame);
@@ -110,6 +127,7 @@
       if (!enabled || !this.container) {
         this.isAutoCompact = false;
         this.autoCompactLevel = 0;
+        this.autoCompactActivationHeight = 0;
         this.previousCompactLevels = new Map();
         this.lastAutoCompactSignature = '';
         clearGroupCompaction();
@@ -122,6 +140,7 @@
         return;
       }
       const parent = this.container.parentElement;
+      const windowHeight = Math.max(1, Number(window.innerHeight) || 1);
       const viewportHeight = Math.max(1, window.innerHeight - this.container.getBoundingClientRect().top - 8);
       const measuredHeights = [
         this.container.clientHeight,
@@ -132,10 +151,24 @@
       this.container.dataset.autoCompact = 'measuring';
       clearGroupCompaction();
 
+      if (
+        this.autoCompactActivationHeight > 0
+        && windowHeight >= this.autoCompactActivationHeight + 120
+      ) {
+        this.isAutoCompact = false;
+        this.autoCompactLevel = 0;
+        this.container.classList.remove('is-auto-compact');
+        this.container.dataset.autoCompact = 'idle';
+        this.container.dataset.autoCompactLevel = '0';
+        this.previousCompactLevels = new Map();
+        return;
+      }
+
       const isOverflowing = (ratio = 1) => this.container.scrollHeight > visibleHeight * ratio;
       if (!isOverflowing(1.08)) {
         this.isAutoCompact = false;
         this.autoCompactLevel = 0;
+        this.autoCompactActivationHeight = 0;
         this.container.classList.remove('is-auto-compact');
         this.container.dataset.autoCompact = 'idle';
         this.container.dataset.autoCompactLevel = '0';
@@ -170,6 +203,9 @@
       const shouldCompact = nextLevel > 0;
       this.autoCompactLevel = nextLevel;
       this.isAutoCompact = shouldCompact;
+      if (shouldCompact && !this.autoCompactActivationHeight) {
+        this.autoCompactActivationHeight = windowHeight;
+      }
       this.container.classList.toggle('is-auto-compact', shouldCompact);
       this.container.dataset.autoCompact = shouldCompact ? 'active' : 'idle';
       this.container.dataset.autoCompactLevel = String(nextLevel);

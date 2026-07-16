@@ -7,13 +7,42 @@
 })(typeof globalThis !== 'undefined' ? globalThis : this, function () {
   const createPanelView = ({
     documentRef,
+    ResizeObserverConstructor = globalThis.ResizeObserver,
     standalone = false,
+    t = (key) => key,
     onRefresh,
     onClose,
     onToggleCategory,
     onOpenChannel
   }) => {
     let elements = null;
+    let resizeObserver = null;
+
+    const applyResponsiveLayout = (rootElement, width) => {
+      const safeWidth = Number(width) || rootElement?.getBoundingClientRect?.().width || 0;
+      const layout = safeWidth > 560
+        ? 'wide'
+        : safeWidth > 320
+          ? 'regular'
+          : safeWidth > 250
+            ? 'compact'
+            : 'dense';
+      rootElement.dataset.layout = layout;
+      return layout;
+    };
+
+    const observeLayout = (rootElement) => {
+      applyResponsiveLayout(rootElement);
+      if (typeof ResizeObserverConstructor !== 'function') return;
+      resizeObserver = new ResizeObserverConstructor((entries = []) => {
+        const entry = entries.find((candidate) => candidate.target === rootElement) || entries[0];
+        const width = entry?.contentRect?.width
+          ?? entry?.borderBoxSize?.[0]?.inlineSize
+          ?? rootElement.getBoundingClientRect?.().width;
+        applyResponsiveLayout(rootElement, width);
+      });
+      resizeObserver.observe(rootElement);
+    };
 
     const handleClick = (event) => {
       const actionTarget = event.target?.closest?.('[data-action]');
@@ -46,24 +75,25 @@
       rootElement.innerHTML = `
         <div class="tfr-panel__header">
           <div>
-            <p class="tfr-panel__eyebrow">Twitch Favoris</p>
-            <h2 class="tfr-panel__title">Favoris en live</h2>
-            <p class="tfr-panel__subtitle">Chargement...</p>
+            <p class="tfr-panel__eyebrow">${t('panel.eyebrow')}</p>
+            <h2 class="tfr-panel__title">${t('panel.title')}</h2>
+            <p class="tfr-panel__subtitle">${t('panel.loading')}</p>
           </div>
           <div class="tfr-panel__actions">
-            <button class="tfr-panel__button" data-action="refresh">Actualiser</button>
-            <button class="tfr-panel__button tfr-panel__close" data-action="close" type="button" aria-label="Fermer le panneau" title="Fermer">&times;</button>
+            <button class="tfr-panel__button" data-action="refresh">${t('panel.refresh')}</button>
+            <button class="tfr-panel__button tfr-panel__close" data-action="close" type="button" aria-label="${t('panel.close')}" title="${t('panel.close')}">&times;</button>
           </div>
         </div>
-        <div class="tfr-panel__empty">Aucun favori enregistré.</div>
+        <div class="tfr-panel__empty">${t('panel.empty.saved')}</div>
         <div class="tfr-panel__sections"></div>
         <div class="tfr-panel__footer">
-          <a href="https://www.twitch.tv/directory/following/live" target="_blank" rel="noreferrer">Ouvrir Twitch</a>
+          <a href="https://www.twitch.tv/directory/following/live" target="_blank" rel="noreferrer">${t('panel.openTwitch')}</a>
           <span class="tfr-panel__timestamp"></span>
         </div>
       `;
       host.appendChild(rootElement);
       rootElement.addEventListener('click', handleClick);
+      observeLayout(rootElement);
       elements = {
         root: rootElement,
         sections: rootElement.querySelector('.tfr-panel__sections'),
@@ -75,8 +105,13 @@
     };
 
     return {
+      applyResponsiveLayout,
       ensure,
-      getElements: () => elements
+      getElements: () => elements,
+      disconnect: () => {
+        resizeObserver?.disconnect();
+        resizeObserver = null;
+      }
     };
   };
 

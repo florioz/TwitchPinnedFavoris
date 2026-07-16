@@ -13,6 +13,7 @@ const createRootElement = () => {
   };
   return {
     className: '',
+    dataset: {},
     classList: {
       values: [],
       add(value) {
@@ -114,4 +115,37 @@ test('panel view routes streamer card clicks', () => {
   view.ensure({ appendChild() {} });
   root.dispatchClick(target);
   assert.equal(opened, 'streamer');
+});
+
+test('panel view updates its layout when its width changes', () => {
+  let resizeCallback;
+  const observed = [];
+  class ResizeObserverMock {
+    constructor(callback) {
+      resizeCallback = callback;
+    }
+    observe(element) {
+      observed.push(element);
+    }
+    disconnect() {}
+  }
+  const root = createRootElement();
+  const host = { appendChild() {} };
+  const view = createPanelView({
+    documentRef: { createElement: () => root },
+    ResizeObserverConstructor: ResizeObserverMock,
+    onRefresh() {},
+    onClose() {},
+    onToggleCategory() {},
+    onOpenChannel() {}
+  });
+
+  view.ensure(host);
+  assert.deepEqual(observed, [root]);
+
+  resizeCallback([{ target: root, contentRect: { width: 290 } }]);
+  assert.equal(root.dataset.layout, 'compact');
+
+  resizeCallback([{ target: root, contentRect: { width: 620 } }]);
+  assert.equal(root.dataset.layout, 'wide');
 });

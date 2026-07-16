@@ -3,8 +3,9 @@ const TWITCH_CLIENT_ID = 'kimne78kx3ncx6brgo4mv6wki5h1ko';
 const DEFAULT_AVATAR = 'https://static-cdn.jtvnw.net/jtv_user_pictures/404_user_70x70.png';
 
 const STREAM_STATE_QUERY = `
-  query ($login: String!) {
-    user(login: $login) {
+  query ($login: String, $userId: ID) {
+    user(login: $login, id: $userId) {
+      id
       login
       displayName
       profileImageURL(width: 300)
@@ -48,6 +49,7 @@ export const mapWithConcurrency = async (items, limit, mapper) => {
 };
 
 export const createOfflineLiveData = (login, fallback = {}) => ({
+  userId: String(fallback.userId || fallback.id || ''),
   login: String(fallback.login || login || '').toLowerCase(),
   displayName: fallback.displayName || fallback.display_name || login,
   avatarUrl: fallback.avatarUrl || fallback.profileImageURL || DEFAULT_AVATAR,
@@ -64,6 +66,7 @@ export const createLiveDataFallback = (login, fallback = {}) => {
     return {
       ...offline,
       ...fallback,
+      userId: String(fallback.userId || fallback.id || offline.userId || ''),
       login: String(fallback.login || login || '').toLowerCase(),
       displayName: fallback.displayName || offline.displayName,
       avatarUrl: fallback.avatarUrl || offline.avatarUrl,
@@ -82,6 +85,7 @@ export const parseStreamerLivePayload = (login, payload, fallback = {}) => {
   }
   const stream = user.stream;
   return {
+    userId: String(user.id || fallbackLiveData.userId || ''),
     login: String(user.login || login).toLowerCase(),
     displayName: user.displayName || user.login || login,
     avatarUrl: user.profileImageURL || fallbackLiveData.avatarUrl || DEFAULT_AVATAR,
@@ -116,7 +120,12 @@ export const createTwitchClient = ({
           'Client-ID': TWITCH_CLIENT_ID,
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ query: STREAM_STATE_QUERY, variables: { login } })
+        body: JSON.stringify({
+          query: STREAM_STATE_QUERY,
+          variables: fallback?.userId
+            ? { login: null, userId: String(fallback.userId) }
+            : { login, userId: null }
+        })
       });
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`);

@@ -11,6 +11,7 @@ test('Twitch payload is normalized into live data', () => {
   const result = parseStreamerLivePayload('Example', {
     data: {
       user: {
+        id: 'user-7',
         login: 'Example',
         displayName: 'Example TV',
         profileImageURL: 'https://example.test/avatar.png',
@@ -26,6 +27,7 @@ test('Twitch payload is normalized into live data', () => {
   });
 
   assert.deepEqual(result, {
+    userId: 'user-7',
     login: 'example',
     displayName: 'Example TV',
     avatarUrl: 'https://example.test/avatar.png',
@@ -37,6 +39,37 @@ test('Twitch payload is normalized into live data', () => {
     startedAt: '2026-07-16T10:00:00.000Z',
     fetchFailed: false
   });
+});
+
+test('Twitch client resolves a known favorite by stable user id', async () => {
+  let requestBody;
+  const client = createTwitchClient({
+    fetchImpl: async (_url, options) => {
+      requestBody = JSON.parse(options.body);
+      return {
+        ok: true,
+        async json() {
+          return {
+            data: {
+              user: {
+                id: 'user-7',
+                login: 'new_name',
+                displayName: 'New Name',
+                profileImageURL: 'avatar.png',
+                stream: null
+              }
+            }
+          };
+        }
+      };
+    }
+  });
+
+  const result = await client.fetchStreamerLiveData('old_name', { userId: 'user-7' });
+
+  assert.deepEqual(requestBody.variables, { login: null, userId: 'user-7' });
+  assert.equal(result.userId, 'user-7');
+  assert.equal(result.login, 'new_name');
 });
 
 test('Twitch client preserves known live data when the request fails', async () => {

@@ -24,25 +24,25 @@
     return categoryCollapse;
   };
 
-  const getPanelSummary = (totalFavorites, totalLive) => {
+  const getPanelSummary = (totalFavorites, totalLive, t = (key) => key) => {
     if (!totalFavorites) {
       return {
         empty: true,
-        emptyText: 'Aucun favori enregistré.',
-        subtitle: 'Ajoutez des favoris depuis Twitch.'
+        emptyText: t('panel.empty.saved'),
+        subtitle: t('panel.empty.savedHint')
       };
     }
     if (!totalLive) {
       return {
         empty: true,
-        emptyText: 'Aucun favori en live pour le moment.',
-        subtitle: 'Tout est calme.'
+        emptyText: t('panel.empty.live'),
+        subtitle: t('panel.empty.liveHint')
       };
     }
     return {
       empty: false,
       emptyText: '',
-      subtitle: `${totalLive} favori(s) en live.`
+      subtitle: t('panel.liveCount', { count: totalLive })
     };
   };
 
@@ -54,7 +54,8 @@
     buildCategoryGroups,
     renderGroups,
     formatTimestamp,
-    applyToastPosition
+    applyToastPosition,
+    t = (key) => key
   }) => {
     let snapshot = {
       favorites: {},
@@ -88,7 +89,7 @@
         categories,
         categoryCollapse
       });
-      const summary = getPanelSummary(result.totalFavorites, result.totalLive);
+      const summary = getPanelSummary(result.totalFavorites, result.totalLive, t);
       elements.empty.textContent = summary.emptyText;
       elements.empty.classList.toggle('tfr-hidden', !summary.empty);
       elements.subtitle.textContent = summary.subtitle;

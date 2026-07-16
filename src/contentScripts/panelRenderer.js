@@ -9,7 +9,8 @@
     documentRef,
     escapeHtml,
     formatNumber,
-    defaultAvatar
+    defaultAvatar,
+    t = (key) => key
   }) => ({
     renderGroups(container, groups = []) {
       container.textContent = '';
@@ -22,7 +23,7 @@
         }
 
         const categoryId = group.category?.id || 'uncategorized';
-        const categoryName = group.category?.name || 'Sans catégorie';
+        const categoryName = group.category?.name || t('panel.uncategorized');
         const safeCategoryId = escapeHtml(categoryId);
         const header = documentRef.createElement('div');
         header.className = 'tfr-panel__groupHeader';
@@ -50,10 +51,10 @@
             <div class="tfr-panel__details">
               <div class="tfr-panel__row">
                 <span class="tfr-panel__name">${escapeHtml(live.displayName || fav.displayName || fav.login)}</span>
-                <span class="tfr-panel__viewers">${formatNumber(live.viewers)} spectateurs</span>
+                <span class="tfr-panel__viewers">${t('panel.viewers', { count: formatNumber(live.viewers) })}</span>
               </div>
-              <div class="tfr-panel__game">${escapeHtml(live.game || 'Catégorie inconnue')}</div>
-              <div class="tfr-panel__titleLine">${escapeHtml(live.title || 'Live sans titre')}</div>
+              <div class="tfr-panel__game">${escapeHtml(live.game || t('panel.unknownCategory'))}</div>
+              <div class="tfr-panel__titleLine">${escapeHtml(live.title || t('panel.untitled'))}</div>
             </div>
           `;
           list.appendChild(card);

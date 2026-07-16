@@ -419,6 +419,8 @@
           return;
         }
         fav.login = normalizedLogin;
+        fav.userId = String(fav.userId || fav.id || '');
+        delete fav.id;
         if (Array.isArray(fav.categories)) {
           fav.categories = fav.categories.map((id) => (typeof id === 'string' ? id : null)).filter(Boolean);
           if (fav.categories.length > 1) {
@@ -529,6 +531,46 @@
     };
   }
 
+  getActiveProfileExportData() {
+    this.syncActiveProfile(this.state);
+    const activeId = this.state.activeProfileId;
+    const profile = this.state.profiles?.[activeId];
+    if (!profile) {
+      throw new Error('Profil introuvable');
+    }
+    return {
+      type: 'tfr-profile',
+      version: 1,
+      generatedAt: new Date().toISOString(),
+      profile: deepCopy(profile)
+    };
+  }
+
+  async importProfile(payload = {}) {
+    const source = payload?.type === 'tfr-profile' ? payload.profile : payload?.profile || payload;
+    if (!source || typeof source !== 'object') {
+      throw new Error('Profil invalide');
+    }
+    const label = typeof source.name === 'string' && source.name.trim()
+      ? source.name.trim()
+      : t('profiles.defaultName');
+    const id = `profile_${Date.now()}_${Math.random().toString(16).slice(2, 8)}`;
+    await this.updateState((draft) => {
+      this.syncActiveProfile(draft);
+      draft.profiles[id] = this.createProfileSnapshot({
+        ...source,
+        id,
+        name: label,
+        createdAt: Date.now(),
+        updatedAt: Date.now()
+      });
+      this.applyProfileToRoot(draft, id);
+    });
+    this.liveData = {};
+    await this.refreshLiveData();
+    return id;
+  }
+
   async restoreFromBackup(payload = {}) {
     if (!payload || typeof payload !== 'object') {
       throw new Error('Backup invalide');
@@ -541,6 +583,7 @@
       }
       const normalized = login.toLowerCase();
       const entry = {
+        userId: String(raw.userId || raw.id || ''),
         login: normalized,
         displayName: typeof raw.displayName === 'string' && raw.displayName ? raw.displayName : normalized,
         avatarUrl: typeof raw.avatarUrl === 'string' && raw.avatarUrl ? raw.avatarUrl : DEFAULT_AVATAR,
@@ -853,6 +896,7 @@
       if (!normalized || this.state.favorites[normalized]) return;
       const live = await fetchStreamerLiveData(normalized, this.state.favorites[normalized] || {});
     const favoriteEntry = {
+      userId: String(live?.userId || ''),
       login: normalized,
       displayName: live?.displayName || normalized,
       avatarUrl: live?.avatarUrl || DEFAULT_AVATAR,
@@ -1787,6 +1831,7 @@
             }));
         const nextLive = {};
         const favoriteUpdates = {};
+        const favoriteRenames = new Map();
         updates.forEach((entry, index) => {
           const requestedLogin = favorites[index];
           const pageLive = inferCurrentPageLiveData(requestedLogin, {
@@ -1807,13 +1852,24 @@
           if (!entry || !entry.login) return;
           const normalized = entry.login.toLowerCase();
           nextLive[normalized] = entry;
-          const stored = this.state.favorites[normalized];
+          const stored = this.state.favorites[requestedLogin];
           if (stored) {
+            const nextUserId = String(entry.userId || stored.userId || '');
             const nextDisplay = entry.displayName || stored.displayName;
             const nextAvatar = entry.avatarUrl || stored.avatarUrl;
-            if (stored.displayName !== nextDisplay || stored.avatarUrl !== nextAvatar) {
+            if (normalized !== requestedLogin) {
+              favoriteRenames.set(requestedLogin, normalized);
+            }
+            if (
+              normalized !== requestedLogin
+              || stored.userId !== nextUserId
+              || stored.displayName !== nextDisplay
+              || stored.avatarUrl !== nextAvatar
+            ) {
               favoriteUpdates[normalized] = {
                 ...stored,
+                userId: nextUserId,
+                login: normalized,
                 displayName: nextDisplay,
                 avatarUrl: nextAvatar
               };
@@ -1825,18 +1881,23 @@
             return;
           }
           const normalized = login.toLowerCase();
-          const live = nextLive[normalized];
+          const targetLogin = favoriteRenames.get(normalized) || normalized;
+          const live = nextLive[targetLogin];
           const filterActive =
             Boolean(stored?.categoryFilter?.enabled) &&
             Array.isArray(stored.categoryFilter?.categories) &&
             stored.categoryFilter.categories.length > 0;
           if (!filterActive) {
             if (stored.filterMatchSince) {
-              const existing = favoriteUpdates[normalized];
+              const existing = favoriteUpdates[targetLogin];
               if (existing) {
-                favoriteUpdates[normalized] = { ...existing, filterMatchSince: 0 };
+                favoriteUpdates[targetLogin] = { ...existing, filterMatchSince: 0 };
               } else {
-                favoriteUpdates[normalized] = { ...stored, filterMatchSince: 0 };
+                favoriteUpdates[targetLogin] = {
+                  ...stored,
+                  login: targetLogin,
+                  filterMatchSince: 0
+                };
               }
             }
             return;
@@ -1853,19 +1914,34 @@
             nextSince = 0;
           }
           if (nextSince !== previousSince) {
-            const existing = favoriteUpdates[normalized];
+            const existing = favoriteUpdates[targetLogin];
             if (existing) {
-              favoriteUpdates[normalized] = { ...existing, filterMatchSince: nextSince };
+              favoriteUpdates[targetLogin] = { ...existing, filterMatchSince: nextSince };
             } else {
-              favoriteUpdates[normalized] = { ...stored, filterMatchSince: nextSince };
+              favoriteUpdates[targetLogin] = {
+                ...stored,
+                login: targetLogin,
+                filterMatchSince: nextSince
+              };
             }
-          } else if (favoriteUpdates[normalized] && favoriteUpdates[normalized].filterMatchSince === undefined) {
-            favoriteUpdates[normalized] = { ...favoriteUpdates[normalized], filterMatchSince: previousSince };
+          } else if (
+            favoriteUpdates[targetLogin]
+            && favoriteUpdates[targetLogin].filterMatchSince === undefined
+          ) {
+            favoriteUpdates[targetLogin] = {
+              ...favoriteUpdates[targetLogin],
+              filterMatchSince: previousSince
+            };
           }
         });
         this.liveData = nextLive;
         if (Object.keys(favoriteUpdates).length) {
           await this.updateState((draft) => {
+            favoriteRenames.forEach((nextLogin, previousLogin) => {
+              if (nextLogin !== previousLogin) {
+                delete draft.favorites[previousLogin];
+              }
+            });
             Object.entries(favoriteUpdates).forEach(([login, value]) => {
               draft.favorites[login] = value;
             });

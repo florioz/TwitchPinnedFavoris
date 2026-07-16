@@ -4,6 +4,7 @@ const { join } = require('node:path');
 const root = join(__dirname, '..');
 
 const pairs = [
+  ['_locales', 'firefox/_locales'],
   ['assets', 'firefox/assets'],
   ['panel', 'firefox/panel'],
   ['src', 'firefox/src'],

@@ -66,10 +66,17 @@ export const getNotificationKey = (login, live) => {
   if (!login || !live?.isLive) {
     return '';
   }
+  const identity = String(live.userId || login);
   if (live.streamId) {
-    return `${login}:${live.streamId}`;
+    return `${identity}:${live.streamId}`;
   }
-  return live.startedAt ? `${login}:${live.startedAt}` : '';
+  return live.startedAt ? `${identity}:${live.startedAt}` : '';
+};
+
+const notificationKeysMatch = (storedKey, currentKey, live) => {
+  if (!storedKey || !currentKey) return false;
+  if (storedKey === currentKey) return true;
+  return Boolean(live?.streamId && storedKey.endsWith(`:${live.streamId}`));
 };
 
 export const isRecentLiveStart = (live, preferences = {}, now = Date.now()) => {
@@ -94,7 +101,7 @@ export const cleanupNotifiedStreams = (notifiedStreams = {}, liveData = {}, now 
       return;
     }
     const key = getNotificationKey(login, live);
-    if (!key || entry?.key !== key) {
+    if (!key || !notificationKeysMatch(entry?.key, key, live)) {
       return;
     }
     const notifiedAt = Number(entry.notifiedAt || 0);
@@ -129,7 +136,8 @@ export const deriveLiveEvaluation = ({
 
     const notificationKey = getNotificationKey(login, live);
     const alreadyNotified = Boolean(
-      notificationKey && previousNotifiedStreams?.[login]?.key === notificationKey
+      notificationKey
+      && notificationKeysMatch(previousNotifiedStreams?.[login]?.key, notificationKey, live)
     );
     if (
       isLive &&
