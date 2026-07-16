@@ -10,6 +10,7 @@ import {
   createTwitchClient,
   mapWithConcurrency
 } from './twitchClient.mjs';
+import { createLiveSnapshotCoordinator } from './liveSnapshotCoordinator.mjs';
 
 const extensionApi = globalThis.chrome ?? globalThis.browser;
 
@@ -78,10 +79,6 @@ const UPDATE_REPO_URL = 'https://github.com/florioz/TwitchPinnedFavoris';
 const overlayTabs = new Set();
 const SIDE_PANEL_PATH = 'panel/sidepanel.html';
 
-let liveCache = null;
-let liveCacheTimestamp = 0;
-let refreshPromise = null;
-let evaluationPromise = null;
 let liveBadgeCount = 0;
 let updateBadgeAvailable = false;
 const { fetchStreamerLiveData } = createTwitchClient();
@@ -915,67 +912,34 @@ const performLiveStatusEvaluation = async (reason = 'manual') => {
     timestamp: now
   };
 
-  liveCache = snapshot;
-  liveCacheTimestamp = now;
   broadcastOverlayState(snapshot);
   return snapshot;
 };
 
-const evaluateLiveStatus = (reason = 'manual') => {
-  if (!evaluationPromise) {
-    evaluationPromise = performLiveStatusEvaluation(reason)
-      .finally(() => {
-        evaluationPromise = null;
-      });
-  }
-  return evaluationPromise;
+const loadCachedLiveSnapshot = async () => {
+  const stored = await extensionApi.storage.local.get([STORAGE_KEY, LIVE_CACHE_KEY, 'tfr_lastLiveUpdate']);
+  const storedState = stored?.[STORAGE_KEY] && typeof stored[STORAGE_KEY] === 'object'
+    ? stored[STORAGE_KEY]
+    : DEFAULT_STATE;
+  const cachedLiveData = stored?.[LIVE_CACHE_KEY] && typeof stored[LIVE_CACHE_KEY] === 'object'
+    ? stored[LIVE_CACHE_KEY]
+    : {};
+  return {
+    favorites: cloneData(storedState.favorites || {}),
+    categories: cloneData(Array.isArray(storedState.categories) ? storedState.categories : []),
+    preferences: cloneData(storedState.preferences || DEFAULT_STATE.preferences),
+    liveData: cloneData(cachedLiveData),
+    timestamp: stored?.tfr_lastLiveUpdate || Date.now()
+  };
 };
 
-const ensureLiveSnapshot = async (forceRefresh = false) => {
-  if (!forceRefresh && liveCache && Date.now() - liveCacheTimestamp < LIVE_CACHE_TTL) {
-    return liveCache;
-  }
-  if (!forceRefresh) {
-    const stored = await extensionApi.storage.local.get([STORAGE_KEY, LIVE_CACHE_KEY, 'tfr_lastLiveUpdate']);
-    const storedState = stored?.[STORAGE_KEY] && typeof stored[STORAGE_KEY] === 'object'
-      ? stored[STORAGE_KEY]
-      : DEFAULT_STATE;
-    const cachedLiveData = stored?.[LIVE_CACHE_KEY] && typeof stored[LIVE_CACHE_KEY] === 'object'
-      ? stored[LIVE_CACHE_KEY]
-      : {};
-    const cachedSnapshot = {
-      favorites: cloneData(storedState.favorites || {}),
-      categories: cloneData(Array.isArray(storedState.categories) ? storedState.categories : []),
-      preferences: cloneData(storedState.preferences || DEFAULT_STATE.preferences),
-      liveData: cloneData(cachedLiveData),
-      timestamp: stored?.tfr_lastLiveUpdate || Date.now()
-    };
-    liveCache = cachedSnapshot;
-    liveCacheTimestamp = Date.now();
-    if (!refreshPromise) {
-      refreshPromise = evaluateLiveStatus('popup-background')
-        .catch((error) => {
-          console.error('[TFR] failed to refresh live snapshot', error);
-          return null;
-        })
-        .finally(() => {
-          refreshPromise = null;
-        });
-    }
-    return cachedSnapshot;
-  }
-  if (!refreshPromise) {
-    refreshPromise = evaluateLiveStatus('popup')
-      .catch((error) => {
-        console.error('[TFR] failed to refresh live snapshot', error);
-        throw error;
-      })
-      .finally(() => {
-        refreshPromise = null;
-      });
-  }
-  return refreshPromise;
-};
+const liveSnapshotCoordinator = createLiveSnapshotCoordinator({
+  cacheTtlMs: LIVE_CACHE_TTL,
+  loadCachedSnapshot: loadCachedLiveSnapshot,
+  refreshSnapshot: performLiveStatusEvaluation
+});
+const evaluateLiveStatus = liveSnapshotCoordinator.evaluate;
+const ensureLiveSnapshot = liveSnapshotCoordinator.ensure;
 
 const scheduleAlarm = () => {
   extensionApi.alarms.create(POLL_ALARM, { periodInMinutes: POLL_INTERVAL_MINUTES });

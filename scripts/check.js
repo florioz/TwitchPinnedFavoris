@@ -6,6 +6,7 @@ const root = join(__dirname, '..');
 const files = [
   'src/background/serviceWorker.js',
   'src/background/liveState.mjs',
+  'src/background/liveSnapshotCoordinator.mjs',
   'src/background/twitchClient.mjs',
   'src/contentScripts/main.js',
   'src/contentScripts/overlayPanel.js',
