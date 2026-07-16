@@ -5,6 +5,11 @@ import {
   getNotificationKey,
   isRecentLiveStart
 } from './liveState.mjs';
+import {
+  createOfflineLiveData,
+  createTwitchClient,
+  mapWithConcurrency
+} from './twitchClient.mjs';
 
 const extensionApi = globalThis.chrome ?? globalThis.browser;
 
@@ -49,8 +54,6 @@ const DEFAULT_STATE = {
 };
 
 const DEFAULT_AVATAR = 'https://static-cdn.jtvnw.net/jtv_user_pictures/404_user_70x70.png';
-const TWITCH_GRAPHQL_ENDPOINT = 'https://gql.twitch.tv/gql';
-const TWITCH_CLIENT_ID = 'kimne78kx3ncx6brgo4mv6wki5h1ko';
 const DRIVE_BACKUP_FILE_NAME = 'twitch-favorites-sidebar-profiles.json';
 const DRIVE_FILE_SPACE = 'drive';
 const DRIVE_LEGACY_APPDATA_SPACE = 'appDataFolder';
@@ -59,26 +62,6 @@ const WEB_AUTH_DRIVE_TOKEN_KEY = 'tfr_web_auth_drive_token';
 const DRIVE_AUTH_MODE_KEY = 'tfr_drive_auth_mode';
 const WEB_AUTH_CLIENT_ID = '242719267292-3ndk2kr40kplv9n8ldqslcmbkthpvk1b.apps.googleusercontent.com';
 const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.file';
-const STREAM_STATE_QUERY = `
-  query ($login: String!) {
-    user(login: $login) {
-      login
-      displayName
-      profileImageURL(width: 300)
-      stream {
-        id
-        title
-        viewersCount
-        createdAt
-        game {
-          id
-          name
-        }
-      }
-    }
-  }
-`;
-
 const POLL_ALARM = 'tfr_live_poll';
 const UPDATE_ALARM = 'tfr_update_check';
 const POLL_INTERVAL_MINUTES = 2;
@@ -101,6 +84,7 @@ let refreshPromise = null;
 let evaluationPromise = null;
 let liveBadgeCount = 0;
 let updateBadgeAvailable = false;
+const { fetchStreamerLiveData } = createTwitchClient();
 
 const sendMessageToTab = (tabId, payload) =>
   new Promise((resolve) => {
@@ -285,31 +269,6 @@ const cloneData = (value) => {
     console.warn('[TFR] failed to clone data', error);
     return {};
   }
-};
-
-const mapWithConcurrency = async (items, limit, mapper) => {
-  const results = new Array(items.length);
-  let cursor = 0;
-  const workerCount = Math.max(1, Math.min(limit, items.length));
-  const workers = Array.from({ length: workerCount }, async () => {
-    while (cursor < items.length) {
-      const index = cursor;
-      cursor += 1;
-      try {
-        results[index] = {
-          status: 'fulfilled',
-          value: await mapper(items[index], index)
-        };
-      } catch (reason) {
-        results[index] = {
-          status: 'rejected',
-          reason
-        };
-      }
-    }
-  });
-  await Promise.all(workers);
-  return results;
 };
 
 const isDriveConfigured = () => {
@@ -664,74 +623,6 @@ const shouldDisplayFavorite = (favoriteEntry, liveEntry) => {
     return false;
   }
   return requiredSet.has(currentCategory);
-};
-
-const createOfflineLiveData = (login, fallback = {}) => ({
-  login: String(fallback.login || login || '').toLowerCase(),
-  displayName: fallback.displayName || fallback.display_name || login,
-  avatarUrl: fallback.avatarUrl || fallback.profileImageURL || DEFAULT_AVATAR,
-  isLive: false,
-  viewers: 0,
-  title: '',
-  game: '',
-  startedAt: null
-});
-
-const createLiveDataFallback = (login, fallback = {}) => {
-  const offline = createOfflineLiveData(login, fallback);
-  if (fallback && fallback.isLive) {
-    return {
-      ...offline,
-      ...fallback,
-      login: String(fallback.login || login || '').toLowerCase(),
-      displayName: fallback.displayName || offline.displayName,
-      avatarUrl: fallback.avatarUrl || offline.avatarUrl,
-      fetchFailed: true
-    };
-  }
-  return { ...offline, fetchFailed: true };
-};
-
-const fetchStreamerLiveData = async (login, fallback = {}) => {
-  if (!login) {
-    return null;
-  }
-  const fallbackLiveData = createLiveDataFallback(login, fallback);
-  try {
-    const response = await fetch(TWITCH_GRAPHQL_ENDPOINT, {
-      method: 'POST',
-      mode: 'cors',
-      credentials: 'omit',
-      headers: {
-        'Client-ID': TWITCH_CLIENT_ID,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ query: STREAM_STATE_QUERY, variables: { login } })
-    });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const payload = await response.json();
-    const data = Array.isArray(payload) ? payload[0]?.data : payload?.data;
-    const user = data?.user;
-    if (!user) {
-      return fallbackLiveData;
-    }
-    const stream = user.stream;
-    return {
-      login: String(user.login || login).toLowerCase(),
-      displayName: user.displayName || user.login || login,
-      avatarUrl: user.profileImageURL || fallbackLiveData.avatarUrl || DEFAULT_AVATAR,
-      isLive: Boolean(stream),
-      streamId: stream?.id || null,
-      viewers: stream?.viewersCount || 0,
-      title: stream?.title || '',
-      game: stream?.game?.name || '',
-      startedAt: stream?.createdAt || null,
-      fetchFailed: false
-    };
-  } catch (error) {
-    console.debug('[TFR] Background live data temporarily unavailable', login, error);
-    return fallbackLiveData;
-  }
 };
 
 const seedDefaultStateIfNeeded = async () => {
