@@ -18,7 +18,9 @@
   const panelLifecycleApi = globalThis.__TFR_PANEL_LIFECYCLE__;
   const panelSnapshotApi = globalThis.__TFR_PANEL_SNAPSHOT_CONTROLLER__;
   const panelPresenterApi = globalThis.__TFR_PANEL_SNAPSHOT_PRESENTER__;
-  if (!panelModel || !toastPreferences || !toastAudioApi || !toastStackApi || !panelRendererApi || !panelViewApi || !panelLifecycleApi || !panelSnapshotApi || !panelPresenterApi) {
+  const runtimeClientApi = globalThis.__TFR_EXTENSION_RUNTIME_CLIENT__;
+  const panelMessageRouterApi = globalThis.__TFR_PANEL_MESSAGE_ROUTER__;
+  if (!panelModel || !toastPreferences || !toastAudioApi || !toastStackApi || !panelRendererApi || !panelViewApi || !panelLifecycleApi || !panelSnapshotApi || !panelPresenterApi || !runtimeClientApi || !panelMessageRouterApi) {
     console.error('[TFR overlay] panel dependencies unavailable');
     return;
   }
@@ -50,44 +52,9 @@
 
 
 
-  const sendMessage = (payload) =>
-
-    new Promise((resolve) => {
-
-      try {
-
-        extensionApi.runtime.sendMessage(payload, (response) => {
-
-          const error = extensionApi.runtime.lastError;
-
-          if (error) {
-            const message = String(error?.message || '').toLowerCase();
-            if (message.includes('extension context invalidated') || message.includes('context invalidated')) {
-              return resolve(null);
-            }
-            console.warn('[TFR overlay] message error', error);
-            resolve(null);
-
-          } else {
-
-            resolve(response);
-
-          }
-
-        });
-
-      } catch (error) {
-        const message = String(error?.message || '').toLowerCase();
-        if (message.includes('extension context invalidated') || message.includes('context invalidated')) {
-          return resolve(null);
-        }
-        console.warn('[TFR overlay] message exception', error);
-
-        resolve(null);
-
-      }
-
-    });
+  const runtimeClient = runtimeClientApi.createExtensionRuntimeClient({
+    runtime: extensionApi.runtime
+  });
 
   const toastStackController = toastStackApi.createToastStackController({
     documentRef: document,
@@ -95,11 +62,8 @@
     formatNumber: formatPanelNumber,
     defaultAvatar: DEFAULT_AVATAR,
     maxVisible: MAX_VISIBLE_TOASTS,
-    dismissEntry: ({ login, notificationKey }) => sendMessage({
-      type: 'TFR_DISMISS_LIVE_TOAST',
-      login,
-      notificationKey
-    })
+    dismissEntry: ({ login, notificationKey }) =>
+      runtimeClient.dismissToast(login, notificationKey)
   });
   const panelRenderer = panelRendererApi.createPanelRenderer({
     documentRef: document,
@@ -151,7 +115,7 @@
 
     if (!login) return;
 
-    extensionApi.runtime.sendMessage({ type: 'TFR_OPEN_CHANNEL_TAB', login });
+    runtimeClient.openChannel(login);
 
     if (!isStandaloneContext) {
       panelLifecycle.setOpen(false);
@@ -176,10 +140,7 @@
 
 
   const panelSnapshotController = panelSnapshotApi.createPanelSnapshotController({
-    requestSnapshot: (forceRefresh) => sendMessage({
-      type: 'TFR_GET_POPUP_STATE',
-      forceRefresh
-    }),
+    requestSnapshot: runtimeClient.getSnapshot,
     renderSnapshot: panelSnapshotPresenter.render,
     getPanelRoot: () => panelView.getElements()?.root,
     getSubtitle: () => panelView.getElements()?.subtitle,
@@ -229,36 +190,13 @@
   });
 
 
-  extensionApi.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-
-    if (!message) return false;
-
-    if (message.type === 'TFR_TOGGLE_PANEL') {
-
-      panelLifecycle.toggle();
-
-    } else if (message.type === 'TFR_STATE_PUSH') {
-
-      panelSnapshotPresenter.render(message);
-
-    } else if (message.type === 'TFR_OVERLAY_TOAST') {
-
-      const displayed = displayToast(message.entries || [], {
-        force: Boolean(message.force),
-        showToast: message.showToast,
-        playSound: message.playSound,
-        soundId: message.soundId,
-        soundVolume: message.soundVolume,
-        customSoundDataUrl: message.customSoundDataUrl
-      });
-      sendResponse?.({ ok: Boolean(displayed) });
-      return true;
-
-    }
-
-    return false;
-
-  });
+  extensionApi.runtime.onMessage.addListener(
+    panelMessageRouterApi.createPanelMessageRouter({
+      togglePanel: panelLifecycle.toggle,
+      renderSnapshot: panelSnapshotPresenter.render,
+      displayToast
+    })
+  );
 
 
 

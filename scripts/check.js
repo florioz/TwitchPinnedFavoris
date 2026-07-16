@@ -21,6 +21,8 @@ const files = [
   'src/contentScripts/panelLifecycle.js',
   'src/contentScripts/panelSnapshotController.js',
   'src/contentScripts/panelSnapshotPresenter.js',
+  'src/contentScripts/extensionRuntimeClient.js',
+  'src/contentScripts/panelMessageRouter.js',
   'src/contentScripts/overlayPanel.js',
   'panel/bootstrap.js',
   'panel/vods.js',
