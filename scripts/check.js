@@ -19,6 +19,7 @@ const files = [
   'src/contentScripts/panelRenderer.js',
   'src/contentScripts/panelView.js',
   'src/contentScripts/panelLifecycle.js',
+  'src/contentScripts/panelSnapshotController.js',
   'src/contentScripts/overlayPanel.js',
   'panel/bootstrap.js',
   'panel/vods.js',

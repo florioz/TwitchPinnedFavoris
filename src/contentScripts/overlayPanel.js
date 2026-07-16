@@ -16,7 +16,8 @@
   const panelRendererApi = globalThis.__TFR_PANEL_RENDERER__;
   const panelViewApi = globalThis.__TFR_PANEL_VIEW__;
   const panelLifecycleApi = globalThis.__TFR_PANEL_LIFECYCLE__;
-  if (!panelModel || !toastPreferences || !toastAudioApi || !toastStackApi || !panelRendererApi || !panelViewApi || !panelLifecycleApi) {
+  const panelSnapshotApi = globalThis.__TFR_PANEL_SNAPSHOT_CONTROLLER__;
+  if (!panelModel || !toastPreferences || !toastAudioApi || !toastStackApi || !panelRendererApi || !panelViewApi || !panelLifecycleApi || !panelSnapshotApi) {
     console.error('[TFR overlay] panel dependencies unavailable');
     return;
   }
@@ -126,7 +127,7 @@
   const panelView = panelViewApi.createPanelView({
     documentRef: document,
     standalone: isStandaloneContext,
-    onRefresh: () => refreshSnapshot(true),
+    onRefresh: () => panelSnapshotController.refresh(true),
     onClose: () => {
       if (isStandaloneContext && typeof window.close === 'function') {
         window.close();
@@ -311,40 +312,23 @@
 
 
 
-  const refreshSnapshot = async (forceRefresh = false, options = {}) => {
-
-    const showLoading = options.showLoading !== false && (
-      forceRefresh || !Object.keys(state.snapshot?.liveData || {}).length
-    );
-
-    if (showLoading) {
-      panelView.getElements()?.root.classList.add('tfr-panel--loading');
-    }
-
-    const snapshot = await sendMessage({ type: 'TFR_GET_POPUP_STATE', forceRefresh });
-
-    if (showLoading) {
-      panelView.getElements()?.root.classList.remove('tfr-panel--loading');
-    }
-
-    if (snapshot && !snapshot.error) {
-
-      renderSnapshot(snapshot);
-
-    } else {
-
-      panelView.getElements().subtitle.textContent = 'Impossible de récupérer les favoris.';
-
-    }
-
-  };
+  const panelSnapshotController = panelSnapshotApi.createPanelSnapshotController({
+    requestSnapshot: (forceRefresh) => sendMessage({
+      type: 'TFR_GET_POPUP_STATE',
+      forceRefresh
+    }),
+    renderSnapshot,
+    getPanelRoot: () => panelView.getElements()?.root,
+    getSubtitle: () => panelView.getElements()?.subtitle,
+    hasLiveData: () => Boolean(Object.keys(state.snapshot?.liveData || {}).length)
+  });
   const panelLifecycle = panelLifecycleApi.createPanelLifecycle({
     documentRef: document,
     standalone: isStandaloneContext,
     refreshIntervalMs: REFRESH_INTERVAL,
     ensurePanel: ensurePanelElements,
     getPanelRoot: () => panelView.getElements()?.root,
-    refresh: refreshSnapshot
+    refresh: panelSnapshotController.refresh
   });
 
 
@@ -423,15 +407,7 @@
 
     // Preload snapshot silently so first toggle feels instant.
 
-    sendMessage({ type: 'TFR_GET_POPUP_STATE', forceRefresh: false }).then((snapshot) => {
-
-      if (snapshot && !snapshot.error) {
-
-        renderSnapshot(snapshot);
-
-      }
-
-    });
+    panelSnapshotController.preload();
 
   }
 
