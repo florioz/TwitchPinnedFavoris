@@ -13,7 +13,8 @@
   const toastPreferences = globalThis.__TFR_TOAST_PREFERENCES__;
   const toastAudioApi = globalThis.__TFR_TOAST_AUDIO__;
   const toastStackApi = globalThis.__TFR_TOAST_STACK__;
-  if (!panelModel || !toastPreferences || !toastAudioApi || !toastStackApi) {
+  const panelRendererApi = globalThis.__TFR_PANEL_RENDERER__;
+  if (!panelModel || !toastPreferences || !toastAudioApi || !toastStackApi || !panelRendererApi) {
     console.error('[TFR overlay] panel dependencies unavailable');
     return;
   }
@@ -125,6 +126,12 @@
       login,
       notificationKey
     })
+  });
+  const panelRenderer = panelRendererApi.createPanelRenderer({
+    documentRef: document,
+    escapeHtml,
+    formatNumber: formatPanelNumber,
+    defaultAvatar: DEFAULT_AVATAR
   });
 
 
@@ -357,8 +364,6 @@
 
 
 
-    state.sectionsEl.textContent = '';
-
     const emptyEl = state.panelEl.querySelector('.tfr-panel__empty');
 
 
@@ -389,121 +394,7 @@
 
 
 
-    groups.forEach((group) => {
-
-      const section = document.createElement('section');
-
-      section.className = 'tfr-panel__group';
-
-      if (group.collapsed) {
-
-        section.classList.add('tfr-panel__group--collapsed');
-
-      }
-
-      const header = document.createElement('div');
-
-      header.className = 'tfr-panel__groupHeader';
-
-      const categoryId = group.category?.id || 'uncategorized';
-
-      const categoryName = group.category?.name || 'Sans catégorie';
-      const categoryCount = group.favorites.length;
-      const safeCategoryId = escapeHtml(categoryId);
-
-      header.innerHTML = `
-
-        <div class="tfr-panel__groupHeaderTitle">
-
-          <button class="tfr-panel__groupToggle" data-action="toggleCategory" data-category-id="${safeCategoryId}">
-
-            <span class="tfr-panel__groupToggleIcon">&#9662;</span>
-
-          </button>
-
-          <span class="tfr-panel__groupLabel" data-action="toggleCategory" data-category-id="${safeCategoryId}">
-
-            <span class="tfr-panel__groupName">${escapeHtml(categoryName)}</span>
-
-            <span class="tfr-panel__groupBadge">${categoryCount}</span>
-
-          </span>
-
-        </div>
-
-      `;
-
-      section.appendChild(header);
-
-
-
-      const headerTitle = header.querySelector('.tfr-panel__groupLabel');
-
-      if (headerTitle) {
-
-        headerTitle.dataset.action = 'toggleCategory';
-
-        headerTitle.dataset.categoryId = categoryId;
-
-        headerTitle.querySelectorAll('span').forEach((span) => {
-
-          span.dataset.action = 'toggleCategory';
-
-          span.dataset.categoryId = categoryId;
-
-        });
-
-      }
-
-
-
-      const list = document.createElement('div');
-
-      list.className = 'tfr-panel__groupList';
-
-
-
-      group.favorites.forEach(({ fav, live }) => {
-
-        const card = document.createElement('div');
-
-        card.className = 'tfr-panel__card';
-
-        card.dataset.login = fav.login;
-
-        card.innerHTML = `
-
-          <img class="tfr-panel__avatar" src="${escapeHtml(live.avatarUrl || fav.avatarUrl || DEFAULT_AVATAR)}" alt="" />
-
-          <div class="tfr-panel__details">
-
-            <div class="tfr-panel__row">
-
-              <span class="tfr-panel__name">${escapeHtml(live.displayName || fav.displayName || fav.login)}</span>
-
-              <span class="tfr-panel__viewers">${formatPanelNumber(live.viewers)} spectateurs</span>
-
-            </div>
-
-            <div class="tfr-panel__game">${escapeHtml(live.game || 'Catégorie inconnue')}</div>
-
-            <div class="tfr-panel__titleLine">${escapeHtml(live.title || 'Live sans titre')}</div>
-
-          </div>
-
-        `;
-
-        list.appendChild(card);
-
-      });
-
-
-
-      section.appendChild(list);
-
-      state.sectionsEl.appendChild(section);
-
-    });
+    panelRenderer.renderGroups(state.sectionsEl, groups);
 
 
 
