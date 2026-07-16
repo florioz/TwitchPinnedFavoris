@@ -1,3 +1,18 @@
+import {
+  createLiveDataSignature,
+  createNotifiedStreamsSignature,
+  deriveLiveEvaluation
+} from './liveState.mjs';
+import {
+  createOfflineLiveData,
+  createTwitchClient,
+  mapWithConcurrency
+} from './twitchClient.mjs';
+import { createLiveSnapshotCoordinator } from './liveSnapshotCoordinator.mjs';
+import { createLiveNotificationService } from './liveNotificationService.mjs';
+import { createBadgeManager } from './badgeManager.mjs';
+import { createUpdateService } from './updateService.mjs';
+
 const extensionApi = globalThis.chrome ?? globalThis.browser;
 
 const actionApi = extensionApi.action ?? extensionApi.browserAction ?? null;
@@ -41,8 +56,6 @@ const DEFAULT_STATE = {
 };
 
 const DEFAULT_AVATAR = 'https://static-cdn.jtvnw.net/jtv_user_pictures/404_user_70x70.png';
-const TWITCH_GRAPHQL_ENDPOINT = 'https://gql.twitch.tv/gql';
-const TWITCH_CLIENT_ID = 'kimne78kx3ncx6brgo4mv6wki5h1ko';
 const DRIVE_BACKUP_FILE_NAME = 'twitch-favorites-sidebar-profiles.json';
 const DRIVE_FILE_SPACE = 'drive';
 const DRIVE_LEGACY_APPDATA_SPACE = 'appDataFolder';
@@ -51,32 +64,11 @@ const WEB_AUTH_DRIVE_TOKEN_KEY = 'tfr_web_auth_drive_token';
 const DRIVE_AUTH_MODE_KEY = 'tfr_drive_auth_mode';
 const WEB_AUTH_CLIENT_ID = '242719267292-3ndk2kr40kplv9n8ldqslcmbkthpvk1b.apps.googleusercontent.com';
 const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.file';
-const STREAM_STATE_QUERY = `
-  query ($login: String!) {
-    user(login: $login) {
-      login
-      displayName
-      profileImageURL(width: 300)
-      stream {
-        id
-        title
-        viewersCount
-        createdAt
-        game {
-          id
-          name
-        }
-      }
-    }
-  }
-`;
-
 const POLL_ALARM = 'tfr_live_poll';
 const UPDATE_ALARM = 'tfr_update_check';
 const POLL_INTERVAL_MINUTES = 2;
 const LIVE_CACHE_TTL = 115 * 1000;
 const LIVE_FETCH_CONCURRENCY = 5;
-const MAX_NOTIFICATIONS = 2;
 const BADGE_COLOR = '#9147ff';
 const UPDATE_BADGE_COLOR = '#ef4444';
 const UPDATE_STORAGE_KEY = 'tfr_update_state';
@@ -87,11 +79,7 @@ const UPDATE_REPO_URL = 'https://github.com/florioz/TwitchPinnedFavoris';
 const overlayTabs = new Set();
 const SIDE_PANEL_PATH = 'panel/sidepanel.html';
 
-let liveCache = null;
-let liveCacheTimestamp = 0;
-let refreshPromise = null;
-let liveBadgeCount = 0;
-let updateBadgeAvailable = false;
+const { fetchStreamerLiveData } = createTwitchClient();
 
 const sendMessageToTab = (tabId, payload) =>
   new Promise((resolve) => {
@@ -169,7 +157,6 @@ const getOverlayRecipientTabIds = async () => {
 };
 
 const getOverlayRecipients = async () => {
-  const tabIds = new Set(overlayTabs);
   const activeTabs = await queryTabs({
     active: true,
     currentWindow: true
@@ -177,12 +164,6 @@ const getOverlayRecipients = async () => {
   const twitchTabs = await queryTabs({
     url: ['https://www.twitch.tv/*', 'https://twitch.tv/*']
   });
-  [...activeTabs, ...twitchTabs].forEach((tab) => {
-    if (Number.isInteger(tab?.id)) {
-      tabIds.add(tab.id);
-    }
-  });
-
   const focusedActiveTwitch = activeTabs.find((tab) => (
     Number.isInteger(tab?.id) &&
     typeof tab.url === 'string' &&
@@ -191,7 +172,7 @@ const getOverlayRecipients = async () => {
   const soundTabId = focusedActiveTwitch?.id ?? twitchTabs.find((tab) => Number.isInteger(tab?.id))?.id ?? null;
 
   return {
-    tabIds: Array.from(tabIds),
+    tabIds: Number.isInteger(soundTabId) ? [soundTabId] : [],
     soundTabId
   };
 };
@@ -267,14 +248,25 @@ const broadcastOverlayToast = async (entries, options = {}) => {
   return results.some((result) => result?.ok);
 };
 
-const normalizeCategoryName = (value) => {
-  if (!value) return '';
-  let output = String(value).trim().toLocaleLowerCase();
-  if (typeof output.normalize === 'function') {
-    output = output.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-  }
-  return output;
-};
+const badgeManager = createBadgeManager({
+  actionApi,
+  liveColor: BADGE_COLOR,
+  updateColor: UPDATE_BADGE_COLOR
+});
+const liveNotificationService = createLiveNotificationService({
+  storage: extensionApi.storage.local,
+  notifiedStreamsKey: NOTIFIED_STREAMS_KEY,
+  broadcastToast: broadcastOverlayToast
+});
+const updateService = createUpdateService({
+  storage: extensionApi.storage.local,
+  storageKey: UPDATE_STORAGE_KEY,
+  apiUrl: UPDATE_REPO_API_URL,
+  repoUrl: UPDATE_REPO_URL,
+  currentVersion: extensionApi.runtime?.getManifest?.().version || '0.0.0',
+  checkIntervalMs: UPDATE_CHECK_INTERVAL_MS,
+  setBadgeAvailable: (available) => badgeManager.setUpdateAvailable(available)
+});
 
 const cloneData = (value) => {
   try {
@@ -283,60 +275,6 @@ const cloneData = (value) => {
     console.warn('[TFR] failed to clone data', error);
     return {};
   }
-};
-
-const mapWithConcurrency = async (items, limit, mapper) => {
-  const results = new Array(items.length);
-  let cursor = 0;
-  const workerCount = Math.max(1, Math.min(limit, items.length));
-  const workers = Array.from({ length: workerCount }, async () => {
-    while (cursor < items.length) {
-      const index = cursor;
-      cursor += 1;
-      try {
-        results[index] = {
-          status: 'fulfilled',
-          value: await mapper(items[index], index)
-        };
-      } catch (reason) {
-        results[index] = {
-          status: 'rejected',
-          reason
-        };
-      }
-    }
-  });
-  await Promise.all(workers);
-  return results;
-};
-
-const createLiveDataSignature = (liveData = {}) => {
-  const entries = Object.keys(liveData)
-    .sort()
-    .map((login) => {
-      const live = liveData[login] || {};
-      return [
-        login,
-        live.isLive ? 1 : 0,
-        live.streamId || '',
-        live.title || '',
-        live.game || '',
-        Number(live.viewers || 0),
-        live.startedAt || '',
-        live.fetchFailed ? 1 : 0
-      ].join('|');
-    });
-  return entries.join('\n');
-};
-
-const createNotifiedStreamsSignature = (notifiedStreams = {}) => {
-  const entries = Object.keys(notifiedStreams)
-    .sort()
-    .map((login) => {
-      const entry = notifiedStreams[login] || {};
-      return `${login}|${entry.key || ''}`;
-    });
-  return entries.join('\n');
 };
 
 const isDriveConfigured = () => {
@@ -660,107 +598,6 @@ const pullBackupFromDrive = async () => {
   return { ok: true, payload, file, syncState };
 };
 
-const shouldDisplayFavorite = (favoriteEntry, liveEntry) => {
-  if (!liveEntry || !liveEntry.isLive) {
-    return false;
-  }
-  const filter = favoriteEntry?.categoryFilter;
-  if (!filter || !filter.enabled) {
-    return true;
-  }
-  const categories = Array.isArray(filter.categories)
-    ? filter.categories
-    : typeof filter.category === 'string'
-    ? [filter.category]
-    : [];
-  if (!categories.length) {
-    return true;
-  }
-  const requiredSet = new Set();
-  categories.forEach((category) => {
-    const normalized = normalizeCategoryName(category);
-    if (normalized) {
-      requiredSet.add(normalized);
-    }
-  });
-  if (!requiredSet.size) {
-    return true;
-  }
-  const currentCategory = normalizeCategoryName(liveEntry.game);
-  if (!currentCategory) {
-    return false;
-  }
-  return requiredSet.has(currentCategory);
-};
-
-const createOfflineLiveData = (login, fallback = {}) => ({
-  login: String(fallback.login || login || '').toLowerCase(),
-  displayName: fallback.displayName || fallback.display_name || login,
-  avatarUrl: fallback.avatarUrl || fallback.profileImageURL || DEFAULT_AVATAR,
-  isLive: false,
-  viewers: 0,
-  title: '',
-  game: '',
-  startedAt: null
-});
-
-const createLiveDataFallback = (login, fallback = {}) => {
-  const offline = createOfflineLiveData(login, fallback);
-  if (fallback && fallback.isLive) {
-    return {
-      ...offline,
-      ...fallback,
-      login: String(fallback.login || login || '').toLowerCase(),
-      displayName: fallback.displayName || offline.displayName,
-      avatarUrl: fallback.avatarUrl || offline.avatarUrl,
-      fetchFailed: true
-    };
-  }
-  return { ...offline, fetchFailed: true };
-};
-
-const fetchStreamerLiveData = async (login, fallback = {}) => {
-  if (!login) {
-    return null;
-  }
-  const fallbackLiveData = createLiveDataFallback(login, fallback);
-  try {
-    const response = await fetch(TWITCH_GRAPHQL_ENDPOINT, {
-      method: 'POST',
-      mode: 'cors',
-      credentials: 'omit',
-      headers: {
-        'Client-ID': TWITCH_CLIENT_ID,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ query: STREAM_STATE_QUERY, variables: { login } })
-    });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const payload = await response.json();
-    const data = Array.isArray(payload) ? payload[0]?.data : payload?.data;
-    const user = data?.user;
-    if (!user) {
-      return fallbackLiveData;
-    }
-    const stream = user.stream;
-    return {
-      login: String(user.login || login).toLowerCase(),
-      displayName: user.displayName || user.login || login,
-      avatarUrl: user.profileImageURL || fallbackLiveData.avatarUrl || DEFAULT_AVATAR,
-      isLive: Boolean(stream),
-      streamId: stream?.id || null,
-      viewers: stream?.viewersCount || 0,
-      title: stream?.title || '',
-      game: stream?.game?.name || '',
-      startedAt: stream?.createdAt || null,
-      fetchFailed: false
-    };
-  } catch (error) {
-    console.debug('[TFR] Background live data temporarily unavailable', login, error);
-    return fallbackLiveData;
-  }
-};
-
 const seedDefaultStateIfNeeded = async () => {
   try {
     const stored = await extensionApi.storage.local.get(STORAGE_KEY);
@@ -783,229 +620,7 @@ const seedDefaultStateIfNeeded = async () => {
   }
 };
 
-const normalizeVersion = (version) =>
-  String(version || '')
-    .trim()
-    .replace(/^v/i, '');
-
-const parseVersion = (version) => {
-  const cleaned = normalizeVersion(version);
-  if (!cleaned) return [0];
-  return cleaned.split('.').map((part) => {
-    const match = String(part).match(/\d+/);
-    return match ? Number(match[0]) : 0;
-  });
-};
-
-const isVersionNewer = (remote, local) => {
-  const remoteParts = parseVersion(remote);
-  const localParts = parseVersion(local);
-  const length = Math.max(remoteParts.length, localParts.length);
-  for (let index = 0; index < length; index += 1) {
-    const remoteValue = remoteParts[index] ?? 0;
-    const localValue = localParts[index] ?? 0;
-    if (remoteValue > localValue) return true;
-    if (remoteValue < localValue) return false;
-  }
-  return false;
-};
-
-const canShowUpdateBadge = (state = {}, now = Date.now()) => {
-  const currentVersion = extensionApi.runtime?.getManifest?.().version || '0.0.0';
-  const latestVersion = normalizeVersion(state.latestVersion);
-  if (!latestVersion || !isVersionNewer(latestVersion, currentVersion)) {
-    return false;
-  }
-  if (state.dismissedVersion === latestVersion) {
-    return false;
-  }
-  if (state.snoozeUntil && now < state.snoozeUntil) {
-    return false;
-  }
-  return true;
-};
-
-const refreshBadgeFromUpdateState = async () => {
-  const stored = await extensionApi.storage.local.get(UPDATE_STORAGE_KEY).catch(() => ({}));
-  const updateState = stored?.[UPDATE_STORAGE_KEY] || {};
-  updateBadgeAvailable = canShowUpdateBadge(updateState);
-  await updateBadge(liveBadgeCount);
-};
-
-const checkForExtensionUpdate = async (force = false) => {
-  const now = Date.now();
-  const stored = await extensionApi.storage.local.get(UPDATE_STORAGE_KEY).catch(() => ({}));
-  const state = stored?.[UPDATE_STORAGE_KEY] && typeof stored[UPDATE_STORAGE_KEY] === 'object'
-    ? stored[UPDATE_STORAGE_KEY]
-    : {};
-  if (!force && state.lastCheck && now - state.lastCheck < UPDATE_CHECK_INTERVAL_MS) {
-    updateBadgeAvailable = canShowUpdateBadge(state, now);
-    await updateBadge(liveBadgeCount);
-    return state;
-  }
-  try {
-    const response = await fetch(UPDATE_REPO_API_URL, {
-      headers: { Accept: 'application/vnd.github+json' },
-      cache: 'no-cache'
-    });
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
-    }
-    const payload = await response.json();
-    const remoteVersion = normalizeVersion(payload?.tag_name || payload?.name);
-    const nextState = {
-      ...state,
-      lastCheck: now,
-      latestVersion: remoteVersion,
-      releaseUrl: payload?.html_url || UPDATE_REPO_URL,
-      releaseNotes: (payload?.body || '').trim()
-    };
-    if (state.latestVersion !== remoteVersion) {
-      nextState.dismissedVersion = null;
-      nextState.snoozeUntil = null;
-    }
-    await extensionApi.storage.local.set({ [UPDATE_STORAGE_KEY]: nextState });
-    updateBadgeAvailable = canShowUpdateBadge(nextState, now);
-    await updateBadge(liveBadgeCount);
-    return nextState;
-  } catch (error) {
-    console.warn('[TFR] background update check failed', error);
-    updateBadgeAvailable = canShowUpdateBadge(state, now);
-    await updateBadge(liveBadgeCount);
-    return state;
-  }
-};
-
-const updateBadge = async (count = liveBadgeCount) => {
-  if (!actionApi?.setBadgeText) {
-    return;
-  }
-  try {
-    liveBadgeCount = Number(count) || 0;
-    if (updateBadgeAvailable) {
-      if (actionApi.setBadgeBackgroundColor) {
-        await actionApi.setBadgeBackgroundColor({ color: UPDATE_BADGE_COLOR });
-      }
-      await actionApi.setBadgeText({ text: '!' });
-      await actionApi.setTitle?.({ title: 'Nouvelle mise a jour disponible' });
-      return;
-    }
-    if (actionApi.setBadgeBackgroundColor) {
-      await actionApi.setBadgeBackgroundColor({ color: BADGE_COLOR });
-    }
-    await actionApi.setBadgeText({ text: liveBadgeCount > 0 ? String(Math.min(liveBadgeCount, 99)) : '' });
-    await actionApi.setTitle?.({ title: 'Afficher les favoris Twitch' });
-  } catch (error) {
-    console.warn('[TFR] unable to update badge text', error);
-  }
-};
-
-const getNotificationKey = (login, live) => {
-  if (!login || !live?.isLive) {
-    return '';
-  }
-  const streamId = live.streamId || '';
-  if (streamId) {
-    return `${login}:${streamId}`;
-  }
-  return live.startedAt ? `${login}:${live.startedAt}` : '';
-};
-
-const isRecentLiveStart = (live, preferences = {}, now = Date.now()) => {
-  if (!live?.isLive || !live.startedAt) {
-    return false;
-  }
-  const startedAt = Date.parse(live.startedAt);
-  if (!Number.isFinite(startedAt)) {
-    return false;
-  }
-  const thresholdMinutes = Number.isFinite(Number(preferences.recentLiveThresholdMinutes))
-    ? Math.max(1, Math.min(120, Math.round(Number(preferences.recentLiveThresholdMinutes))))
-    : 10;
-  return now - startedAt >= 0 && now - startedAt <= thresholdMinutes * 60 * 1000;
-};
-
-const cleanupNotifiedStreams = (notifiedStreams = {}, liveData = {}, now = Date.now()) => {
-  const next = {};
-  Object.entries(notifiedStreams || {}).forEach(([login, entry]) => {
-    const live = liveData?.[login];
-    if (!live?.isLive) {
-      return;
-    }
-    const key = getNotificationKey(login, live);
-    if (!key || entry?.key !== key) {
-      return;
-    }
-    const notifiedAt = Number(entry.notifiedAt || 0);
-    if (Number.isFinite(notifiedAt) && now - notifiedAt < 24 * 60 * 60 * 1000) {
-      next[login] = entry;
-    }
-  });
-  return next;
-};
-
-const markLiveNotificationHandled = async (login, notificationKey) => {
-  if (!login || !notificationKey) {
-    return {};
-  }
-  const stored = await extensionApi.storage.local.get(NOTIFIED_STREAMS_KEY);
-  const notifiedStreams =
-    stored?.[NOTIFIED_STREAMS_KEY] && typeof stored[NOTIFIED_STREAMS_KEY] === 'object'
-      ? stored[NOTIFIED_STREAMS_KEY]
-      : {};
-  const next = {
-    ...notifiedStreams,
-    [login]: {
-      key: notificationKey,
-      notifiedAt: Date.now()
-    }
-  };
-  await extensionApi.storage.local.set({ [NOTIFIED_STREAMS_KEY]: next });
-  return next;
-};
-
-const notifyNewLives = async (entries, preferences = {}) => {
-  const prefs = preferences || {};
-  const wantsToast = prefs.toastEnabled !== false;
-  const wantsSound = prefs.toastSoundEnabled === true;
-  if (!wantsToast && !wantsSound) {
-    return [];
-  }
-  const eligible = entries.filter(({ fav }) => fav?.recentHighlightEnabled !== false);
-  if (!eligible.length) {
-    return [];
-  }
-  const selected = eligible.slice(0, MAX_NOTIFICATIONS);
-  const toastEntries = selected.map(({ login, fav, live, notificationKey }) => ({
-    login,
-    notificationKey,
-    fav: {
-      login: fav.login,
-      displayName: fav.displayName,
-      avatarUrl: fav.avatarUrl
-    },
-    live: {
-      login: live.login,
-      displayName: live.displayName,
-      avatarUrl: live.avatarUrl,
-      viewers: live.viewers,
-      game: live.game,
-      title: live.title,
-      streamId: live.streamId,
-      startedAt: live.startedAt
-    }
-  }));
-  const delivered = await broadcastOverlayToast(toastEntries, {
-    showToast: wantsToast,
-    playSound: wantsSound,
-    soundId: prefs.toastSoundId,
-    soundVolume: prefs.toastSoundVolume,
-    customSoundDataUrl: prefs.toastCustomSoundDataUrl
-  });
-  return delivered ? selected : [];
-};
-
-const evaluateLiveStatus = async (reason = 'manual') => {
+const performLiveStatusEvaluation = async (reason = 'manual') => {
   const now = Date.now();
   const stored = await extensionApi.storage.local.get([STORAGE_KEY, LIVE_CACHE_KEY, NOTIFIED_STREAMS_KEY]);
   const state = stored?.[STORAGE_KEY] && typeof stored[STORAGE_KEY] === 'object' ? stored[STORAGE_KEY] : DEFAULT_STATE;
@@ -1039,35 +654,22 @@ const evaluateLiveStatus = async (reason = 'manual') => {
   const nextLiveSignature = createLiveDataSignature(liveData);
   const previousNotifiedSignature = createNotifiedStreamsSignature(previousNotifiedStreams);
 
-  const currentlyLive = [];
-  const notificationCandidates = [];
-  const nextNotifiedStreams = cleanupNotifiedStreams(previousNotifiedStreams, liveData, now);
-  logins.forEach((login) => {
-    const fav = favorites[login];
-    const live = liveData[login];
-    if (!fav || !live) return;
-    const matchesFilter = shouldDisplayFavorite(fav, live);
-    const isLive = Boolean(live.isLive && matchesFilter);
-    if (isLive) {
-      currentlyLive.push({ fav, live });
-    }
-    const notificationKey = getNotificationKey(login, live);
-    const alreadyNotified = Boolean(notificationKey && previousNotifiedStreams?.[login]?.key === notificationKey);
-    if (
-      isLive &&
-      notificationKey &&
-      fav.recentHighlightEnabled !== false &&
-      !alreadyNotified &&
-      isRecentLiveStart(live, preferences, now) &&
-      reason !== 'install'
-    ) {
-      notificationCandidates.push({ login, fav, live, notificationKey });
-    }
+  const {
+    currentlyLive,
+    notificationCandidates,
+    nextNotifiedStreams
+  } = deriveLiveEvaluation({
+    favorites,
+    liveData,
+    previousNotifiedStreams,
+    preferences,
+    reason,
+    now
   });
 
-  await updateBadge(currentlyLive.length);
+  await badgeManager.setLiveCount(currentlyLive.length);
   if (notificationCandidates.length) {
-    const sent = await notifyNewLives(notificationCandidates, preferences);
+    const sent = await liveNotificationService.notify(notificationCandidates, preferences);
     sent.forEach(({ login, fav, live, notificationKey }) => {
       const storageLogin = login || fav?.login || live?.login;
       if (!storageLogin || !notificationKey) return;
@@ -1095,57 +697,34 @@ const evaluateLiveStatus = async (reason = 'manual') => {
     timestamp: now
   };
 
-  liveCache = snapshot;
-  liveCacheTimestamp = now;
   broadcastOverlayState(snapshot);
   return snapshot;
 };
 
-const ensureLiveSnapshot = async (forceRefresh = false) => {
-  if (!forceRefresh && liveCache && Date.now() - liveCacheTimestamp < LIVE_CACHE_TTL) {
-    return liveCache;
-  }
-  if (!forceRefresh) {
-    const stored = await extensionApi.storage.local.get([STORAGE_KEY, LIVE_CACHE_KEY, 'tfr_lastLiveUpdate']);
-    const storedState = stored?.[STORAGE_KEY] && typeof stored[STORAGE_KEY] === 'object'
-      ? stored[STORAGE_KEY]
-      : DEFAULT_STATE;
-    const cachedLiveData = stored?.[LIVE_CACHE_KEY] && typeof stored[LIVE_CACHE_KEY] === 'object'
-      ? stored[LIVE_CACHE_KEY]
-      : {};
-    const cachedSnapshot = {
-      favorites: cloneData(storedState.favorites || {}),
-      categories: cloneData(Array.isArray(storedState.categories) ? storedState.categories : []),
-      preferences: cloneData(storedState.preferences || DEFAULT_STATE.preferences),
-      liveData: cloneData(cachedLiveData),
-      timestamp: stored?.tfr_lastLiveUpdate || Date.now()
-    };
-    liveCache = cachedSnapshot;
-    liveCacheTimestamp = Date.now();
-    if (!refreshPromise) {
-      refreshPromise = evaluateLiveStatus('popup-background')
-        .catch((error) => {
-          console.error('[TFR] failed to refresh live snapshot', error);
-          return null;
-        })
-        .finally(() => {
-          refreshPromise = null;
-        });
-    }
-    return cachedSnapshot;
-  }
-  if (!refreshPromise) {
-    refreshPromise = evaluateLiveStatus('popup')
-      .catch((error) => {
-        console.error('[TFR] failed to refresh live snapshot', error);
-        throw error;
-      })
-      .finally(() => {
-        refreshPromise = null;
-      });
-  }
-  return refreshPromise;
+const loadCachedLiveSnapshot = async () => {
+  const stored = await extensionApi.storage.local.get([STORAGE_KEY, LIVE_CACHE_KEY, 'tfr_lastLiveUpdate']);
+  const storedState = stored?.[STORAGE_KEY] && typeof stored[STORAGE_KEY] === 'object'
+    ? stored[STORAGE_KEY]
+    : DEFAULT_STATE;
+  const cachedLiveData = stored?.[LIVE_CACHE_KEY] && typeof stored[LIVE_CACHE_KEY] === 'object'
+    ? stored[LIVE_CACHE_KEY]
+    : {};
+  return {
+    favorites: cloneData(storedState.favorites || {}),
+    categories: cloneData(Array.isArray(storedState.categories) ? storedState.categories : []),
+    preferences: cloneData(storedState.preferences || DEFAULT_STATE.preferences),
+    liveData: cloneData(cachedLiveData),
+    timestamp: stored?.tfr_lastLiveUpdate || Date.now()
+  };
 };
+
+const liveSnapshotCoordinator = createLiveSnapshotCoordinator({
+  cacheTtlMs: LIVE_CACHE_TTL,
+  loadCachedSnapshot: loadCachedLiveSnapshot,
+  refreshSnapshot: performLiveStatusEvaluation
+});
+const evaluateLiveStatus = liveSnapshotCoordinator.evaluate;
+const ensureLiveSnapshot = liveSnapshotCoordinator.ensure;
 
 const scheduleAlarm = () => {
   extensionApi.alarms.create(POLL_ALARM, { periodInMinutes: POLL_INTERVAL_MINUTES });
@@ -1156,14 +735,14 @@ extensionApi.runtime.onInstalled.addListener(async () => {
   await seedDefaultStateIfNeeded();
   scheduleAlarm();
   setSidePanelBehavior();
-  await checkForExtensionUpdate(true);
+  await updateService.check(true);
   await evaluateLiveStatus('install');
 });
 
 extensionApi.runtime.onStartup.addListener(async () => {
   scheduleAlarm();
   setSidePanelBehavior();
-  await checkForExtensionUpdate(false);
+  await updateService.check(false);
   await evaluateLiveStatus('startup');
 });
 
@@ -1183,7 +762,7 @@ extensionApi.alarms.onAlarm.addListener((alarm) => {
   if (alarm?.name === POLL_ALARM) {
     evaluateLiveStatus('alarm');
   } else if (alarm?.name === UPDATE_ALARM) {
-    checkForExtensionUpdate(false);
+    updateService.check(false);
   }
 });
 
@@ -1192,7 +771,7 @@ extensionApi.storage.onChanged.addListener((changes, areaName) => {
     evaluateLiveStatus('favorites-change');
   }
   if (areaName === 'local' && Object.prototype.hasOwnProperty.call(changes, UPDATE_STORAGE_KEY)) {
-    refreshBadgeFromUpdateState();
+    updateService.refreshBadge();
   }
 });
 
@@ -1257,7 +836,7 @@ extensionApi.runtime.onMessage.addListener((message, sender, sendResponse) => {
     sendResponse({ ok: Boolean(url) });
     return true;
   } else if (message?.type === 'TFR_DISMISS_LIVE_TOAST') {
-    markLiveNotificationHandled(message.login, message.notificationKey)
+    liveNotificationService.markHandled(message.login, message.notificationKey)
       .then(() => sendResponse({ ok: true }))
       .catch((error) => sendResponse({ ok: false, message: error?.message || 'dismiss failed' }));
     return true;
@@ -1328,8 +907,12 @@ extensionApi.runtime.onMessage.addListener((message, sender, sendResponse) => {
       .catch((error) => sendResponse({ ok: false, message: error?.message || 'Google sign out failed' }));
     return true;
   } else if (message?.type === 'TFR_CHECK_EXTENSION_UPDATE') {
-    checkForExtensionUpdate(Boolean(message.force))
-      .then((state) => sendResponse({ ok: true, state, badgeAvailable: updateBadgeAvailable }))
+    updateService.check(Boolean(message.force))
+      .then((state) => sendResponse({
+        ok: true,
+        state,
+        badgeAvailable: badgeManager.getUpdateAvailable()
+      }))
       .catch((error) => sendResponse({ ok: false, message: error?.message || 'Update check failed' }));
     return true;
   }

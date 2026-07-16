@@ -30,6 +30,7 @@ const files = [
   'scripts/serve-mobile.js',
   'scripts/configure-mobile-oauth.js',
   'scripts/configure-web-oauth.js',
+  'scripts/check-firefox-sync.js',
   'firefox/src/background/serviceWorker.js',
   'firefox/src/contentScripts/main.js',
   'firefox/src/contentScripts/overlayPanel.js',

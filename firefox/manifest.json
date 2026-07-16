@@ -47,6 +47,17 @@
         "src/contentScripts/features/favoritesOverlay.js",
         "src/contentScripts/features/featureController.js",
         "src/contentScripts/main.js",
+        "src/contentScripts/panelModel.js",
+        "src/contentScripts/toastPreferences.js",
+        "src/contentScripts/toastAudio.js",
+        "src/contentScripts/toastStack.js",
+        "src/contentScripts/panelRenderer.js",
+        "src/contentScripts/panelView.js",
+        "src/contentScripts/panelLifecycle.js",
+        "src/contentScripts/panelSnapshotController.js",
+        "src/contentScripts/panelSnapshotPresenter.js",
+        "src/contentScripts/extensionRuntimeClient.js",
+        "src/contentScripts/panelMessageRouter.js",
         "src/contentScripts/overlayPanel.js"
       ],
       "css": [

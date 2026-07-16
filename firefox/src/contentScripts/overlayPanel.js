@@ -9,6 +9,37 @@
 
   }
 
+  const panelModel = globalThis.__TFR_PANEL_MODEL__;
+  const toastPreferences = globalThis.__TFR_TOAST_PREFERENCES__;
+  const toastAudioApi = globalThis.__TFR_TOAST_AUDIO__;
+  const toastStackApi = globalThis.__TFR_TOAST_STACK__;
+  const panelRendererApi = globalThis.__TFR_PANEL_RENDERER__;
+  const panelViewApi = globalThis.__TFR_PANEL_VIEW__;
+  const panelLifecycleApi = globalThis.__TFR_PANEL_LIFECYCLE__;
+  const panelSnapshotApi = globalThis.__TFR_PANEL_SNAPSHOT_CONTROLLER__;
+  const panelPresenterApi = globalThis.__TFR_PANEL_SNAPSHOT_PRESENTER__;
+  const runtimeClientApi = globalThis.__TFR_EXTENSION_RUNTIME_CLIENT__;
+  const panelMessageRouterApi = globalThis.__TFR_PANEL_MESSAGE_ROUTER__;
+  if (!panelModel || !toastPreferences || !toastAudioApi || !toastStackApi || !panelRendererApi || !panelViewApi || !panelLifecycleApi || !panelSnapshotApi || !panelPresenterApi || !runtimeClientApi || !panelMessageRouterApi) {
+    console.error('[TFR overlay] panel dependencies unavailable');
+    return;
+  }
+  const {
+    buildCategoryGroups: buildPanelCategoryGroups,
+    escapeHtml,
+    formatNumber: formatPanelNumber,
+    formatTimestamp: formatPanelTimestamp
+  } = panelModel;
+  const {
+    normalizeToastPreferences,
+    sanitizeSoundId,
+    sanitizeSoundVolume,
+    sanitizeToastPosition
+  } = toastPreferences;
+  const toastAudio = toastAudioApi.createToastAudio({
+    AudioContextConstructor: window.AudioContext || window.webkitAudioContext,
+    AudioConstructor: window.Audio
+  });
 
 
   const DEFAULT_AVATAR = 'https://static-cdn.jtvnw.net/jtv_user_pictures/404_user_70x70.png';
@@ -17,495 +48,65 @@
 
   const DEFAULT_TOAST_DURATION = 5000;
 
-  const REFRESH_INTERVAL = 90_000;
-
-  const escapeHtml = (value) =>
-    String(value ?? '').replace(/[&<>"']/g, (char) => ({
-      '&': '&amp;',
-      '<': '&lt;',
-      '>': '&gt;',
-      '"': '&quot;',
-      "'": '&#39;'
-    }[char]));
-
-  const SOUND_PRESETS = {
-    soft: [
-      { frequency: 660, start: 0, duration: 0.11, type: 'sine' },
-      { frequency: 880, start: 0.1, duration: 0.14, type: 'sine' }
-    ],
-    chime: [
-      { frequency: 523.25, start: 0, duration: 0.12, type: 'triangle' },
-      { frequency: 783.99, start: 0.11, duration: 0.18, type: 'triangle' },
-      { frequency: 1046.5, start: 0.25, duration: 0.2, type: 'triangle' }
-    ],
-    arcade: [
-      { frequency: 440, start: 0, duration: 0.08, type: 'square' },
-      { frequency: 660, start: 0.08, duration: 0.08, type: 'square' },
-      { frequency: 990, start: 0.16, duration: 0.12, type: 'square' }
-    ],
-    pulse: [
-      { frequency: 392, start: 0, duration: 0.1, type: 'sine' },
-      { frequency: 392, start: 0.16, duration: 0.1, type: 'sine' }
-    ],
-    alert: [
-      { frequency: 880, start: 0, duration: 0.09, type: 'sawtooth' },
-      { frequency: 740, start: 0.1, duration: 0.1, type: 'sawtooth' }
-    ]
-  };
+  const REFRESH_INTERVAL = 30_000;
 
 
 
-  const normalizeCategoryName = (value) => {
+  const runtimeClient = runtimeClientApi.createExtensionRuntimeClient({
+    runtime: extensionApi.runtime
+  });
 
-    if (!value) return '';
-
-    let output = String(value).trim().toLocaleLowerCase();
-
-    if (typeof output.normalize === 'function') {
-
-      output = output.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-
-    }
-
-    return output;
-
-  };
-
-
-
-  const shouldDisplayFavorite = (favoriteEntry, liveEntry) => {
-
-    if (!liveEntry || !liveEntry.isLive) {
-
-      return false;
-
-    }
-
-    const filter = favoriteEntry?.categoryFilter;
-
-    if (!filter || !filter.enabled) {
-
-      return true;
-
-    }
-
-    const categories = Array.isArray(filter.categories)
-
-      ? filter.categories
-
-      : typeof filter.category === 'string'
-
-      ? [filter.category]
-
-      : [];
-
-    if (!categories.length) {
-
-      return true;
-
-    }
-
-    const requiredSet = new Set();
-
-    categories.forEach((category) => {
-
-      const normalized = normalizeCategoryName(category);
-
-      if (normalized) {
-
-        requiredSet.add(normalized);
-
+  const toastStackController = toastStackApi.createToastStackController({
+    documentRef: document,
+    escapeHtml,
+    formatNumber: formatPanelNumber,
+    defaultAvatar: DEFAULT_AVATAR,
+    maxVisible: MAX_VISIBLE_TOASTS,
+    dismissEntry: ({ login, notificationKey }) =>
+      runtimeClient.dismissToast(login, notificationKey)
+  });
+  const panelRenderer = panelRendererApi.createPanelRenderer({
+    documentRef: document,
+    escapeHtml,
+    formatNumber: formatPanelNumber,
+    defaultAvatar: DEFAULT_AVATAR
+  });
+  const panelView = panelViewApi.createPanelView({
+    documentRef: document,
+    standalone: isStandaloneContext,
+    onRefresh: () => panelSnapshotController.refresh(true),
+    onClose: () => {
+      if (isStandaloneContext && typeof window.close === 'function') {
+        window.close();
+      } else {
+        panelLifecycle.setOpen(false);
       }
-
-    });
-
-    if (!requiredSet.size) {
-
-      return true;
-
-    }
-
-    const currentCategory = normalizeCategoryName(liveEntry.game);
-
-    if (!currentCategory) {
-
-      return false;
-
-    }
-
-    return requiredSet.has(currentCategory);
-
-  };
-
-
-
-  const state = {
-
-    isOpen: false,
-
-    snapshot: { favorites: {}, categories: [], preferences: {}, liveData: {}, timestamp: Date.now() },
-
-    panelEl: null,
-
-    sectionsEl: null,
-
-    subtitleEl: null,
-
-    footerTimestampEl: null,
-
-    toastStack: null,
-
-    refreshTimer: null,
-
-    toastDurationMs: DEFAULT_TOAST_DURATION,
-    toastEnabled: true,
-    toastPosition: 'top-right',
-    toastSoundEnabled: false,
-    toastSoundId: 'soft',
-    toastSoundVolume: 35,
-    toastCustomSoundDataUrl: '',
-    audioContext: null,
-
-    categoryCollapse: new Map()
-
-  };
-
-
-
-  const sendMessage = (payload) =>
-
-    new Promise((resolve) => {
-
-      try {
-
-        extensionApi.runtime.sendMessage(payload, (response) => {
-
-          const error = extensionApi.runtime.lastError;
-
-          if (error) {
-            const message = String(error?.message || '').toLowerCase();
-            if (message.includes('extension context invalidated') || message.includes('context invalidated')) {
-              return resolve(null);
-            }
-            console.warn('[TFR overlay] message error', error);
-            resolve(null);
-
-          } else {
-
-            resolve(response);
-
-          }
-
-        });
-
-      } catch (error) {
-        const message = String(error?.message || '').toLowerCase();
-        if (message.includes('extension context invalidated') || message.includes('context invalidated')) {
-          return resolve(null);
-        }
-        console.warn('[TFR overlay] message exception', error);
-
-        resolve(null);
-
-      }
-
-    });
-
-
-
-  const formatNumber = (value) => {
-
-    const number = Number(value) || 0;
-
-    return number.toLocaleString('fr-FR');
-
-  };
-
-
-
-  const formatTimestamp = (timestamp) => {
-
-    if (!timestamp) return '';
-
-    try {
-
-      const date = new Date(timestamp);
-
-      if (Number.isNaN(date.getTime())) return '';
-
-      return `Mis à jour à ${date.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}`;
-
-    } catch (error) {
-
-      return '';
-
-    }
-
-  };
+    },
+    onToggleCategory: (categoryId) => panelSnapshotPresenter.toggleCategory(categoryId),
+    onOpenChannel: (login) => openChannel(login)
+  });
 
 
 
   const ensurePanelElements = () => {
-
-    if (state.panelEl) return;
-
-    const container = document.createElement('div');
-
-    container.className = 'tfr-panel';
-    container.classList.add(isStandaloneContext ? 'tfr-panel--standalone' : 'tfr-panel--overlay');
-
-    container.innerHTML = `
-
-      <div class="tfr-panel__header">
-
-        <div>
-
-          <p class="tfr-panel__eyebrow">Twitch Favoris</p>
-
-          <h2 class="tfr-panel__title">Favoris en live</h2>
-
-          <p class="tfr-panel__subtitle">Chargement...</p>
-
-        </div>
-
-        <div class="tfr-panel__actions">
-
-          <button class="tfr-panel__button" data-action="refresh">Actualiser</button>
-
-          ${isStandaloneContext ? '' : '<button class="tfr-panel__button" data-action="close">Fermer</button>'}
-
-        </div>
-
-      </div>
-
-      <div class="tfr-panel__empty">Aucun favori enregistré.</div>
-
-      <div class="tfr-panel__sections"></div>
-
-      <div class="tfr-panel__footer">
-
-        <a href="https://www.twitch.tv/directory/following/live" target="_blank" rel="noreferrer">Ouvrir Twitch</a>
-
-        <span class="tfr-panel__timestamp"></span>
-
-      </div>
-
-    `;
-
     const host = document.body || document.documentElement;
-    host.appendChild(container);
-
-
-
-    state.panelEl = container;
-
-    state.sectionsEl = container.querySelector('.tfr-panel__sections');
-
-    state.subtitleEl = container.querySelector('.tfr-panel__subtitle');
-
-    state.footerTimestampEl = container.querySelector('.tfr-panel__timestamp');
-
-
-
-    container.addEventListener('click', (event) => {
-
-      const actionTarget = event.target?.closest('[data-action]');
-
-      const action = actionTarget?.dataset?.action;
-
-      if (action === 'refresh') {
-
-        refreshSnapshot(true);
-
-      } else if (action === 'close') {
-
-        if (isStandaloneContext && typeof window.close === 'function') {
-          window.close();
-        } else {
-          setPanelOpen(false);
-        }
-
-      } else if (action === 'toggleCategory') {
-
-        const targetId = actionTarget?.dataset?.categoryId;
-
-        toggleCategoryCollapse(targetId);
-
-      } else if (event.target?.matches('.tfr-panel__card, .tfr-panel__card *')) {
-
-        const card = event.target.closest('.tfr-panel__card');
-
-        if (card?.dataset?.login) {
-
-          openChannel(card.dataset.login);
-
-        }
-
-      }
-
-    });
-
+    panelView.ensure(host);
   };
 
 
-
-  const syncCollapsedState = (categories = []) => {
-
-    const known = state.categoryCollapse;
-
-    const seen = new Set();
-
-    categories.forEach((category) => {
-
-      if (!category?.id) return;
-
-      seen.add(category.id);
-
-      if (!known.has(category.id)) {
-
-        known.set(category.id, Boolean(category.collapsed));
-
-      }
-
-    });
-
-    if (!known.has('uncategorized')) {
-
-      known.set('uncategorized', false);
-
-    }
-
-    seen.add('uncategorized');
-
-    Array.from(known.keys()).forEach((id) => {
-
-      if (!seen.has(id)) {
-
-        known.delete(id);
-
-      }
-
-    });
-
-  };
-
-
-
-  const toggleCategoryCollapse = (categoryId) => {
-
-    if (!categoryId) return;
-
-    const current = state.categoryCollapse.get(categoryId) || false;
-
-    state.categoryCollapse.set(categoryId, !current);
-
-    renderSnapshot(state.snapshot);
-
-  };
-
-
-
-
-
-  const ensureToastStack = () => {
-
-    if (state.toastStack) return state.toastStack;
-
-    const stack = document.createElement('div');
-
-    stack.className = 'tfr-toast-stack';
-
-    const host = document.body || document.documentElement;
-    host.appendChild(stack);
-
-    state.toastStack = stack;
-    applyToastPosition();
-
-    return stack;
-
-  };
-
-  const sanitizeToastPosition = (position) => {
-    const allowed = new Set([
-      'top-left',
-      'top-center',
-      'top-right',
-      'bottom-left',
-      'bottom-center',
-      'bottom-right'
-    ]);
-    return allowed.has(position) ? position : 'top-right';
-  };
-
-  const sanitizeSoundId = (soundId) => (
-    soundId === 'custom' || Object.prototype.hasOwnProperty.call(SOUND_PRESETS, soundId) ? soundId : 'soft'
-  );
-
-  const sanitizeSoundVolume = (volume) => {
-    const numeric = Number(volume);
-    return Number.isFinite(numeric) ? Math.max(0, Math.min(100, Math.round(numeric))) : 35;
-  };
-
-  const getAudioContext = async () => {
-    const AudioContextConstructor = window.AudioContext || window.webkitAudioContext;
-    if (!AudioContextConstructor) {
-      return null;
-    }
-    if (!state.audioContext) {
-      state.audioContext = new AudioContextConstructor();
-    }
-    if (state.audioContext.state === 'suspended') {
-      await state.audioContext.resume().catch(() => null);
-    }
-    return state.audioContext;
-  };
 
   const playNotificationSound = async (options = {}) => {
-    const volume = sanitizeSoundVolume(options.volume ?? state.toastSoundVolume);
-    if (volume <= 0) {
-      return false;
-    }
-    const soundId = sanitizeSoundId(options.soundId ?? state.toastSoundId);
+    const preferences = panelSnapshotPresenter.getToastPreferences();
+    const volume = sanitizeSoundVolume(options.volume ?? preferences.soundVolume);
+    const soundId = sanitizeSoundId(options.soundId ?? preferences.soundId);
     const customSoundDataUrl = typeof options.customSoundDataUrl === 'string' && options.customSoundDataUrl
       ? options.customSoundDataUrl
-      : state.toastCustomSoundDataUrl;
-    if (soundId === 'custom' && customSoundDataUrl) {
-      const audio = new Audio(customSoundDataUrl);
-      audio.volume = Math.max(0, Math.min(1, volume / 100));
-      await audio.play().catch(() => null);
-      return true;
-    }
-    const context = await getAudioContext();
-    if (!context) {
-      return false;
-    }
-    const preset = SOUND_PRESETS[soundId] || SOUND_PRESETS.soft;
-    const masterGain = context.createGain();
-    const now = context.currentTime + 0.02;
-    masterGain.gain.setValueAtTime(Math.min(0.5, volume / 100), now);
-    masterGain.connect(context.destination);
-    preset.forEach((note) => {
-      const oscillator = context.createOscillator();
-      const gain = context.createGain();
-      const start = now + note.start;
-      const end = start + note.duration;
-      oscillator.type = note.type;
-      oscillator.frequency.setValueAtTime(note.frequency, start);
-      gain.gain.setValueAtTime(0.0001, start);
-      gain.gain.exponentialRampToValueAtTime(0.35, start + 0.015);
-      gain.gain.exponentialRampToValueAtTime(0.0001, end);
-      oscillator.connect(gain);
-      gain.connect(masterGain);
-      oscillator.start(start);
-      oscillator.stop(end + 0.03);
-    });
-    setTimeout(() => masterGain.disconnect(), 900);
-    return true;
+      : preferences.customSoundDataUrl;
+    return toastAudio.play({ soundId, volume, customSoundDataUrl });
   };
 
-  const applyToastPosition = () => {
-    if (!state.toastStack) return;
-    state.toastStack.dataset.position = sanitizeToastPosition(state.toastPosition);
+  const applyToastPosition = (position) => {
+    toastStackController.setPosition(sanitizeToastPosition(position));
   };
 
 
@@ -514,11 +115,10 @@
 
     if (!login) return;
 
-    extensionApi.runtime.sendMessage({ type: 'TFR_OPEN_CHANNEL_TAB', login });
+    runtimeClient.openChannel(login);
 
     if (!isStandaloneContext) {
-
-      setPanelOpen(false);
+      panelLifecycle.setOpen(false);
 
     }
 
@@ -526,495 +126,34 @@
 
 
 
-  const buildCategoryOrder = (rawCategories = []) => {
-
-    if (!Array.isArray(rawCategories)) return [];
-
-    const nodes = rawCategories
-
-      .map((category, index) => ({
-
-        id: typeof category?.id === 'string' && category.id.trim() ? category.id.trim() : `cat_${index}`,
-
-        name:
-
-          typeof category?.name === 'string' && category.name.trim()
-
-            ? category.name.trim()
-
-            : `Catégorie ${index + 1}`,
-
-        sortOrder: typeof category?.sortOrder === 'number' ? category.sortOrder : Date.now() + index,
-
-        parentId: typeof category?.parentId === 'string' && category.parentId.trim() ? category.parentId.trim() : null,
-
-        collapsed: Boolean(category?.collapsed),
-
-        children: []
-
-      }))
-
-      .filter((category) => category.id);
-
-
-
-    const map = new Map(nodes.map((node) => [node.id, node]));
-
-    nodes.forEach((node) => {
-
-      if (!node.parentId || !map.has(node.parentId) || node.parentId === node.id) {
-
-        node.parentId = null;
-
-      }
-
-    });
-
-
-
-    const roots = [];
-
-    nodes.forEach((node) => {
-
-      if (node.parentId) {
-
-        map.get(node.parentId).children.push(node);
-
-      } else {
-
-        roots.push(node);
-
-      }
-
-    });
-
-
-
-    const sorted = [];
-
-    const traverse = (list, depth = 0) => {
-
-      list.sort((a, b) => {
-
-        if (a.sortOrder !== b.sortOrder) return a.sortOrder - b.sortOrder;
-
-        return a.name.localeCompare(b.name, 'fr');
-
-      });
-
-      list.forEach((node) => {
-
-        sorted.push({ ...node, depth });
-
-        if (node.children.length) {
-
-          traverse(node.children, depth + 1);
-
-        }
-
-      });
-
-    };
-
-
-
-    traverse(roots, 0);
-
-    return sorted;
-
-  };
-
-
-
-  const buildCategoryGroups = (favorites = {}, liveData = {}, categories = []) => {
-
-    const entries = Object.values(favorites)
-
-      .map((fav) => ({ fav, live: liveData[fav.login] }))
-
-      .filter(({ fav, live }) => fav && live && shouldDisplayFavorite(fav, live))
-
-      .sort((a, b) => {
-
-        const viewA = a.live?.viewers || 0;
-
-        const viewB = b.live?.viewers || 0;
-
-        if (viewA !== viewB) return viewB - viewA;
-
-        return (a.live?.displayName || a.fav.displayName || a.fav.login || '')
-
-          .localeCompare(b.live?.displayName || b.fav.displayName || b.fav.login || '', 'fr');
-
-      });
-
-
-
-    const categoryOrder = buildCategoryOrder(categories);
-
-    const grouped = [];
-
-    const groupMap = new Map();
-
-    categoryOrder.forEach((category) => {
-
-      const collapsed = state.categoryCollapse.get(category.id) ?? Boolean(category.collapsed);
-
-      const group = { category, favorites: [], depth: category.depth || 0, collapsed };
-
-      groupMap.set(category.id, group);
-
-      grouped.push(group);
-
-    });
-
-
-
-    const uncategorized = {
-
-      category: { id: 'uncategorized', name: 'Sans catégorie', collapsed: state.categoryCollapse.get('uncategorized') || false },
-
-      favorites: [],
-
-      depth: 0,
-
-      collapsed: state.categoryCollapse.get('uncategorized') || false
-
-    };
-
-
-
-    entries.forEach((entry) => {
-
-      const categoryId =
-
-        Array.isArray(entry.fav?.categories) && entry.fav.categories.length ? entry.fav.categories[0] : null;
-
-      const target = categoryId && groupMap.has(categoryId) ? groupMap.get(categoryId) : uncategorized;
-
-      target.favorites.push(entry);
-
-    });
-
-
-
-    const groupsWithEntries = grouped.filter((group) => group.favorites.length);
-
-    if (uncategorized.favorites.length) {
-
-      groupsWithEntries.push(uncategorized);
-
-    }
-
-
-
-    return {
-
-      groups: groupsWithEntries,
-
-      totalLive: entries.length,
-
-      totalFavorites: Object.keys(favorites).length
-
-    };
-
-  };
-
-
-
-  const renderSnapshot = (snapshot) => {
-
-    if (!snapshot) return;
-
-    state.snapshot = snapshot;
-
-    if (!state.panelEl) {
-
-      ensurePanelElements();
-
-    }
-
-    const { favorites = {}, liveData = {}, categories = [], preferences = {} } = snapshot;
-
-    syncCollapsedState(categories);
-
-    const toastSeconds = Number(preferences.toastDurationSeconds);
-
-    state.toastDurationMs = Number.isFinite(toastSeconds)
-
-      ? Math.max(2000, Math.min(60000, Math.round(toastSeconds * 1000)))
-
-      : DEFAULT_TOAST_DURATION;
-    state.toastEnabled = preferences.toastEnabled !== false;
-    state.toastPosition = sanitizeToastPosition(preferences.toastPosition);
-    state.toastSoundEnabled = preferences.toastSoundEnabled === true;
-    state.toastSoundId = sanitizeSoundId(preferences.toastSoundId);
-    state.toastSoundVolume = sanitizeSoundVolume(preferences.toastSoundVolume);
-    state.toastCustomSoundDataUrl = typeof preferences.toastCustomSoundDataUrl === 'string'
-      ? preferences.toastCustomSoundDataUrl
-      : '';
-    applyToastPosition();
-
-    const { groups, totalLive, totalFavorites } = buildCategoryGroups(favorites, liveData, categories);
-
-
-
-    state.sectionsEl.textContent = '';
-
-    const emptyEl = state.panelEl.querySelector('.tfr-panel__empty');
-
-
-
-    if (!totalFavorites) {
-
-      emptyEl.textContent = 'Aucun favori enregistré.';
-
-      emptyEl.classList.remove('tfr-hidden');
-
-      state.subtitleEl.textContent = 'Ajoutez des favoris depuis Twitch.';
-
-    } else if (!totalLive) {
-
-      emptyEl.textContent = 'Aucun favori en live pour le moment.';
-
-      emptyEl.classList.remove('tfr-hidden');
-
-      state.subtitleEl.textContent = 'Tout est calme.';
-
-    } else {
-
-      emptyEl.classList.add('tfr-hidden');
-
-      state.subtitleEl.textContent = `${totalLive} favori(s) en live.`;
-
-    }
-
-
-
-    groups.forEach((group) => {
-
-      const section = document.createElement('section');
-
-      section.className = 'tfr-panel__group';
-
-      if (group.collapsed) {
-
-        section.classList.add('tfr-panel__group--collapsed');
-
-      }
-
-      const header = document.createElement('div');
-
-      header.className = 'tfr-panel__groupHeader';
-
-      const categoryId = group.category?.id || 'uncategorized';
-
-      const categoryName = group.category?.name || 'Sans catégorie';
-      const categoryCount = group.favorites.length;
-      const safeCategoryId = escapeHtml(categoryId);
-
-      header.innerHTML = `
-
-        <div class="tfr-panel__groupHeaderTitle">
-
-          <button class="tfr-panel__groupToggle" data-action="toggleCategory" data-category-id="${safeCategoryId}">
-
-            <span class="tfr-panel__groupToggleIcon">&#9662;</span>
-
-          </button>
-
-          <span class="tfr-panel__groupLabel" data-action="toggleCategory" data-category-id="${safeCategoryId}">
-
-            <span class="tfr-panel__groupName">${escapeHtml(categoryName)}</span>
-
-            <span class="tfr-panel__groupBadge">${categoryCount}</span>
-
-          </span>
-
-        </div>
-
-      `;
-
-      section.appendChild(header);
-
-
-
-      const headerTitle = header.querySelector('.tfr-panel__groupLabel');
-
-      if (headerTitle) {
-
-        headerTitle.dataset.action = 'toggleCategory';
-
-        headerTitle.dataset.categoryId = categoryId;
-
-        headerTitle.querySelectorAll('span').forEach((span) => {
-
-          span.dataset.action = 'toggleCategory';
-
-          span.dataset.categoryId = categoryId;
-
-        });
-
-      }
-
-
-
-      const list = document.createElement('div');
-
-      list.className = 'tfr-panel__groupList';
-
-
-
-      group.favorites.forEach(({ fav, live }) => {
-
-        const card = document.createElement('div');
-
-        card.className = 'tfr-panel__card';
-
-        card.dataset.login = fav.login;
-
-        card.innerHTML = `
-
-          <img class="tfr-panel__avatar" src="${escapeHtml(live.avatarUrl || fav.avatarUrl || DEFAULT_AVATAR)}" alt="" />
-
-          <div class="tfr-panel__details">
-
-            <div class="tfr-panel__row">
-
-              <span class="tfr-panel__name">${escapeHtml(live.displayName || fav.displayName || fav.login)}</span>
-
-              <span class="tfr-panel__viewers">${formatNumber(live.viewers)} spectateurs</span>
-
-            </div>
-
-            <div class="tfr-panel__game">${escapeHtml(live.game || 'Catégorie inconnue')}</div>
-
-            <div class="tfr-panel__titleLine">${escapeHtml(live.title || 'Live sans titre')}</div>
-
-          </div>
-
-        `;
-
-        list.appendChild(card);
-
-      });
-
-
-
-      section.appendChild(list);
-
-      state.sectionsEl.appendChild(section);
-
-    });
-
-
-
-    state.footerTimestampEl.textContent = formatTimestamp(snapshot.timestamp);
-
-  };
-
-
-
-  const refreshSnapshot = async (forceRefresh = false, options = {}) => {
-
-    const showLoading = options.showLoading !== false && (
-      forceRefresh || !Object.keys(state.snapshot?.liveData || {}).length
-    );
-
-    if (showLoading) {
-      state.panelEl?.classList.add('tfr-panel--loading');
-    }
-
-    const snapshot = await sendMessage({ type: 'TFR_GET_POPUP_STATE', forceRefresh });
-
-    if (showLoading) {
-      state.panelEl?.classList.remove('tfr-panel--loading');
-    }
-
-    if (snapshot && !snapshot.error) {
-
-      renderSnapshot(snapshot);
-
-    } else {
-
-      state.subtitleEl.textContent = 'Impossible de récupérer les favoris.';
-
-    }
-
-  };
-
-
-
-  const clearRefreshInterval = () => {
-
-    if (state.refreshTimer) {
-
-      clearInterval(state.refreshTimer);
-
-      state.refreshTimer = null;
-
-    }
-
-  };
-
-
-
-  const scheduleRefreshInterval = () => {
-
-    clearRefreshInterval();
-
-    state.refreshTimer = setInterval(() => refreshSnapshot(false), REFRESH_INTERVAL);
-
-  };
-
-
-
-  const setPanelOpen = (open) => {
-
-    ensurePanelElements();
-
-    state.isOpen = open;
-
-    state.panelEl.classList.toggle('tfr-open', open);
-
-    if (open) {
-
-      refreshSnapshot(false, { showLoading: false });
-      setTimeout(() => refreshSnapshot(true, { showLoading: false }), 150);
-
-      scheduleRefreshInterval();
-
-      document.addEventListener('pointerdown', handleOutsidePointerDown, true);
-
-    } else {
-
-      clearRefreshInterval();
-
-      document.removeEventListener('pointerdown', handleOutsidePointerDown, true);
-
-    }
-
-  };
-
-
-
-  const handleOutsidePointerDown = (event) => {
-
-    if (!state.isOpen || isStandaloneContext) {
-
-      return;
-
-    }
-
-    if (state.panelEl?.contains(event.target)) {
-
-      return;
-
-    }
-
-    setPanelOpen(false);
-
-  };
+  const panelSnapshotPresenter = panelPresenterApi.createPanelSnapshotPresenter({
+    ensurePanel: ensurePanelElements,
+    getPanelElements: () => panelView.getElements(),
+    normalizeToastPreferences,
+    defaultToastDurationMs: DEFAULT_TOAST_DURATION,
+    buildCategoryGroups: buildPanelCategoryGroups,
+    renderGroups: (container, groups) => panelRenderer.renderGroups(container, groups),
+    formatTimestamp: formatPanelTimestamp,
+    applyToastPosition
+  });
+
+
+
+  const panelSnapshotController = panelSnapshotApi.createPanelSnapshotController({
+    requestSnapshot: runtimeClient.getSnapshot,
+    renderSnapshot: panelSnapshotPresenter.render,
+    getPanelRoot: () => panelView.getElements()?.root,
+    getSubtitle: () => panelView.getElements()?.subtitle,
+    hasLiveData: panelSnapshotPresenter.hasLiveData
+  });
+  const panelLifecycle = panelLifecycleApi.createPanelLifecycle({
+    documentRef: document,
+    standalone: isStandaloneContext,
+    refreshIntervalMs: REFRESH_INTERVAL,
+    ensurePanel: ensurePanelElements,
+    getPanelRoot: () => panelView.getElements()?.root,
+    refresh: panelSnapshotController.refresh
+  });
 
 
 
@@ -1022,8 +161,9 @@
 
     if (!entries.length) return false;
 
-    const shouldPlaySound = options.playSound === true || (state.toastSoundEnabled && options.playSound !== false);
-    const shouldShowToast = options.showToast !== false && (state.toastEnabled || options.force);
+    const preferences = panelSnapshotPresenter.getToastPreferences();
+    const shouldPlaySound = options.playSound === true || (preferences.soundEnabled && options.playSound !== false);
+    const shouldShowToast = options.showToast !== false && (preferences.enabled || options.force);
 
     if (shouldPlaySound) {
       playNotificationSound({
@@ -1037,79 +177,12 @@
       return shouldPlaySound;
     }
 
-    ensureToastStack();
-    applyToastPosition();
-
-    const duration = state.toastDurationMs || DEFAULT_TOAST_DURATION;
-
-    entries.slice(0, MAX_VISIBLE_TOASTS).forEach(({ login, fav, live, notificationKey }) => {
-
-      const toast = document.createElement('div');
-
-      toast.className = 'tfr-toast';
-
-      toast.innerHTML = `
-
-        <img class="tfr-toast__thumb" src="${escapeHtml(live.avatarUrl || fav.avatarUrl || DEFAULT_AVATAR)}" alt="" />
-
-        <div class="tfr-toast__content">
-
-          <p class="tfr-toast__title">${escapeHtml(live.displayName || fav.displayName || fav.login)} est en live</p>
-
-          <p class="tfr-toast__subtitle">${escapeHtml(live.game || 'Live en cours')} &bull; ${formatNumber(live.viewers)} spectateurs</p>
-
-        </div>
-
-        <button class="tfr-toast__close" type="button" aria-label="Fermer la notification">×</button>
-
-      `;
-      let didDismiss = false;
-      const dismissToast = () => {
-        if (didDismiss) {
-          return;
-        }
-        didDismiss = true;
-        const targetLogin = login || live.login || fav.login;
-        if (!targetLogin || !notificationKey) {
-          return;
-        }
-        sendMessage({
-          type: 'TFR_DISMISS_LIVE_TOAST',
-          login: targetLogin,
-          notificationKey
-        });
-      };
-
-      const closeToast = (dismiss = false) => {
-        if (dismiss) {
-          dismissToast();
-        }
-        toast.style.animation = 'tfr-toast-out 0.2s ease forwards';
-        setTimeout(() => toast.remove(), 200);
-      };
-      toast.querySelector('.tfr-toast__close')?.addEventListener('click', () => closeToast(true));
-
-      state.toastStack.prepend(toast);
-
-      setTimeout(() => {
-
-        if (toast.isConnected) {
-          closeToast(true);
-        }
-
-      }, duration);
-
-
-
-      while (state.toastStack.childElementCount > MAX_VISIBLE_TOASTS) {
-
-        state.toastStack.lastElementChild?.remove();
-
-      }
-
+    const duration = preferences.durationMs || DEFAULT_TOAST_DURATION;
+    return toastStackController.render(entries, {
+      host: document.body || document.documentElement,
+      durationMs: duration,
+      position: sanitizeToastPosition(preferences.position)
     });
-
-    return true;
   };
 
   window.addEventListener('TFR_TEST_TOAST_SOUND', (event) => {
@@ -1117,68 +190,27 @@
   });
 
 
-  extensionApi.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-
-    if (!message) return false;
-
-    if (message.type === 'TFR_TOGGLE_PANEL') {
-
-      setPanelOpen(!state.isOpen);
-
-    } else if (message.type === 'TFR_STATE_PUSH') {
-
-      renderSnapshot(message);
-
-    } else if (message.type === 'TFR_OVERLAY_TOAST') {
-
-      const displayed = displayToast(message.entries || [], {
-        force: Boolean(message.force),
-        showToast: message.showToast,
-        playSound: message.playSound,
-        soundId: message.soundId,
-        soundVolume: message.soundVolume,
-        customSoundDataUrl: message.customSoundDataUrl
-      });
-      sendResponse?.({ ok: Boolean(displayed) });
-      return true;
-
-    }
-
-    return false;
-
-  });
+  extensionApi.runtime.onMessage.addListener(
+    panelMessageRouterApi.createPanelMessageRouter({
+      togglePanel: panelLifecycle.toggle,
+      renderSnapshot: panelSnapshotPresenter.render,
+      displayToast
+    })
+  );
 
 
 
   window.__TFR_OVERLAY_PANEL__ = true;
   if (isStandaloneContext) {
 
-    setPanelOpen(true);
+    panelLifecycle.setOpen(true);
 
   } else {
 
     // Preload snapshot silently so first toggle feels instant.
 
-    sendMessage({ type: 'TFR_GET_POPUP_STATE', forceRefresh: false }).then((snapshot) => {
-
-      if (snapshot && !snapshot.error) {
-
-        renderSnapshot(snapshot);
-
-      }
-
-    });
+    panelSnapshotController.preload();
 
   }
 
 })();
-
-
-
-
-
-
-
-
-
-
