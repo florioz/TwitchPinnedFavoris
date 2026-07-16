@@ -50,6 +50,7 @@
         "src/contentScripts/panelModel.js",
         "src/contentScripts/toastPreferences.js",
         "src/contentScripts/toastAudio.js",
+        "src/contentScripts/toastStack.js",
         "src/contentScripts/overlayPanel.js"
       ],
       "css": [

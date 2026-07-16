@@ -12,7 +12,8 @@
   const panelModel = globalThis.__TFR_PANEL_MODEL__;
   const toastPreferences = globalThis.__TFR_TOAST_PREFERENCES__;
   const toastAudioApi = globalThis.__TFR_TOAST_AUDIO__;
-  if (!panelModel || !toastPreferences || !toastAudioApi) {
+  const toastStackApi = globalThis.__TFR_TOAST_STACK__;
+  if (!panelModel || !toastPreferences || !toastAudioApi || !toastStackApi) {
     console.error('[TFR overlay] panel dependencies unavailable');
     return;
   }
@@ -57,8 +58,6 @@
     subtitleEl: null,
 
     footerTimestampEl: null,
-
-    toastStack: null,
 
     refreshTimer: null,
 
@@ -114,6 +113,19 @@
       }
 
     });
+
+  const toastStackController = toastStackApi.createToastStackController({
+    documentRef: document,
+    escapeHtml,
+    formatNumber: formatPanelNumber,
+    defaultAvatar: DEFAULT_AVATAR,
+    maxVisible: MAX_VISIBLE_TOASTS,
+    dismissEntry: ({ login, notificationKey }) => sendMessage({
+      type: 'TFR_DISMISS_LIVE_TOAST',
+      login,
+      notificationKey
+    })
+  });
 
 
 
@@ -279,24 +291,6 @@
 
 
 
-  const ensureToastStack = () => {
-
-    if (state.toastStack) return state.toastStack;
-
-    const stack = document.createElement('div');
-
-    stack.className = 'tfr-toast-stack';
-
-    const host = document.body || document.documentElement;
-    host.appendChild(stack);
-
-    state.toastStack = stack;
-    applyToastPosition();
-
-    return stack;
-
-  };
-
   const playNotificationSound = async (options = {}) => {
     const volume = sanitizeSoundVolume(options.volume ?? state.toastSoundVolume);
     const soundId = sanitizeSoundId(options.soundId ?? state.toastSoundId);
@@ -307,8 +301,7 @@
   };
 
   const applyToastPosition = () => {
-    if (!state.toastStack) return;
-    state.toastStack.dataset.position = sanitizeToastPosition(state.toastPosition);
+    toastStackController.setPosition(sanitizeToastPosition(state.toastPosition));
   };
 
 
@@ -645,79 +638,12 @@
       return shouldPlaySound;
     }
 
-    ensureToastStack();
-    applyToastPosition();
-
     const duration = state.toastDurationMs || DEFAULT_TOAST_DURATION;
-
-    entries.slice(0, MAX_VISIBLE_TOASTS).forEach(({ login, fav, live, notificationKey }) => {
-
-      const toast = document.createElement('div');
-
-      toast.className = 'tfr-toast';
-
-      toast.innerHTML = `
-
-        <img class="tfr-toast__thumb" src="${escapeHtml(live.avatarUrl || fav.avatarUrl || DEFAULT_AVATAR)}" alt="" />
-
-        <div class="tfr-toast__content">
-
-          <p class="tfr-toast__title">${escapeHtml(live.displayName || fav.displayName || fav.login)} est en live</p>
-
-          <p class="tfr-toast__subtitle">${escapeHtml(live.game || 'Live en cours')} &bull; ${formatPanelNumber(live.viewers)} spectateurs</p>
-
-        </div>
-
-        <button class="tfr-toast__close" type="button" aria-label="Fermer la notification">×</button>
-
-      `;
-      let didDismiss = false;
-      const dismissToast = () => {
-        if (didDismiss) {
-          return;
-        }
-        didDismiss = true;
-        const targetLogin = login || live.login || fav.login;
-        if (!targetLogin || !notificationKey) {
-          return;
-        }
-        sendMessage({
-          type: 'TFR_DISMISS_LIVE_TOAST',
-          login: targetLogin,
-          notificationKey
-        });
-      };
-
-      const closeToast = (dismiss = false) => {
-        if (dismiss) {
-          dismissToast();
-        }
-        toast.style.animation = 'tfr-toast-out 0.2s ease forwards';
-        setTimeout(() => toast.remove(), 200);
-      };
-      toast.querySelector('.tfr-toast__close')?.addEventListener('click', () => closeToast(true));
-
-      state.toastStack.prepend(toast);
-
-      setTimeout(() => {
-
-        if (toast.isConnected) {
-          closeToast(true);
-        }
-
-      }, duration);
-
-
-
-      while (state.toastStack.childElementCount > MAX_VISIBLE_TOASTS) {
-
-        state.toastStack.lastElementChild?.remove();
-
-      }
-
+    return toastStackController.render(entries, {
+      host: document.body || document.documentElement,
+      durationMs: duration,
+      position: sanitizeToastPosition(state.toastPosition)
     });
-
-    return true;
   };
 
   window.addEventListener('TFR_TEST_TOAST_SOUND', (event) => {

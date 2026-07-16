@@ -15,6 +15,7 @@ const files = [
   'src/contentScripts/panelModel.js',
   'src/contentScripts/toastPreferences.js',
   'src/contentScripts/toastAudio.js',
+  'src/contentScripts/toastStack.js',
   'src/contentScripts/overlayPanel.js',
   'panel/bootstrap.js',
   'panel/vods.js',
