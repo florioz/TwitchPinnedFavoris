@@ -1,7 +1,7 @@
 (() => {
   const STORAGE_KEY = 'tfm_state';
   const UPDATE_STATE_KEY = 'tfm_update_state';
-  const MOBILE_APP_VERSION = '0.6.0';
+  const MOBILE_APP_VERSION = '0.6.5';
   const UPDATE_REPO_API_URL = 'https://api.github.com/repos/florioz/TwitchPinnedFavoris/releases/latest';
   const UPDATE_REPO_URL = 'https://github.com/florioz/TwitchPinnedFavoris';
   const UPDATE_CHECK_INTERVAL_MS = 12 * 60 * 60 * 1000;
@@ -111,7 +111,9 @@
     selectedDay: startOfDay(Date.now()),
     searchTerm: '',
     vodSearchTerm: '',
-    liveOnly: false,
+    liveOnly: true,
+    favoriteSortKey: 'viewers',
+    favoriteSortDirection: 'desc',
     liveNotificationsEnabled: false,
     notifiedLiveStreams: {},
     liveNotificationPollTimer: null,
@@ -151,6 +153,8 @@
     deleteProfileButton: document.getElementById('deleteProfileButton'),
     searchInput: document.getElementById('searchInput'),
     groupSelect: document.getElementById('groupSelect'),
+    favoriteSortSelect: document.getElementById('favoriteSortSelect'),
+    favoriteSortDirectionButton: document.getElementById('favoriteSortDirectionButton'),
     liveOnlyInput: document.getElementById('liveOnlyInput'),
     liveNotificationsInput: document.getElementById('liveNotificationsInput'),
     liveNotificationsStatus: document.getElementById('liveNotificationsStatus'),
@@ -334,6 +338,11 @@
       state.profiles = stored.profiles && typeof stored.profiles === 'object' ? stored.profiles : {};
       state.activeProfileId = typeof stored.activeProfileId === 'string' && stored.activeProfileId ? stored.activeProfileId : 'default';
       state.googleDriveToken = stored.googleDriveToken || null;
+      state.liveOnly = stored.liveOnly !== false;
+      state.favoriteSortKey = ['viewers', 'name', 'game'].includes(stored.favoriteSortKey)
+        ? stored.favoriteSortKey
+        : 'viewers';
+      state.favoriteSortDirection = stored.favoriteSortDirection === 'asc' ? 'asc' : 'desc';
       state.liveNotificationsEnabled = Boolean(stored.liveNotificationsEnabled);
       state.notifiedLiveStreams = stored.notifiedLiveStreams && typeof stored.notifiedLiveStreams === 'object'
         ? stored.notifiedLiveStreams
@@ -344,6 +353,9 @@
       state.profiles = {};
       state.activeProfileId = 'default';
       state.googleDriveToken = null;
+      state.liveOnly = true;
+      state.favoriteSortKey = 'viewers';
+      state.favoriteSortDirection = 'desc';
       state.liveNotificationsEnabled = false;
       state.notifiedLiveStreams = {};
     }
@@ -357,6 +369,9 @@
       profiles: state.profiles,
       activeProfileId: state.activeProfileId,
       googleDriveToken: state.googleDriveToken || null,
+      liveOnly: Boolean(state.liveOnly),
+      favoriteSortKey: state.favoriteSortKey,
+      favoriteSortDirection: state.favoriteSortDirection,
       liveNotificationsEnabled: Boolean(state.liveNotificationsEnabled),
       notifiedLiveStreams: state.notifiedLiveStreams || {}
     }));
@@ -1025,7 +1040,31 @@
           getCategoryNames(favorite).some((name) => name.toLowerCase().includes(term))
         );
       })
-      .sort((a, b) => a.displayName.localeCompare(b.displayName, 'fr', { sensitivity: 'base' }));
+      .sort(compareVisibleFavorites);
+  }
+
+  function compareVisibleFavorites(a, b) {
+    const liveA = state.liveByLogin.get(a.login) || {};
+    const liveB = state.liveByLogin.get(b.login) || {};
+    const compareNames = () => String(a.displayName || a.login).localeCompare(
+      String(b.displayName || b.login),
+      'fr',
+      { sensitivity: 'base' }
+    );
+    let result = 0;
+    if (state.favoriteSortKey === 'viewers') {
+      result = (Number(liveA.viewers) || 0) - (Number(liveB.viewers) || 0);
+    } else if (state.favoriteSortKey === 'game') {
+      result = String(liveA.game || '').localeCompare(String(liveB.game || ''), 'fr', {
+        sensitivity: 'base'
+      });
+    } else {
+      result = compareNames();
+    }
+    if (result !== 0) {
+      return state.favoriteSortDirection === 'asc' ? result : -result;
+    }
+    return compareNames();
   }
 
   function getCategoryNames(favorite) {
@@ -1355,6 +1394,9 @@
     elements.vodGroupSelect.appendChild(groupOptions.cloneNode(true));
     elements.vodGroupSelect.value = selectedVod;
     elements.liveOnlyInput.checked = state.liveOnly;
+    elements.favoriteSortSelect.value = state.favoriteSortKey;
+    elements.favoriteSortDirectionButton.textContent =
+      state.favoriteSortDirection === 'asc' ? 'Croissant' : 'Decroissant';
     if (elements.liveNotificationsInput) {
       elements.liveNotificationsInput.checked = Boolean(state.liveNotificationsEnabled);
     }
@@ -1402,7 +1444,11 @@
     }
     const favorites = getVisibleFavorites();
     if (!favorites.length) {
-      elements.favoritesList.innerHTML = '<p class="tfm-empty">Aucun streamer a afficher.</p>';
+      elements.favoritesList.innerHTML = state.liveOnly && state.isLiveLoading
+        ? '<p class="tfm-empty">Recherche des streamers en live...</p>'
+        : `<p class="tfm-empty">${state.liveOnly
+          ? 'Aucun streamer en live a afficher.'
+          : 'Aucun streamer a afficher.'}</p>`;
       return;
     }
     const byCategory = new Map();
@@ -1611,9 +1657,24 @@
     });
     elements.liveOnlyInput.addEventListener('change', (event) => {
       state.liveOnly = Boolean(event.target.checked);
+      persistLocalState();
       if (state.liveOnly && !state.liveByLogin.size) {
         refreshLiveData();
       }
+      renderFilters();
+      renderFavorites();
+    });
+    elements.favoriteSortSelect.addEventListener('change', (event) => {
+      state.favoriteSortKey = ['viewers', 'name', 'game'].includes(event.target.value)
+        ? event.target.value
+        : 'viewers';
+      persistLocalState();
+      renderFilters();
+      renderFavorites();
+    });
+    elements.favoriteSortDirectionButton.addEventListener('click', () => {
+      state.favoriteSortDirection = state.favoriteSortDirection === 'asc' ? 'desc' : 'asc';
+      persistLocalState();
       renderFilters();
       renderFavorites();
     });

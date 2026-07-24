@@ -143,7 +143,6 @@
       const windowHeight = Math.max(1, Number(window.innerHeight) || 1);
       const viewportHeight = Math.max(1, window.innerHeight - this.container.getBoundingClientRect().top - 8);
       const measuredHeights = [
-        this.container.clientHeight,
         parent?.clientHeight || 0,
         viewportHeight
       ].filter((height) => Number.isFinite(height) && height > 0);
@@ -157,11 +156,11 @@
       ) {
         this.isAutoCompact = false;
         this.autoCompactLevel = 0;
+        this.autoCompactActivationHeight = 0;
         this.container.classList.remove('is-auto-compact');
         this.container.dataset.autoCompact = 'idle';
         this.container.dataset.autoCompactLevel = '0';
         this.previousCompactLevels = new Map();
-        return;
       }
 
       const isOverflowing = (ratio = 1) => this.container.scrollHeight > visibleHeight * ratio;
@@ -184,7 +183,7 @@
           entries: Number(block.dataset.totalEntries || '0'),
           height: block.scrollHeight
         }))
-        .filter((item) => item.entries > 1 && item.height > 0)
+        .filter((item) => item.entries > 0 && item.height > 0)
         .sort((a, b) => (b.height - a.height) || (b.entries - a.entries) || (a.index - b.index));
 
       for (const item of candidates) {

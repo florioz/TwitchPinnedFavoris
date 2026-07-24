@@ -102,6 +102,17 @@
             <span>Afficher le groupe</span>
             <select id="groupSelect"></select>
           </label>
+          <label>
+            <span>Trier les streamers</span>
+            <select id="favoriteSortSelect">
+              <option value="viewers">Nombre de spectateurs</option>
+              <option value="name">Nom du streamer</option>
+              <option value="game">Categorie Twitch</option>
+            </select>
+          </label>
+          <button id="favoriteSortDirectionButton" class="tfm-button tfm-button--ghost" type="button">
+            Decroissant
+          </button>
           <label class="tfm-toggle">
             <input id="liveOnlyInput" type="checkbox" />
             <span>En live seulement</span>
