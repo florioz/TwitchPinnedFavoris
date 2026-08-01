@@ -263,6 +263,13 @@
         this.removeButton();
         return;
       }
+      // Opening a Twitch action panel mutates the channel header and may expose
+      // another temporary action button. Keep our current slot while it is
+      // still connected instead of following that transient anchor.
+      if (this.button && document.body.contains(this.button)) {
+        this.updateButtonAppearance();
+        return;
+      }
       const anchor = this.findAnchor();
       const mountPoint = this.getMountPoint(anchor);
       if (!anchor || !mountPoint?.parent) {

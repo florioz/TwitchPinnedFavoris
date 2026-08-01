@@ -28,6 +28,7 @@
       this.previousCompactLevels = new Map();
       this.lastRenderSignature = '';
       this.lastAutoCompactSignature = '';
+      this.lastLiveStructureSignature = '';
       this.previewTimer = null;
       this.suppressAnimationsOnce = false;
       this.boundPreviewAnimation = () => this.previewSidebarAnimation();
@@ -64,7 +65,8 @@
 
     init() {
       this.unsubscribe = this.store.subscribe((event) => {
-        this.scheduleRender({ defer: event?.kind === 'live' });
+        const isLiveUpdate = event?.kind === 'live';
+        this.scheduleRender({ defer: isLiveUpdate, liveUpdate: isLiveUpdate });
       });
       this.observeSideNav();
       this.ensureContainerTimer = window.setInterval(() => {
@@ -117,12 +119,13 @@
       }
     }
 
-    scheduleRender({ defer = false } = {}) {
+    scheduleRender({ defer = false, liveUpdate = false } = {}) {
       const renderOnNextFrame = () => {
         if (this.renderFrame) return;
         this.renderFrame = requestAnimationFrame(() => {
           this.renderFrame = null;
-          this.render();
+          if (liveUpdate) this.patchLiveDataOrRender();
+          else this.render();
         });
       };
 
@@ -477,6 +480,116 @@
         hideCollapsedGroupsUntilHover: Boolean(preferences.hideCollapsedGroupsUntilHover),
         hover: Boolean(this.isSidebarHovering),
         groupParts
+      });
+    }
+
+    createLiveStructureSignature(groups) {
+      const parts = [];
+      const walk = (group) => {
+        parts.push([
+          group.id,
+          group.collapsed ? 1 : 0,
+          (group.entries || []).map((favorite) => favorite.login).sort().join(','),
+          (group.children || []).map((child) => child.id).sort().join(',')
+        ].join(':'));
+        (group.children || []).forEach(walk);
+      };
+      groups.forEach(walk);
+      return parts.sort().join('|');
+    }
+
+    patchLiveDataOrRender() {
+      if (!this.container || !document.body.contains(this.container)) {
+        this.render();
+        return;
+      }
+      const state = this.store.getState();
+      const liveData = this.store.getLiveData();
+      const groups = this.collectGroups(state, liveData);
+      const structureSignature = this.createLiveStructureSignature(groups);
+      if (!this.lastLiveStructureSignature || structureSignature !== this.lastLiveStructureSignature) {
+        this.render();
+        return;
+      }
+
+      const favorites = new Map(
+        Object.values(state.favorites || {}).map((favorite) => [favorite.login, favorite])
+      );
+      this.container.querySelectorAll('.tfr-favorite-entry[data-login]').forEach((entry) => {
+        const favorite = favorites.get(entry.dataset.login);
+        if (!favorite) return;
+        const live = getLiveDataEntry(liveData, favorite) || {};
+        const displayName = live.displayName || favorite.displayName || favorite.login;
+        const viewers = formatViewers(live.viewers || 0);
+        const tooltip = [
+          displayName,
+          live.game || '',
+          live.title || '',
+          live.viewers ? t('sidebar.viewerCount', { count: viewers }) : ''
+        ].filter(Boolean).join('\n');
+        entry.title = tooltip;
+        entry.dataset.tooltip = tooltip;
+
+        const avatar = entry.querySelector('.tfr-favorite-entry__avatar');
+        if (avatar) {
+          const avatarUrl = live.avatarUrl || favorite.avatarUrl || DEFAULT_AVATAR;
+          if (avatar.src !== avatarUrl) avatar.src = avatarUrl;
+          avatar.alt = displayName;
+        }
+        const name = entry.querySelector('.tfr-favorite-entry__name');
+        const viewerLine = entry.querySelector('.tfr-favorite-entry__viewers');
+        if (name) name.textContent = displayName;
+        if (viewerLine) {
+          viewerLine.textContent = viewers;
+          viewerLine.title = t('sidebar.viewerCount', { count: viewers });
+        }
+
+        const info = entry.querySelector('.tfr-favorite-entry__info');
+        if (!info) return;
+        let meta = entry.querySelector('.tfr-favorite-entry__meta');
+        let category = entry.querySelector('.tfr-favorite-entry__category');
+        let title = entry.querySelector('.tfr-favorite-entry__title');
+        if (!meta && (live.game || live.title)) {
+          meta = document.createElement('div');
+          meta.className = 'tfr-favorite-entry__meta';
+          info.appendChild(meta);
+        }
+        if (meta && !category) {
+          category = document.createElement('span');
+          category.className = 'tfr-favorite-entry__category';
+          meta.appendChild(category);
+        }
+        if (meta && !title && live.title) {
+          title = document.createElement('span');
+          title.className = 'tfr-favorite-entry__title';
+          meta.appendChild(title);
+        }
+        if (category) category.textContent = live.game || '';
+        if (title) title.textContent = live.title || '';
+        if (meta && !live.game && !live.title) meta.remove();
+      });
+
+      const reorder = (group) => {
+        const blocks = Array.from(this.container.querySelectorAll('.tfr-category-block[data-group-id]'));
+        const block = blocks.find((candidate) => candidate.dataset.groupId === group.id);
+        const list = block
+          ? Array.from(block.children).find((child) => child.classList?.contains('tfr-category-list'))
+          : null;
+        if (list) {
+          const entries = new Map(
+            Array.from(list.children).map((entry) => [entry.dataset.login, entry])
+          );
+          (group.entries || []).forEach((favorite) => {
+            const entry = entries.get(favorite.login);
+            if (entry) list.appendChild(entry);
+          });
+        }
+        (group.children || []).forEach(reorder);
+      };
+      groups.forEach(reorder);
+
+      this.lastRenderSignature = this.createRenderSignature(state, liveData, groups, {
+        isSidebarHovering: this.isSidebarHovering
       });
     }
 
@@ -1124,6 +1237,7 @@
       }
     });
     const nextAutoCompactSignature = this.createAutoCompactSignature(state, groups);
+    this.lastLiveStructureSignature = this.createLiveStructureSignature(groups);
     const currentLogins = new Set(
       Array.from(this.container.querySelectorAll('.tfr-favorite-entry[data-login]')).map((entry) => entry.dataset.login)
     );

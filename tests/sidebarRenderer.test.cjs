@@ -176,3 +176,38 @@ test('collapsed groups restore normal cards when the available sidebar height is
   assert.equal(block.dataset.compactLevel, undefined);
   assert.equal(classNames.has('is-auto-compact'), false);
 });
+
+test('live structure signature ignores viewer-driven ordering but detects membership changes', () => {
+  const SidebarRenderer = loadSidebarRenderer(
+    { innerHeight: 700 },
+    { body: { contains: () => true }, hidden: false }
+  );
+  const renderer = new SidebarRenderer({});
+  const first = [{
+    id: 'group',
+    collapsed: false,
+    entries: [{ login: 'alpha' }, { login: 'beta' }],
+    children: []
+  }];
+  const reordered = [{
+    id: 'group',
+    collapsed: false,
+    entries: [{ login: 'beta' }, { login: 'alpha' }],
+    children: []
+  }];
+  const changed = [{
+    id: 'group',
+    collapsed: false,
+    entries: [{ login: 'alpha' }, { login: 'gamma' }],
+    children: []
+  }];
+
+  assert.equal(
+    renderer.createLiveStructureSignature(first),
+    renderer.createLiveStructureSignature(reordered)
+  );
+  assert.notEqual(
+    renderer.createLiveStructureSignature(first),
+    renderer.createLiveStructureSignature(changed)
+  );
+});
