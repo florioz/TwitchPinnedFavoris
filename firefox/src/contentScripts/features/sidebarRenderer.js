@@ -20,6 +20,9 @@
       this.resizeFrame = null;
       this.ensureContainerTimer = null;
       this.renderFrame = null;
+      this.renderDelayTimer = null;
+      this.renderIdleHandle = null;
+      this.liveRenderJitterMs = 80 + Math.floor(Math.random() * 240);
       this.sideNavFrame = null;
       this.previousVisibleLogins = null;
       this.previousCompactLevels = new Map();
@@ -60,7 +63,9 @@
     }
 
     init() {
-      this.unsubscribe = this.store.subscribe(() => this.scheduleRender());
+      this.unsubscribe = this.store.subscribe((event) => {
+        this.scheduleRender({ defer: event?.kind === 'live' });
+      });
       this.observeSideNav();
       this.ensureContainerTimer = window.setInterval(() => {
         if (this.container && document.body.contains(this.container)) {
@@ -90,6 +95,14 @@
         cancelAnimationFrame(this.renderFrame);
         this.renderFrame = null;
       }
+      if (this.renderDelayTimer) {
+        clearTimeout(this.renderDelayTimer);
+        this.renderDelayTimer = null;
+      }
+      if (this.renderIdleHandle !== null && typeof window.cancelIdleCallback === 'function') {
+        window.cancelIdleCallback(this.renderIdleHandle);
+        this.renderIdleHandle = null;
+      }
       if (this.sideNavFrame) {
         cancelAnimationFrame(this.sideNavFrame);
         this.sideNavFrame = null;
@@ -104,14 +117,41 @@
       }
     }
 
-    scheduleRender() {
-      if (this.renderFrame) {
+    scheduleRender({ defer = false } = {}) {
+      const renderOnNextFrame = () => {
+        if (this.renderFrame) return;
+        this.renderFrame = requestAnimationFrame(() => {
+          this.renderFrame = null;
+          this.render();
+        });
+      };
+
+      if (!defer) {
+        if (this.renderDelayTimer) {
+          clearTimeout(this.renderDelayTimer);
+          this.renderDelayTimer = null;
+        }
+        if (this.renderIdleHandle !== null && typeof window.cancelIdleCallback === 'function') {
+          window.cancelIdleCallback(this.renderIdleHandle);
+          this.renderIdleHandle = null;
+        }
+        renderOnNextFrame();
         return;
       }
-      this.renderFrame = requestAnimationFrame(() => {
-        this.renderFrame = null;
-        this.render();
-      });
+
+      if (this.renderFrame || this.renderDelayTimer || this.renderIdleHandle !== null) return;
+      const hiddenDelay = document.hidden ? 1000 + this.liveRenderJitterMs * 3 : this.liveRenderJitterMs;
+      this.renderDelayTimer = window.setTimeout(() => {
+        this.renderDelayTimer = null;
+        if (typeof window.requestIdleCallback === 'function') {
+          this.renderIdleHandle = window.requestIdleCallback(() => {
+            this.renderIdleHandle = null;
+            renderOnNextFrame();
+          }, { timeout: document.hidden ? 3000 : 700 });
+          return;
+        }
+        renderOnNextFrame();
+      }, hiddenDelay);
     }
 
     scheduleAutoCompactCheck(enabled) {

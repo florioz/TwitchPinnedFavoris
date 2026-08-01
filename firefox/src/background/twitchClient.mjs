@@ -23,7 +23,12 @@ const STREAM_STATE_QUERY = `
   }
 `;
 
-export const mapWithConcurrency = async (items, limit, mapper) => {
+export const mapWithConcurrency = async (
+  items,
+  limit,
+  mapper,
+  { pacingMs = 0, schedule = (delay) => new Promise((resolve) => setTimeout(resolve, delay)) } = {}
+) => {
   const results = new Array(items.length);
   let cursor = 0;
   const workerCount = Math.max(1, Math.min(limit, items.length));
@@ -41,6 +46,9 @@ export const mapWithConcurrency = async (items, limit, mapper) => {
           status: 'rejected',
           reason
         };
+      }
+      if (pacingMs > 0 && cursor < items.length) {
+        await schedule(pacingMs);
       }
     }
   });

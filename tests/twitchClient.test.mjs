@@ -104,3 +104,19 @@ test('concurrency mapper preserves input order and isolates failures', async () 
   assert.equal(results[1].status, 'rejected');
   assert.equal(results[2].value, 4);
 });
+
+test('concurrency mapper can pace work between successive items', async () => {
+  const scheduledDelays = [];
+  const results = await mapWithConcurrency(
+    [1, 2, 3, 4],
+    2,
+    async (value) => value,
+    {
+      pacingMs: 90,
+      schedule: async (delay) => scheduledDelays.push(delay)
+    }
+  );
+
+  assert.deepEqual(results.map((entry) => entry.value), [1, 2, 3, 4]);
+  assert.deepEqual(scheduledDelays, [90, 90]);
+});
