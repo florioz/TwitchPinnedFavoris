@@ -7,6 +7,12 @@
   const FAVORITE_ICON =
     '<svg class="tfr-inline-button__icon" width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 17.27L18.18 21 16.54 13.97 22 9.24 14.81 8.63 12 2 9.19 8.63 2 9.24 7.46 13.97 5.82 21z"></path></svg>';
   const FOLLOW_ACTION_PATTERN = /(^|\s)(suivre|follow)(\s|$)|r[\u00e9e]abonner|resubscribe|s['\u2019]?abonner|subscribe/i;
+  const PRIMARY_FOLLOW_SELECTOR = [
+    '[data-a-target="follow-button"]',
+    '[data-a-target="unfollow-button"]',
+    '[data-test-selector="follow-button"]',
+    '[data-test-selector="unfollow-button"]'
+  ].join(', ');
 
   class ChannelFavoriteButton {
     constructor(store) {
@@ -43,10 +49,12 @@
 
     observeDom() {
       this.domObserver?.disconnect();
-      this.domObserver = new MutationObserver(() => {
-        if (document.visibilityState !== 'hidden' && !this.button?.isConnected) {
-          this.scheduleMountButton();
-        }
+      this.domObserver = new MutationObserver((mutations) => {
+        if (document.visibilityState === 'hidden') return;
+        const followControlAdded = mutations.some((mutation) => Array.from(mutation.addedNodes).some((node) =>
+          node instanceof Element && (node.matches?.(PRIMARY_FOLLOW_SELECTOR) || node.querySelector?.(PRIMARY_FOLLOW_SELECTOR))
+        ));
+        if (!this.button?.isConnected || followControlAdded) this.scheduleMountButton();
       });
       this.domObserver.observe(document.body, { childList: true, subtree: true });
       this.tryMountButton();
@@ -109,14 +117,24 @@
         .toLowerCase();
     }
 
+    findPrimaryFollowButton() {
+      const candidates = Array.from(document.querySelectorAll(PRIMARY_FOLLOW_SELECTOR));
+      return candidates.find((button) => this.isUsableAnchor(button)) || null;
+    }
+
     findChannelActionButton() {
+      const primaryFollowButton = this.findPrimaryFollowButton();
+      if (primaryFollowButton) return primaryFollowButton;
+
       const actionPatterns = [
         FOLLOW_ACTION_PATTERN,
         /s['’]?abonner|subscribe/i,
         /abonnements?-cadeaux|gift/i,
         /\bbits?\b/i
       ];
-      const buttons = Array.from(document.querySelectorAll('main button, [data-a-target="channel-header-right"] button'));
+      const buttons = Array.from(document.querySelectorAll(
+        'main button, [data-a-target="channel-header-right"] button, [data-target="channel-header-right"] button'
+      ));
       const candidates = buttons
         .filter((button) => this.isUsableAnchor(button))
         .map((button) => ({
@@ -271,6 +289,14 @@
       // another temporary action button. Keep our current slot while it is
       // still connected instead of following that transient anchor.
       if (this.button && document.body.contains(this.button)) {
+        const primaryFollowButton = this.findPrimaryFollowButton();
+        const primaryMountPoint = this.getMountPoint(primaryFollowButton);
+        if (primaryMountPoint?.parent) {
+          const expectedNextSibling = primaryMountPoint.before || null;
+          if (this.button.parentElement !== primaryMountPoint.parent || this.button.nextSibling !== expectedNextSibling) {
+            primaryMountPoint.parent.insertBefore(this.button, expectedNextSibling);
+          }
+        }
         this.updateButtonAppearance();
         return;
       }

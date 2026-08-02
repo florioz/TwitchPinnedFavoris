@@ -2,10 +2,12 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  width: 50px;
+  height: 32px;
   min-height: 32px;
-  padding: 0 16px;
-  margin-left: 8px !important;
+  padding: 0 10px;
+  margin-right: 8px !important;
+  margin-left: 0 !important;
   margin-top: 0;
   background: #9147ff;
   color: #ffffff;

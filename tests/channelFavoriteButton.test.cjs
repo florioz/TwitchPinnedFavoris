@@ -37,7 +37,10 @@ test('an attached favorite button keeps its slot during Twitch panel mutations',
       this.markup = value;
     }
   };
-  const documentRef = { body: { contains: (node) => node === button } };
+  const documentRef = {
+    body: { contains: (node) => node === button },
+    querySelectorAll: () => []
+  };
   const ChannelFavoriteButton = loadChannelFavoriteButton(documentRef);
   const instance = new ChannelFavoriteButton({
     getState: () => ({ favorites: {} })
