@@ -475,9 +475,6 @@
         this.expandReplies = false;
         this.observer = null;
         this.container = null;
-        this.entries = new Map();
-        this.pendingExpansions = new Map();
-        this.sequence = 0;
         this.retryTimer = null;
       }
 
@@ -498,8 +495,6 @@
           wrapper.replaceWith(...wrapper.childNodes);
         });
         document.querySelectorAll('.tfr-custom-reply-context').forEach((node) => node.classList.remove('tfr-custom-reply-context'));
-        this.entries.clear();
-        this.pendingExpansions.clear();
       }
 
       findContainer() {
@@ -564,129 +559,6 @@
         while (replyContext.firstChild) nativeWrapper.appendChild(replyContext.firstChild);
         replyContext.classList.add('tfr-custom-reply-context');
         replyContext.append(nativeWrapper, customReply);
-      }
-
-      normalize(value) { return String(value || '').replace(/\s+/g, ' ').trim().toLowerCase(); }
-
-      readAttribute(message, names) {
-        for (const name of names) {
-          const datasetName = name.replace(/^data-/, '').replace(/-([a-z])/g, (_, letter) => letter.toUpperCase());
-          const holder = message.hasAttribute?.(name) ? message : message.querySelector?.(`[${name}]`);
-          const value = holder?.dataset?.[datasetName] || holder?.getAttribute?.(name);
-          if (value) return String(value);
-        }
-        return '';
-      }
-
-      findReplyContext(message) {
-        const selectors = '[data-a-target*="reply-context"], [data-test-selector*="reply-context"], [class*="reply-context"], [class*="reply_line"], [class*="reply-line"]';
-        const direct = message.querySelector(selectors);
-        if (direct) return direct;
-        let current = message.parentElement;
-        for (let depth = 0; current && depth < 4; depth += 1, current = current.parentElement) {
-          const candidates = Array.from(current.querySelectorAll(selectors));
-          const contextual = candidates.find((node) => /r\u00e9pond|reply/i.test(node.textContent || ''));
-          if (contextual) return contextual;
-          const previous = depth === 0 ? message.previousElementSibling : null;
-          if (previous && /r\u00e9pond|reply/i.test(previous.textContent || '')) return previous;
-        }
-        return null;
-      }
-
-      findReplyContextByText(root) {
-        if (!/r\u00e9pond\s+\u00e0|replying\s+to/i.test(root.textContent || '')) return null;
-        const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-        while (walker.nextNode()) {
-          const value = String(walker.currentNode.nodeValue || '').trim();
-          if (/^(?:r\u00e9pond\s+\u00e0|replying\s+to)/i.test(value)) {
-            return walker.currentNode.parentElement || root;
-          }
-        }
-        return null;
-      }
-
-      capture(message, fallbackReplyContext = null) {
-        if (!(message instanceof HTMLElement)) return;
-        const body = message.querySelector(MESSAGE_BODY_SELECTOR);
-        const text = body?.textContent?.trim();
-        if (!text) return;
-        let id = this.readAttribute(message, ['data-message-id', 'data-id', 'data-uuid']);
-        if (!id) id = message.dataset.tfrConversationId || `tfr-${++this.sequence}`;
-        message.dataset.tfrConversationId = id;
-        const username = message.querySelector('[data-a-target="chat-message-username"], [data-test-selector="chat-message-username"], .chat-author__display-name');
-        const replyContext = this.findReplyContext(message) || fallbackReplyContext;
-        let parentId = this.readAttribute(message, [
-          'data-reply-parent-msg-id', 'data-reply-parent-message-id', 'data-parent-message-id', 'data-reply-parent-id'
-        ]);
-        const preview = replyContext?.textContent?.trim() || '';
-        if (!parentId && preview) parentId = this.findParentByPreview(preview, id);
-        const previous = this.entries.get(id);
-        this.entries.set(id, {
-          id,
-          parentId,
-          preview,
-          displayName: username?.textContent?.trim().replace(/[:：]\s*$/, '') || previous?.displayName || '',
-          text,
-          timestamp: previous?.timestamp || Date.now()
-        });
-        if (replyContext && this.expandReplies) {
-          this.pendingExpansions.set(id, { id, parentId, preview, replyContext });
-        }
-        this.resolvePendingExpansions();
-        if (replyContext === this.pendingReplyContext) this.pendingReplyContext = null;
-        if (this.entries.size > 500) this.entries.delete(this.entries.keys().next().value);
-      }
-
-      resolvePendingExpansions() {
-        this.pendingExpansions.forEach((pending, id) => {
-          const { replyContext, preview } = pending;
-          if (!replyContext?.isConnected) {
-            this.pendingExpansions.delete(id);
-            return;
-          }
-          if (replyContext.querySelector('.tfr-custom-reply-content')) {
-            this.pendingExpansions.delete(id);
-            return;
-          }
-          const parentId = pending.parentId || this.findParentByPreview(preview, id);
-          const parentEntry = parentId ? this.entries.get(parentId) : null;
-          if (!parentEntry) return;
-
-          this.renderCustomReply(replyContext, preview, parentEntry);
-          this.pendingExpansions.delete(id);
-        });
-      }
-
-      renderCustomReply(replyContext, preview, parentEntry) {
-        const customReply = document.createElement('span');
-        customReply.className = 'tfr-custom-reply-content';
-
-        const label = document.createElement('span');
-        label.className = 'tfr-custom-reply-label';
-        label.textContent = /^replying\s+to/i.test(String(preview || '').trim()) ? 'Replying to ' : 'Répond à ';
-
-        const author = document.createElement('span');
-        author.className = 'tfr-custom-reply-author';
-        author.textContent = `@${parentEntry.displayName || '?'}`;
-
-        const message = document.createElement('span');
-        message.className = 'tfr-custom-reply-message';
-        message.textContent = ` : ${parentEntry.text}`;
-
-        customReply.append(label, author, message);
-        replyContext.classList.add('tfr-custom-reply-context');
-        replyContext.appendChild(customReply);
-      }
-
-      findParentByPreview(preview, currentId) {
-        const needle = this.normalize(preview)
-          .replace(/^@?[^:]+:\s*/, '')
-          .replace(/(?:\.{3}|\u2026)\s*$/, '')
-          .trim();
-        if (!needle) return '';
-        return Array.from(this.entries.values()).reverse().find((entry) =>
-          entry.id !== currentId && (this.normalize(entry.text).includes(needle) || needle.includes(this.normalize(entry.text)))
-        )?.id || '';
       }
 
     }

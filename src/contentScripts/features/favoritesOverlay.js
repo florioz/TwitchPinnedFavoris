@@ -34,6 +34,12 @@ class FavoritesOverlay {
     this.appearanceWizardOpen = false;
     this.appearanceAdvancedOpen = false;
     this.dataToolsOpen = false;
+    this.favoriteIssuesPanel = window.TFRFavoriteIssuesPanel?.create?.({
+      store: this.store,
+      t,
+      defaultAvatar: DEFAULT_AVATAR,
+      onChange: () => this.render()
+    }) || null;
     this.unsubscribe = this.store.subscribe(() => {
       if (this.isOpen) {
         this.render();
@@ -372,79 +378,7 @@ class FavoritesOverlay {
   }
 
   renderFavoriteIssues(state) {
-    const issues = Object.values(state.favorites || {}).filter((favorite) => favorite.accountStatus === 'unresolved');
-    if (!issues.length) return null;
-
-    const section = document.createElement('section');
-    section.className = 'tfr-favorite-issues';
-    const heading = document.createElement('h3');
-    heading.textContent = t('favorites.issues.title', { count: issues.length });
-    const description = document.createElement('p');
-    description.textContent = t('favorites.issues.description');
-    section.append(heading, description);
-
-    const list = document.createElement('div');
-    list.className = 'tfr-favorite-issues__list';
-    issues.forEach((favorite) => {
-      const item = document.createElement('article');
-      item.className = 'tfr-favorite-issues__item';
-      const identity = document.createElement('div');
-      identity.className = 'tfr-favorite-issues__identity';
-      const avatar = document.createElement('img');
-      avatar.src = favorite.avatarUrl || DEFAULT_AVATAR;
-      avatar.alt = '';
-      const names = document.createElement('div');
-      const name = document.createElement('strong');
-      name.textContent = favorite.displayName || favorite.login;
-      const login = document.createElement('span');
-      login.textContent = `@${favorite.login} · ${t('favorites.issues.missing')}`;
-      names.append(name, login);
-      identity.append(avatar, names);
-
-      const actions = document.createElement('div');
-      actions.className = 'tfr-favorite-issues__actions';
-      const fix = document.createElement('button');
-      fix.type = 'button';
-      fix.className = 'tfr-button';
-      fix.textContent = t('details.login.fix');
-      fix.addEventListener('click', async () => {
-        const requested = window.prompt(t('details.login.prompt', { name: favorite.displayName }), favorite.login);
-        if (requested === null || !requested.trim()) return;
-        const result = await this.store.migrateFavoriteLogin(favorite.login, requested);
-        if (!result.ok) {
-          const errorKey = result.reason === 'duplicate'
-            ? 'details.login.duplicate'
-            : result.reason === 'notFound'
-              ? 'details.login.notFound'
-              : 'details.login.unavailable';
-          window.alert(t(errorKey));
-        }
-        this.render();
-      });
-      const retry = document.createElement('button');
-      retry.type = 'button';
-      retry.className = 'tfr-button tfr-button--ghost';
-      retry.textContent = t('favorites.issues.retry');
-      retry.addEventListener('click', async () => {
-        const result = await this.store.migrateFavoriteLogin(favorite.login, favorite.login);
-        if (!result.ok) window.alert(t(result.reason === 'notFound' ? 'details.login.notFound' : 'details.login.unavailable'));
-        this.render();
-      });
-      const remove = document.createElement('button');
-      remove.type = 'button';
-      remove.className = 'tfr-button tfr-button--danger';
-      remove.textContent = t('favorites.issues.remove');
-      remove.addEventListener('click', async () => {
-        if (!window.confirm(t('favorites.issues.confirmRemove', { name: favorite.displayName || favorite.login }))) return;
-        await this.store.removeFavorite(favorite.login);
-        this.render();
-      });
-      actions.append(fix, retry, remove);
-      item.append(identity, actions);
-      list.appendChild(item);
-    });
-    section.appendChild(list);
-    return section;
+    return this.favoriteIssuesPanel?.render(state) || null;
   }
 
   captureFocusSnapshot() {

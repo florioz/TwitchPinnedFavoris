@@ -6,6 +6,7 @@
   }) => {
   const FAVORITE_ICON =
     '<svg class="tfr-inline-button__icon" width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 17.27L18.18 21 16.54 13.97 22 9.24 14.81 8.63 12 2 9.19 8.63 2 9.24 7.46 13.97 5.82 21z"></path></svg>';
+  const FOLLOW_ACTION_PATTERN = /(^|\s)(suivre|follow)(\s|$)|r[\u00e9e]abonner|resubscribe|s['\u2019]?abonner|subscribe/i;
 
   class ChannelFavoriteButton {
     constructor(store) {
@@ -110,8 +111,7 @@
 
     findChannelActionButton() {
       const actionPatterns = [
-        /r[\u00e9e]abonner|resubscribe/i,
-        /(^|\s)(suivre|follow)(\s|$)/i,
+        FOLLOW_ACTION_PATTERN,
         /s['’]?abonner|subscribe/i,
         /abonnements?-cadeaux|gift/i,
         /\bbits?\b/i
@@ -130,9 +130,7 @@
         return null;
       }
 
-      const followCandidate = candidates.find(({ text }) =>
-        /(^|\s)(suivre|follow)(\s|$)|r[\u00e9e]abonner|resubscribe|s['\u2019]?abonner|subscribe/i.test(text)
-      );
+      const followCandidate = candidates.find(({ text }) => FOLLOW_ACTION_PATTERN.test(text));
       if (followCandidate) {
         return followCandidate.button;
       }
@@ -146,7 +144,7 @@
       if (!(node instanceof HTMLElement)) {
         return false;
       }
-      return /(^|\s)(suivre|follow)(\s|$)|r[\u00e9e]abonner|resubscribe|s['\u2019]?abonner|subscribe/i.test(this.getButtonText(node));
+      return FOLLOW_ACTION_PATTERN.test(this.getButtonText(node));
     }
 
     getMountPoint(anchor) {

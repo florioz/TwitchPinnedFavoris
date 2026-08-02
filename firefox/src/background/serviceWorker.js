@@ -8,6 +8,7 @@ import {
   createTwitchClient,
   mapWithConcurrency
 } from './twitchClient.mjs';
+import { mergeFavoriteIdentity, hasFavoriteIdentityChanged } from './favoriteIdentity.mjs';
 import { createLiveSnapshotCoordinator } from './liveSnapshotCoordinator.mjs';
 import { createLiveNotificationService } from './liveNotificationService.mjs';
 import { createBadgeManager } from './badgeManager.mjs';
@@ -659,34 +660,8 @@ const performLiveStatusEvaluation = async (reason = 'manual') => {
         }
         const favorite = favorites[login];
         if (favorite) {
-          const previousLookupFailures = Number(favorite.accountLookupFailures || 0);
-          const accountLookupFailures = live.userNotFound
-            ? previousLookupFailures + 1
-            : live.fetchFailed
-              ? previousLookupFailures
-              : 0;
-          const accountStatus = accountLookupFailures >= 3
-            ? 'unresolved'
-            : accountLookupFailures > 0
-              ? 'checking'
-              : '';
-          const updatedFavorite = {
-            ...favorite,
-            userId: String(live.userId || favorite.userId || ''),
-            login: resolvedLogin,
-            displayName: live.displayName || favorite.displayName,
-            avatarUrl: live.avatarUrl || favorite.avatarUrl,
-            accountLookupFailures,
-            accountStatus
-          };
-          if (
-            resolvedLogin !== login
-            || updatedFavorite.userId !== String(favorite.userId || '')
-            || updatedFavorite.displayName !== favorite.displayName
-            || updatedFavorite.avatarUrl !== favorite.avatarUrl
-            || updatedFavorite.accountLookupFailures !== previousLookupFailures
-            || updatedFavorite.accountStatus !== String(favorite.accountStatus || '')
-          ) {
+          const updatedFavorite = mergeFavoriteIdentity(favorite, live, resolvedLogin);
+          if (hasFavoriteIdentityChanged(favorite, updatedFavorite)) {
             favoriteMetadataUpdates.set(resolvedLogin, updatedFavorite);
           }
         }
