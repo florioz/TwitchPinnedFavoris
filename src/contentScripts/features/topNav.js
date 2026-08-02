@@ -105,8 +105,28 @@
       return;
     }
     this.observer?.disconnect();
-    this.observer = new MutationObserver(() => this.scheduleInjection());
+    this.observer = new MutationObserver((mutations) => {
+      if (document.visibilityState === 'hidden') {
+        return;
+      }
+      if (!this.slot?.isConnected || mutations.some((mutation) => this.isRelevantMutation(mutation))) {
+        this.scheduleInjection();
+      }
+    });
     this.observer.observe(target, { childList: true, subtree: true });
+  }
+
+  isRelevantMutation(mutation) {
+    const target = mutation?.target;
+    if (!(target instanceof Element)) {
+      return false;
+    }
+    if (target.closest('header, nav, [data-a-target="top-nav"], [data-test-selector^="top-nav"]')) {
+      return true;
+    }
+    return Array.from(mutation.addedNodes || []).some((node) =>
+      node instanceof Element && node.matches?.('header, nav, [data-a-target="top-nav"], [data-test-selector^="top-nav"]')
+    );
   }
 
   ensureSlot(anchor) {
@@ -435,6 +455,7 @@
   }
 
   injectButton() {
+    const startedAt = window.TFRPerformance?.now?.();
     let mountInfo = null;
     try {
       mountInfo = this.findMountPoint();
@@ -515,6 +536,9 @@
     } catch (error) {
       this.log('inject-error', error);
       this.scheduleRetry();
+    }
+    if (startedAt !== undefined) {
+      window.TFRPerformance?.report?.('topNav.injectButton', startedAt);
     }
   }
 

@@ -318,6 +318,9 @@ class FavoritesOverlay {
     controls.appendChild(sortSelect);
     content.appendChild(controls);
 
+    const favoriteIssues = this.renderFavoriteIssues(state);
+    if (favoriteIssues) content.appendChild(favoriteIssues);
+
     const dataTools = document.createElement('details');
     dataTools.className = 'tfr-data-tools';
     dataTools.open = this.dataToolsOpen;
@@ -366,6 +369,82 @@ class FavoritesOverlay {
       }
       this.restoreFocusSnapshot(focusSnapshot);
     });
+  }
+
+  renderFavoriteIssues(state) {
+    const issues = Object.values(state.favorites || {}).filter((favorite) => favorite.accountStatus === 'unresolved');
+    if (!issues.length) return null;
+
+    const section = document.createElement('section');
+    section.className = 'tfr-favorite-issues';
+    const heading = document.createElement('h3');
+    heading.textContent = t('favorites.issues.title', { count: issues.length });
+    const description = document.createElement('p');
+    description.textContent = t('favorites.issues.description');
+    section.append(heading, description);
+
+    const list = document.createElement('div');
+    list.className = 'tfr-favorite-issues__list';
+    issues.forEach((favorite) => {
+      const item = document.createElement('article');
+      item.className = 'tfr-favorite-issues__item';
+      const identity = document.createElement('div');
+      identity.className = 'tfr-favorite-issues__identity';
+      const avatar = document.createElement('img');
+      avatar.src = favorite.avatarUrl || DEFAULT_AVATAR;
+      avatar.alt = '';
+      const names = document.createElement('div');
+      const name = document.createElement('strong');
+      name.textContent = favorite.displayName || favorite.login;
+      const login = document.createElement('span');
+      login.textContent = `@${favorite.login} · ${t('favorites.issues.missing')}`;
+      names.append(name, login);
+      identity.append(avatar, names);
+
+      const actions = document.createElement('div');
+      actions.className = 'tfr-favorite-issues__actions';
+      const fix = document.createElement('button');
+      fix.type = 'button';
+      fix.className = 'tfr-button';
+      fix.textContent = t('details.login.fix');
+      fix.addEventListener('click', async () => {
+        const requested = window.prompt(t('details.login.prompt', { name: favorite.displayName }), favorite.login);
+        if (requested === null || !requested.trim()) return;
+        const result = await this.store.migrateFavoriteLogin(favorite.login, requested);
+        if (!result.ok) {
+          const errorKey = result.reason === 'duplicate'
+            ? 'details.login.duplicate'
+            : result.reason === 'notFound'
+              ? 'details.login.notFound'
+              : 'details.login.unavailable';
+          window.alert(t(errorKey));
+        }
+        this.render();
+      });
+      const retry = document.createElement('button');
+      retry.type = 'button';
+      retry.className = 'tfr-button tfr-button--ghost';
+      retry.textContent = t('favorites.issues.retry');
+      retry.addEventListener('click', async () => {
+        const result = await this.store.migrateFavoriteLogin(favorite.login, favorite.login);
+        if (!result.ok) window.alert(t(result.reason === 'notFound' ? 'details.login.notFound' : 'details.login.unavailable'));
+        this.render();
+      });
+      const remove = document.createElement('button');
+      remove.type = 'button';
+      remove.className = 'tfr-button tfr-button--danger';
+      remove.textContent = t('favorites.issues.remove');
+      remove.addEventListener('click', async () => {
+        if (!window.confirm(t('favorites.issues.confirmRemove', { name: favorite.displayName || favorite.login }))) return;
+        await this.store.removeFavorite(favorite.login);
+        this.render();
+      });
+      actions.append(fix, retry, remove);
+      item.append(identity, actions);
+      list.appendChild(item);
+    });
+    section.appendChild(list);
+    return section;
   }
 
   captureFocusSnapshot() {
@@ -1840,6 +1919,66 @@ class FavoritesOverlay {
         }
       },
       {
+        key: 'sevenTvEmotesEnabled',
+        defaultEnabled: false,
+        label: t('settings.sevenTv.toggle'),
+        description: t('settings.sevenTv.description'),
+        handler: async (checked) => {
+          await this.store.setSevenTvEmotesEnabled(checked);
+          this.render();
+        }
+      },
+      {
+        key: 'betterTtvEmotesEnabled',
+        defaultEnabled: false,
+        label: t('settings.betterTtv.toggle'),
+        description: t('settings.betterTtv.description'),
+        handler: async (checked) => {
+          await this.store.setBetterTtvEmotesEnabled(checked);
+          this.render();
+        }
+      },
+      {
+        key: 'playerLatencyEnabled',
+        defaultEnabled: false,
+        label: t('settings.playerLatency.toggle'),
+        description: t('settings.playerLatency.description'),
+        handler: async (checked) => {
+          await this.store.setPlayerLatencyEnabled(checked);
+          this.render();
+        }
+      },
+      {
+        key: 'chatFontEnabled',
+        defaultEnabled: false,
+        label: t('settings.chatFont.toggle'),
+        description: t('settings.chatFont.description'),
+        handler: async (checked) => {
+          await this.store.setChatFontEnabled(checked);
+          this.render();
+        }
+      },
+      {
+        key: 'showDeletedMessagesEnabled',
+        defaultEnabled: false,
+        label: t('settings.deletedMessages.toggle'),
+        description: t('settings.deletedMessages.description'),
+        handler: async (checked) => {
+          await this.store.setShowDeletedMessagesEnabled(checked);
+          this.render();
+        }
+      },
+      {
+        key: 'showFullRepliesEnabled',
+        defaultEnabled: false,
+        label: t('settings.fullReplies.toggle'),
+        description: t('settings.fullReplies.description'),
+        handler: async (checked) => {
+          await this.store.setShowFullRepliesEnabled(checked);
+          this.render();
+        }
+      },
+      {
         key: 'hideCollapsedGroupsUntilHover',
         defaultEnabled: false,
         label: t('settings.collapsedGroups.toggle'),
@@ -1885,6 +2024,81 @@ class FavoritesOverlay {
       });
       wrapper.appendChild(item);
     });
+
+    const fontChoice = document.createElement('label');
+    fontChoice.className = 'tfr-chat-font-choice';
+    fontChoice.classList.toggle('is-disabled', prefs.chatFontEnabled !== true);
+    const fontLabel = document.createElement('strong');
+    fontLabel.textContent = t('settings.chatFont.choice');
+    const fontSelect = document.createElement('select');
+    fontSelect.disabled = prefs.chatFontEnabled !== true;
+    [
+      ['system', 'settings.chatFont.system'],
+      ['arial', 'settings.chatFont.arial'],
+      ['verdana', 'settings.chatFont.verdana'],
+      ['georgia', 'settings.chatFont.georgia'],
+      ['monospace', 'settings.chatFont.monospace']
+    ].forEach(([value, labelKey]) => {
+      const option = document.createElement('option');
+      option.value = value;
+      option.textContent = t(labelKey);
+      option.selected = (prefs.chatFontFamily || 'system') === value;
+      fontSelect.appendChild(option);
+    });
+    if (prefs.chatCustomFontDataUrl) {
+      const customOption = document.createElement('option');
+      customOption.value = 'custom';
+      customOption.textContent = prefs.chatCustomFontName
+        ? `${t('settings.chatFont.custom')} · ${prefs.chatCustomFontName}`
+        : t('settings.chatFont.custom');
+      customOption.selected = prefs.chatFontFamily === 'custom';
+      fontSelect.appendChild(customOption);
+    }
+    fontSelect.addEventListener('change', async (event) => {
+      await this.store.setChatFontFamily(event.target.value);
+    });
+    fontChoice.appendChild(fontLabel);
+    fontChoice.appendChild(fontSelect);
+    const fontActions = document.createElement('span');
+    fontActions.className = 'tfr-chat-font-choice__actions';
+    const fontFileInput = document.createElement('input');
+    fontFileInput.type = 'file';
+    fontFileInput.accept = '.woff2,.woff,.ttf,.otf,font/woff2,font/woff,font/ttf,font/otf';
+    fontFileInput.hidden = true;
+    const importFontButton = document.createElement('button');
+    importFontButton.type = 'button';
+    importFontButton.textContent = t('settings.chatFont.import');
+    importFontButton.addEventListener('click', () => fontFileInput.click());
+    fontFileInput.addEventListener('change', async () => {
+      const file = fontFileInput.files?.[0];
+      if (!file || file.size > 3 * 1024 * 1024 || !/\.(woff2?|ttf|otf)$/i.test(file.name)) {
+        window.alert(t('settings.chatFont.invalid'));
+        return;
+      }
+      const dataUrl = await new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.addEventListener('load', () => resolve(String(reader.result || '')));
+        reader.addEventListener('error', () => resolve(''));
+        reader.readAsDataURL(file);
+      });
+      const saved = await this.store.setChatCustomFont({ name: file.name, dataUrl });
+      if (!saved) window.alert(t('settings.chatFont.invalid'));
+      this.render();
+    });
+    fontActions.appendChild(importFontButton);
+    fontActions.appendChild(fontFileInput);
+    if (prefs.chatCustomFontDataUrl) {
+      const removeFontButton = document.createElement('button');
+      removeFontButton.type = 'button';
+      removeFontButton.textContent = t('settings.chatFont.remove');
+      removeFontButton.addEventListener('click', async () => {
+        await this.store.clearChatCustomFont();
+        this.render();
+      });
+      fontActions.appendChild(removeFontButton);
+    }
+    fontChoice.appendChild(fontActions);
+    wrapper.appendChild(fontChoice);
 
     return wrapper;
   }
@@ -3572,6 +3786,29 @@ class FavoritesOverlay {
     subtitle.textContent = `@${favorite.login}`;
     titleWrapper.appendChild(title);
     titleWrapper.appendChild(subtitle);
+    const fixLoginButton = document.createElement('button');
+    fixLoginButton.type = 'button';
+    fixLoginButton.className = 'tfr-favorite-details__fix-login';
+    fixLoginButton.textContent = t('details.login.fix');
+    fixLoginButton.addEventListener('click', async () => {
+      const requested = window.prompt(t('details.login.prompt', { name: favorite.displayName }), favorite.login);
+      if (requested === null || !requested.trim()) return;
+      fixLoginButton.disabled = true;
+      const result = await this.store.migrateFavoriteLogin(favorite.login, requested);
+      if (!result.ok) {
+        const errorKey = result.reason === 'duplicate'
+          ? 'details.login.duplicate'
+          : result.reason === 'notFound'
+            ? 'details.login.notFound'
+            : 'details.login.unavailable';
+        window.alert(t(errorKey));
+        fixLoginButton.disabled = false;
+        return;
+      }
+      this.activeFavoriteLogin = result.login;
+      this.render();
+    });
+    titleWrapper.appendChild(fixLoginButton);
     headerInfo.appendChild(titleWrapper);
     header.appendChild(headerInfo);
     const closeButton = document.createElement('button');

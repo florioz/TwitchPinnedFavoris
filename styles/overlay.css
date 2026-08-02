@@ -1870,7 +1870,7 @@
   width: 24px;
   height: 24px;
   border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.22);
+  border: 1px solid rgba(255, 255, 255, 0.1);
   background: var(--tfr-swatch-color, #9147ff);
   cursor: pointer;
   padding: 0;
@@ -2401,6 +2401,109 @@
   color: #a8a8b9;
 }
 
+.tfr-favorite-details__fix-login {
+  align-self: flex-start;
+  margin-top: 2px;
+  padding: 2px 7px;
+  border: 1px solid rgba(145, 71, 255, 0.55);
+  border-radius: 7px;
+  background: rgba(145, 71, 255, 0.1);
+  color: #bf94ff;
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.tfr-favorite-details__fix-login:hover {
+  background: rgba(145, 71, 255, 0.2);
+}
+
+.tfr-favorite-details__fix-login:disabled {
+  cursor: wait;
+  opacity: 0.55;
+}
+
+.tfr-favorite-issues {
+  padding: 14px;
+  border: 1px solid rgba(255, 166, 87, 0.55);
+  border-radius: 12px;
+  background: rgba(94, 49, 16, 0.2);
+}
+
+.tfr-favorite-issues h3,
+.tfr-favorite-issues p {
+  margin: 0;
+}
+
+.tfr-favorite-issues p {
+  margin-top: 5px;
+  color: #c8b8aa;
+  font-size: 12px;
+}
+
+.tfr-favorite-issues__list {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.tfr-favorite-issues__item,
+.tfr-favorite-issues__identity,
+.tfr-favorite-issues__actions {
+  display: flex;
+  align-items: center;
+}
+
+.tfr-favorite-issues__item {
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px;
+  border-radius: 9px;
+  background: rgba(12, 8, 20, 0.62);
+}
+
+.tfr-favorite-issues__identity {
+  min-width: 0;
+  gap: 9px;
+}
+
+.tfr-favorite-issues__identity img {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.tfr-favorite-issues__identity div {
+  display: grid;
+  min-width: 0;
+}
+
+.tfr-favorite-issues__identity span {
+  overflow: hidden;
+  color: #c99f7c;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tfr-favorite-issues__actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+@media (max-width: 720px) {
+  .tfr-favorite-issues__item {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .tfr-favorite-issues__actions {
+    justify-content: flex-start;
+  }
+}
+
 .tfr-favorite-details__close {
   background: transparent;
   border: none;
@@ -2921,4 +3024,170 @@
 
 .tfr-update-banner__button--ghost:hover {
   background: rgba(255, 255, 255, 0.16);
+}
+
+.tfr-chat-emote {
+  display: inline-block;
+  width: auto;
+  height: 28px;
+  max-width: 112px;
+  margin: -6px 2px;
+  vertical-align: middle;
+  object-fit: contain;
+}
+
+.tfr-player-latency {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  margin-left: 8px;
+  padding: 4px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 999px;
+  color: rgba(239, 239, 241, 0.72);
+  background: rgba(14, 14, 16, 0.88);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.2;
+  backdrop-filter: blur(5px);
+}
+
+.tfr-chat-custom-font [data-a-target="chat-line-message"],
+.tfr-chat-custom-font [data-test-selector="chat-line-message"],
+.tfr-chat-custom-font .chat-line__message,
+.tfr-chat-custom-font [data-a-target="chat-input"] {
+  font-family: var(--tfr-chat-font-family) !important;
+}
+
+.tfr-chat-font-choice {
+  display: grid;
+  gap: 7px;
+  margin: 0 12px 12px 42px;
+  padding: 10px 12px;
+  border: 1px solid rgba(145, 71, 255, 0.25);
+  border-radius: 10px;
+  background: rgba(8, 5, 15, 0.28);
+}
+
+.tfr-chat-font-choice strong {
+  color: #efeff1;
+  font-size: 12px;
+}
+
+.tfr-chat-font-choice select {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid rgba(145, 71, 255, 0.5);
+  border-radius: 8px;
+  color: #efeff1;
+  background: #120b20;
+}
+
+.tfr-chat-font-choice.is-disabled {
+  opacity: 0.5;
+}
+
+.tfr-chat-font-choice__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.tfr-chat-font-choice__actions button {
+  padding: 7px 10px;
+  border: 1px solid rgba(145, 71, 255, 0.45);
+  border-radius: 8px;
+  color: #ded7eb;
+  background: #191126;
+  cursor: pointer;
+}
+
+.tfr-chat-font-choice__actions button:hover {
+  background: #26183a;
+}
+
+.tfr-deleted-message-content {
+  display: flex;
+  gap: 6px;
+  margin: 3px 0 2px;
+  padding: 5px 7px;
+  border-left: 2px solid rgba(255, 255, 255, 0.18);
+  color: rgba(239, 239, 241, 0.58);
+  background: rgba(20, 20, 23, 0.45);
+  font-size: 0.92em;
+  line-height: 1.35;
+}
+
+.tfr-deleted-message-content__badge {
+  flex: 0 0 auto;
+  color: rgba(239, 239, 241, 0.4);
+  font-size: 0.82em;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.tfr-chat-full-replies [data-a-target="chat-line-message-reply-context"],
+.tfr-chat-full-replies [data-test-selector="chat-line-message-reply-context"],
+.tfr-chat-full-replies [data-a-target="chat-message-reply-context"],
+.tfr-chat-full-replies [data-a-target*="reply-context"],
+.tfr-chat-full-replies [data-test-selector*="reply-context"],
+.tfr-chat-full-replies [class*="reply-context"],
+.tfr-chat-full-replies [class*="reply_line"],
+.tfr-chat-full-replies [class*="reply-line"] {
+  height: auto !important;
+  max-height: none !important;
+  max-width: none !important;
+  overflow: visible !important;
+  white-space: normal !important;
+  text-overflow: clip !important;
+  -webkit-line-clamp: unset !important;
+}
+
+.tfr-chat-full-replies [data-a-target="chat-line-message-reply-context"] span,
+.tfr-chat-full-replies [data-test-selector="chat-line-message-reply-context"] span,
+.tfr-chat-full-replies [data-a-target="chat-message-reply-context"] span,
+.tfr-chat-full-replies [data-a-target*="reply-context"] span,
+.tfr-chat-full-replies [data-test-selector*="reply-context"] span,
+.tfr-chat-full-replies [class*="reply-context"] span,
+.tfr-chat-full-replies [class*="reply_line"] span,
+.tfr-chat-full-replies [class*="reply-line"] span {
+  display: inline !important;
+  overflow: visible !important;
+  white-space: normal !important;
+  text-overflow: clip !important;
+  -webkit-line-clamp: unset !important;
+}
+
+.tfr-custom-reply-context {
+  display: block !important;
+  height: auto !important;
+  max-height: none !important;
+  overflow: visible !important;
+  white-space: normal !important;
+  text-overflow: clip !important;
+}
+
+.tfr-native-reply-content {
+  display: none !important;
+}
+
+.tfr-custom-reply-content {
+  display: block !important;
+  max-width: 100%;
+  overflow: visible !important;
+  color: rgba(239, 239, 241, 0.72);
+  white-space: normal !important;
+  overflow-wrap: anywhere;
+  line-height: 1.3;
+}
+
+.tfr-custom-reply-content::before {
+  content: '\21B3';
+  margin-right: 4px;
+  color: rgba(239, 239, 241, 0.55);
+}
+
+.tfr-custom-reply-author {
+  color: rgba(239, 239, 241, 0.9);
+  font-weight: 600;
 }

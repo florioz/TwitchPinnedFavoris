@@ -151,6 +151,7 @@
       this.pendingFrame = null;
       this.pendingNodeSet = new Set();
       this.processedPerFrame = 80;
+      this.visibilityHandler = () => this.handleVisibilityChange();
     }
 
     normalizeLogin(login) {
@@ -160,9 +161,11 @@
 
     init() {
       thirdPartyEmotes.ensureLoaded().catch(() => {});
-      this.observeChat(true);
+      document.addEventListener('visibilitychange', this.visibilityHandler);
+      if (document.visibilityState !== 'hidden') this.observeChat(true);
       if (!this.containerCheckTimer) {
         this.containerCheckTimer = setInterval(() => {
+          if (document.visibilityState === 'hidden') return;
           if (!this.chatContainer || !this.chatContainer.isConnected) {
             this.observeChat(true);
           }
@@ -171,6 +174,7 @@
     }
 
     dispose() {
+      document.removeEventListener('visibilitychange', this.visibilityHandler);
       this.chatObserver?.disconnect();
       this.chatObserver = null;
       if (this.retryTimer) {
@@ -189,6 +193,15 @@
       this.pendingNodeSet.clear();
       this.history.clear();
       this.listeners.clear();
+    }
+
+    handleVisibilityChange() {
+      if (document.visibilityState === 'hidden') {
+        this.chatObserver?.disconnect();
+        this.chatObserver = null;
+        return;
+      }
+      this.observeChat(true);
     }
 
     subscribe(listener) {
@@ -291,6 +304,12 @@
     }
 
     processPendingNodes() {
+      if (document.visibilityState === 'hidden') {
+        this.pendingNodes = [];
+        this.pendingNodeSet.clear();
+        return;
+      }
+      const startedAt = window.TFRPerformance?.now?.();
       let processed = 0;
       while (this.pendingNodes.length && processed < this.processedPerFrame) {
         const node = this.pendingNodes.shift();
@@ -302,6 +321,9 @@
       }
       if (this.pendingNodes.length) {
         this.schedulePendingScan();
+      }
+      if (startedAt !== undefined) {
+        window.TFRPerformance?.report?.('chat.processPendingNodes', startedAt, { processed });
       }
     }
 
@@ -794,12 +816,15 @@
       this.actionKeys = new Set();
       this.recentActionCache = new Map();
       this.pendingMutations = [];
+      this.visibilityHandler = () => this.handleVisibilityChange();
     }
 
     init() {
-      this.observeChat(true);
+      document.addEventListener('visibilitychange', this.visibilityHandler);
+      if (document.visibilityState !== 'hidden') this.observeChat(true);
       if (!this.containerCheckTimer) {
         this.containerCheckTimer = setInterval(() => {
+          if (document.visibilityState === 'hidden') return;
           if (!this.container || !this.container.isConnected) {
             this.observeChat(true);
           }
@@ -808,6 +833,7 @@
     }
 
     dispose() {
+      document.removeEventListener('visibilitychange', this.visibilityHandler);
       this.observer?.disconnect();
       this.observer = null;
       if (this.retryTimer) {
@@ -827,6 +853,16 @@
       this.actions = [];
       this.actionKeys.clear();
       this.listeners.clear();
+    }
+
+    handleVisibilityChange() {
+      if (document.visibilityState === 'hidden') {
+        this.observer?.disconnect();
+        this.observer = null;
+        this.pendingMutations = [];
+        return;
+      }
+      this.observeChat(true);
     }
 
     subscribe(listener) {
@@ -882,8 +918,7 @@
       this.observer = new MutationObserver((mutations) => this.handleMutations(mutations));
       this.observer.observe(container, {
         childList: true,
-        subtree: true,
-        characterData: true
+        subtree: true
       });
       this.captureExisting(container);
     }
@@ -897,15 +932,22 @@
       this.pendingMutations.push(...mutations);
       if (this.mutationFrame) return;
       this.mutationFrame = requestAnimationFrame(() => {
+        if (document.visibilityState === 'hidden') {
+          this.mutationFrame = null;
+          this.pendingMutations = [];
+          return;
+        }
+        const startedAt = window.TFRPerformance?.now?.();
         this.mutationFrame = null;
         const pending = this.pendingMutations.splice(0, this.pendingMutations.length);
         pending.forEach((mutation) => {
           if (mutation.type === 'childList') {
             mutation.addedNodes.forEach((node) => this.scanNode(node));
-          } else if (mutation.type === 'characterData') {
-            this.collectMessageElements(mutation.target).forEach((element) => this.captureAction(element));
           }
         });
+        if (startedAt !== undefined) {
+          window.TFRPerformance?.report?.('moderation.handleMutations', startedAt, { mutations: pending.length });
+        }
       });
     }
 
@@ -1162,7 +1204,7 @@
         }
       });
 
-      const elementInnerText = this.normalizeText(element.innerText || '');
+      const elementInnerText = this.normalizeText(element.textContent || '');
       const analysisParts = [simplified, elementInnerText, ...datasetTextHints];
       let analysisText = analysisParts.filter(Boolean).join(' ') || '';
       const loginCandidate =
@@ -1298,7 +1340,7 @@
         attributeHints.push(node.getAttribute?.('title'));
         attributeHints.push(node.className);
       });
-      element.querySelectorAll('*').forEach((node) => {
+      element.querySelectorAll('[aria-label], [title], [data-duration], [data-timeout], [data-a-target], [data-test-selector]').forEach((node) => {
         const ariaLabel = node.getAttribute?.('aria-label');
         const title = node.getAttribute?.('title');
         const textValue = node.textContent;

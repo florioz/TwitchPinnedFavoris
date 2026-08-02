@@ -1,6 +1,7 @@
 const TWITCH_GRAPHQL_ENDPOINT = 'https://gql.twitch.tv/gql';
 const TWITCH_CLIENT_ID = 'kimne78kx3ncx6brgo4mv6wki5h1ko';
 const DEFAULT_AVATAR = 'https://static-cdn.jtvnw.net/jtv_user_pictures/404_user_70x70.png';
+const LIVE_FALLBACK_MAX_AGE_MS = 5 * 60 * 1000;
 
 const STREAM_STATE_QUERY = `
   query ($login: String, $userId: ID) {
@@ -70,7 +71,11 @@ export const createOfflineLiveData = (login, fallback = {}) => ({
 
 export const createLiveDataFallback = (login, fallback = {}) => {
   const offline = createOfflineLiveData(login, fallback);
-  if (fallback && fallback.isLive) {
+  const lastConfirmedAt = Number(fallback?.lastConfirmedAt || 0);
+  const isRecentlyConfirmed = Number.isFinite(lastConfirmedAt)
+    && lastConfirmedAt > 0
+    && Date.now() - lastConfirmedAt <= LIVE_FALLBACK_MAX_AGE_MS;
+  if (fallback && fallback.isLive && isRecentlyConfirmed) {
     return {
       ...offline,
       ...fallback,
@@ -78,6 +83,7 @@ export const createLiveDataFallback = (login, fallback = {}) => {
       login: String(fallback.login || login || '').toLowerCase(),
       displayName: fallback.displayName || offline.displayName,
       avatarUrl: fallback.avatarUrl || offline.avatarUrl,
+      lastConfirmedAt,
       fetchFailed: true
     };
   }
@@ -89,7 +95,12 @@ export const parseStreamerLivePayload = (login, payload, fallback = {}) => {
   const data = Array.isArray(payload) ? payload[0]?.data : payload?.data;
   const user = data?.user;
   if (!user) {
-    return fallbackLiveData;
+    return {
+      ...createOfflineLiveData(login, fallback),
+      fetchFailed: false,
+      userNotFound: true,
+      lastConfirmedAt: Date.now()
+    };
   }
   const stream = user.stream;
   return {
@@ -103,6 +114,7 @@ export const parseStreamerLivePayload = (login, payload, fallback = {}) => {
     title: stream?.title || '',
     game: stream?.game?.name || '',
     startedAt: stream?.createdAt || null,
+    lastConfirmedAt: Date.now(),
     fetchFailed: false
   };
 };

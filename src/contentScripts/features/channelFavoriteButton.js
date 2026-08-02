@@ -43,7 +43,9 @@
     observeDom() {
       this.domObserver?.disconnect();
       this.domObserver = new MutationObserver(() => {
-        this.scheduleMountButton();
+        if (document.visibilityState !== 'hidden' && !this.button?.isConnected) {
+          this.scheduleMountButton();
+        }
       });
       this.domObserver.observe(document.body, { childList: true, subtree: true });
       this.tryMountButton();
@@ -108,6 +110,7 @@
 
     findChannelActionButton() {
       const actionPatterns = [
+        /r[\u00e9e]abonner|resubscribe/i,
         /(^|\s)(suivre|follow)(\s|$)/i,
         /s['’]?abonner|subscribe/i,
         /abonnements?-cadeaux|gift/i,
@@ -127,7 +130,9 @@
         return null;
       }
 
-      const followCandidate = candidates.find(({ text }) => /(^|\s)(suivre|follow)(\s|$)/i.test(text));
+      const followCandidate = candidates.find(({ text }) =>
+        /(^|\s)(suivre|follow)(\s|$)|r[\u00e9e]abonner|resubscribe|s['\u2019]?abonner|subscribe/i.test(text)
+      );
       if (followCandidate) {
         return followCandidate.button;
       }
@@ -141,7 +146,7 @@
       if (!(node instanceof HTMLElement)) {
         return false;
       }
-      return /(^|\s)(suivre|follow)(\s|$)/i.test(this.getButtonText(node));
+      return /(^|\s)(suivre|follow)(\s|$)|r[\u00e9e]abonner|resubscribe|s['\u2019]?abonner|subscribe/i.test(this.getButtonText(node));
     }
 
     getMountPoint(anchor) {
@@ -157,7 +162,7 @@
       if (shouldEscapeButtonGroup) {
         return {
           parent: group.parentElement,
-          before: group.nextSibling
+          before: group
         };
       }
 
@@ -229,7 +234,8 @@
       button.className = 'tfr-inline-button';
       button.setAttribute('aria-label', 'Ajouter ou retirer ce streamer des favoris Twitch');
       button.title = 'Ajouter ou retirer ce streamer des favoris Twitch';
-      button.style.setProperty('margin-left', '8px', 'important');
+      button.style.setProperty('margin-left', '0', 'important');
+      button.style.setProperty('margin-right', '8px', 'important');
       button.style.marginTop = '0';
       button.style.alignSelf = 'center';
       button.style.pointerEvents = 'auto';

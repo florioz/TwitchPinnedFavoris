@@ -26,7 +26,9 @@ test('Twitch payload is normalized into live data', () => {
     }
   });
 
-  assert.deepEqual(result, {
+  const { lastConfirmedAt, ...normalizedResult } = result;
+  assert.equal(Number.isFinite(lastConfirmedAt), true);
+  assert.deepEqual(normalizedResult, {
     userId: 'user-7',
     login: 'example',
     displayName: 'Example TV',
@@ -82,7 +84,8 @@ test('Twitch client preserves known live data when the request fails', async () 
     displayName: 'Example TV',
     isLive: true,
     streamId: 'stream-42',
-    viewers: 123
+    viewers: 123,
+    lastConfirmedAt: Date.now()
   };
 
   const result = await client.fetchStreamerLiveData('example', fallback);
@@ -90,6 +93,38 @@ test('Twitch client preserves known live data when the request fails', async () 
   assert.equal(result.isLive, true);
   assert.equal(result.streamId, 'stream-42');
   assert.equal(result.fetchFailed, true);
+});
+
+test('Twitch client expires stale live data when requests keep failing', async () => {
+  const client = createTwitchClient({
+    fetchImpl: async () => ({ ok: false, status: 503 }),
+    logger: { debug() {} }
+  });
+  const result = await client.fetchStreamerLiveData('example', {
+    login: 'example',
+    isLive: true,
+    streamId: 'old-stream',
+    startedAt: '2026-01-01T00:00:00.000Z',
+    lastConfirmedAt: Date.now() - 6 * 60 * 1000
+  });
+
+  assert.equal(result.isLive, false);
+  assert.equal(result.startedAt, null);
+  assert.equal(result.fetchFailed, true);
+});
+
+test('a successful Twitch response with no matching user clears stale live data', () => {
+  const result = parseStreamerLivePayload('old_name', { data: { user: null } }, {
+    login: 'old_name',
+    isLive: true,
+    startedAt: '2026-01-01T00:00:00.000Z',
+    lastConfirmedAt: Date.now()
+  });
+
+  assert.equal(result.isLive, false);
+  assert.equal(result.startedAt, null);
+  assert.equal(result.userNotFound, true);
+  assert.equal(result.fetchFailed, false);
 });
 
 test('concurrency mapper preserves input order and isolates failures', async () => {

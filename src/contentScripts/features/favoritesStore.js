@@ -192,7 +192,16 @@
           toastCustomSoundName: '',
           toastCustomSoundDataUrl: '',
           chatHistoryEnabled: true,
-          moderationHistoryEnabled: true
+          moderationHistoryEnabled: true,
+          sevenTvEmotesEnabled: false,
+          betterTtvEmotesEnabled: false,
+          playerLatencyEnabled: false,
+          chatFontEnabled: false,
+          chatFontFamily: 'system',
+          chatCustomFontName: '',
+          chatCustomFontDataUrl: '',
+          showDeletedMessagesEnabled: false,
+          showFullRepliesEnabled: false
         };
       }
       if (!Object.prototype.hasOwnProperty.call(this.state.preferences, 'sortMode')) {
@@ -310,6 +319,15 @@
       } else {
         this.state.preferences.moderationHistoryEnabled = Boolean(this.state.preferences.moderationHistoryEnabled);
       }
+      ['sevenTvEmotesEnabled', 'betterTtvEmotesEnabled', 'playerLatencyEnabled'].forEach((key) => {
+        this.state.preferences[key] = this.state.preferences[key] === true;
+      });
+      this.state.preferences.chatFontEnabled = this.state.preferences.chatFontEnabled === true;
+      this.state.preferences.chatFontFamily = this.sanitizeChatFontFamily(this.state.preferences.chatFontFamily);
+      this.state.preferences.chatCustomFontName = String(this.state.preferences.chatCustomFontName || '').slice(0, 160);
+      this.state.preferences.chatCustomFontDataUrl = this.sanitizeChatCustomFontDataUrl(this.state.preferences.chatCustomFontDataUrl);
+      this.state.preferences.showDeletedMessagesEnabled = this.state.preferences.showDeletedMessagesEnabled === true;
+      this.state.preferences.showFullRepliesEnabled = this.state.preferences.showFullRepliesEnabled === true;
       if (!Object.prototype.hasOwnProperty.call(this.state.preferences, 'toastDurationSeconds')) {
         this.state.preferences.toastDurationSeconds = 6;
       } else {
@@ -592,6 +610,8 @@
           : [],
         addedAt: typeof raw.addedAt === 'number' ? raw.addedAt : Date.now(),
         filterMatchSince: typeof raw.filterMatchSince === 'number' ? raw.filterMatchSince : 0,
+        accountLookupFailures: Math.max(0, Number(raw.accountLookupFailures || 0)),
+        accountStatus: raw.accountStatus === 'unresolved' || raw.accountStatus === 'checking' ? raw.accountStatus : '',
         recentHighlightEnabled:
           typeof raw.recentHighlightEnabled === 'boolean'
             ? raw.recentHighlightEnabled
@@ -733,6 +753,29 @@
       }
       if (typeof payload.preferences.moderationHistoryEnabled === 'boolean') {
         safePreferences.moderationHistoryEnabled = payload.preferences.moderationHistoryEnabled;
+      }
+      ['sevenTvEmotesEnabled', 'betterTtvEmotesEnabled', 'playerLatencyEnabled'].forEach((key) => {
+        if (typeof payload.preferences[key] === 'boolean') {
+          safePreferences[key] = payload.preferences[key];
+        }
+      });
+      if (typeof payload.preferences.chatFontEnabled === 'boolean') {
+        safePreferences.chatFontEnabled = payload.preferences.chatFontEnabled;
+      }
+      if (typeof payload.preferences.chatFontFamily === 'string') {
+        safePreferences.chatFontFamily = this.sanitizeChatFontFamily(payload.preferences.chatFontFamily);
+      }
+      if (typeof payload.preferences.chatCustomFontName === 'string') {
+        safePreferences.chatCustomFontName = payload.preferences.chatCustomFontName.slice(0, 160);
+      }
+      if (typeof payload.preferences.chatCustomFontDataUrl === 'string') {
+        safePreferences.chatCustomFontDataUrl = this.sanitizeChatCustomFontDataUrl(payload.preferences.chatCustomFontDataUrl);
+      }
+      if (typeof payload.preferences.showDeletedMessagesEnabled === 'boolean') {
+        safePreferences.showDeletedMessagesEnabled = payload.preferences.showDeletedMessagesEnabled;
+      }
+      if (typeof payload.preferences.showFullRepliesEnabled === 'boolean') {
+        safePreferences.showFullRepliesEnabled = payload.preferences.showFullRepliesEnabled;
       }
       if (payload.preferences.toastDurationSeconds != null) {
         const parsed = Number(payload.preferences.toastDurationSeconds);
@@ -923,6 +966,39 @@
       });
       delete this.liveData[normalized];
       this.emitter.emit({ kind: CHANGE_KIND.LIVE, liveData: this.getLiveData() });
+    }
+
+    async migrateFavoriteLogin(previousLogin, requestedLogin) {
+      const previous = String(previousLogin || '').trim().toLowerCase();
+      const requested = String(requestedLogin || '').trim().replace(/^@/, '').toLowerCase();
+      const favorite = this.state.favorites[previous];
+      if (!favorite || !requested) return { ok: false, reason: 'invalid' };
+      if (requested !== previous && this.state.favorites[requested]) return { ok: false, reason: 'duplicate' };
+
+      const live = await fetchStreamerLiveData(requested, {});
+      const resolved = String(live?.login || requested).toLowerCase();
+      if (!live || live.fetchFailed || live.userNotFound || !live.userId) {
+        return { ok: false, reason: live?.userNotFound ? 'notFound' : 'unavailable' };
+      }
+      if (resolved !== previous && this.state.favorites[resolved]) return { ok: false, reason: 'duplicate' };
+
+      const migratedFavorite = {
+        ...favorite,
+        userId: String(live.userId),
+        login: resolved,
+        displayName: live.displayName || favorite.displayName || resolved,
+        avatarUrl: live.avatarUrl || favorite.avatarUrl || DEFAULT_AVATAR,
+        accountLookupFailures: 0,
+        accountStatus: ''
+      };
+      await this.updateState((draft) => {
+        delete draft.favorites[previous];
+        draft.favorites[resolved] = migratedFavorite;
+      });
+      delete this.liveData[previous];
+      this.liveData[resolved] = live;
+      this.emitter.emit({ kind: CHANGE_KIND.LIVE, liveData: this.getLiveData() });
+      return { ok: true, login: resolved };
     }
 
     applyCurrentPageLiveData(login) {
@@ -1405,6 +1481,81 @@
       });
     }
 
+    async setSevenTvEmotesEnabled(enabled) {
+      await this.updateState((draft) => {
+        (draft.preferences || (draft.preferences = {})).sevenTvEmotesEnabled = Boolean(enabled);
+      });
+    }
+
+    async setBetterTtvEmotesEnabled(enabled) {
+      await this.updateState((draft) => {
+        (draft.preferences || (draft.preferences = {})).betterTtvEmotesEnabled = Boolean(enabled);
+      });
+    }
+
+    async setPlayerLatencyEnabled(enabled) {
+      await this.updateState((draft) => {
+        (draft.preferences || (draft.preferences = {})).playerLatencyEnabled = Boolean(enabled);
+      });
+    }
+
+    async setChatFontEnabled(enabled) {
+      await this.updateState((draft) => {
+        (draft.preferences || (draft.preferences = {})).chatFontEnabled = Boolean(enabled);
+      });
+    }
+
+    async setChatFontFamily(font) {
+      const sanitized = this.sanitizeChatFontFamily(font);
+      await this.updateState((draft) => {
+        (draft.preferences || (draft.preferences = {})).chatFontFamily = sanitized;
+      });
+    }
+
+    async setChatCustomFont({ name, dataUrl }) {
+      const safeDataUrl = this.sanitizeChatCustomFontDataUrl(dataUrl);
+      if (!safeDataUrl) return false;
+      await this.updateState((draft) => {
+        const prefs = draft.preferences || (draft.preferences = {});
+        prefs.chatCustomFontName = String(name || '').slice(0, 160);
+        prefs.chatCustomFontDataUrl = safeDataUrl;
+        prefs.chatFontFamily = 'custom';
+        prefs.chatFontEnabled = true;
+      });
+      return true;
+    }
+
+    async clearChatCustomFont() {
+      await this.updateState((draft) => {
+        const prefs = draft.preferences || (draft.preferences = {});
+        prefs.chatCustomFontName = '';
+        prefs.chatCustomFontDataUrl = '';
+        if (prefs.chatFontFamily === 'custom') prefs.chatFontFamily = 'system';
+      });
+    }
+
+    async setShowDeletedMessagesEnabled(enabled) {
+      await this.updateState((draft) => {
+        (draft.preferences || (draft.preferences = {})).showDeletedMessagesEnabled = Boolean(enabled);
+      });
+    }
+
+    async setShowFullRepliesEnabled(enabled) {
+      await this.updateState((draft) => {
+        (draft.preferences || (draft.preferences = {})).showFullRepliesEnabled = Boolean(enabled);
+      });
+    }
+
+    sanitizeChatFontFamily(font) {
+      return new Set(['system', 'arial', 'verdana', 'georgia', 'monospace', 'custom']).has(font) ? font : 'system';
+    }
+
+    sanitizeChatCustomFontDataUrl(dataUrl) {
+      const value = typeof dataUrl === 'string' ? dataUrl.trim() : '';
+      if (!/^data:(font\/|application\/(?:font|octet-stream))/.test(value)) return '';
+      return value.length <= 4_200_000 ? value : '';
+    }
+
     async setHideCollapsedGroupsUntilHover(enabled) {
       await this.updateState((draft) => {
         const prefs = draft.preferences || (draft.preferences = {});
@@ -1801,6 +1952,7 @@
 
     async refreshLiveData(options = {}) {
       if (this.isRefreshing) return;
+      if (document.visibilityState === 'hidden' && !options.forceRefresh) return;
       const forceRefresh = Boolean(options.forceRefresh);
       const now = Date.now();
       if (!forceRefresh && this.lastLiveRefreshAt && now - this.lastLiveRefreshAt < this.liveRefreshCooldownMs) {
@@ -1832,6 +1984,7 @@
         const nextLive = {};
         const favoriteUpdates = {};
         const favoriteRenames = new Map();
+        const mergeStartedAt = window.TFRPerformance?.now?.();
         updates.forEach((entry, index) => {
           const requestedLogin = favorites[index];
           const pageLive = inferCurrentPageLiveData(requestedLogin, {
@@ -1876,6 +2029,11 @@
             }
           }
         });
+        if (mergeStartedAt !== undefined) {
+          window.TFRPerformance?.report?.('favorites.mergeLiveData', mergeStartedAt, {
+            favorites: favorites.length
+          });
+        }
         Object.entries(this.state.favorites).forEach(([login, stored]) => {
           if (!stored) {
             return;

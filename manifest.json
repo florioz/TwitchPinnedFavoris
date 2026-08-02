@@ -23,7 +23,9 @@
     "https://api.github.com/*",
     "https://www.googleapis.com/*",
     "https://7tv.io/*",
-    "https://cdn.7tv.app/*"
+    "https://cdn.7tv.app/*",
+    "https://api.betterttv.net/*",
+    "https://cdn.betterttv.net/*"
   ],
   "oauth2": {
     "client_id": "242719267292-arhg90e921qqvgshlh1t35d7stk6n044.apps.googleusercontent.com",
@@ -38,9 +40,11 @@
         "https://twitch.tv/*"
       ],
       "js": [
+        "src/contentScripts/performanceMonitor.js",
         "src/contentScripts/features/favoritesStore.js",
         "src/contentScripts/features/locationWatcher.js",
         "src/contentScripts/features/chatModeration.js",
+        "src/contentScripts/features/streamEnhancements.js",
         "src/contentScripts/features/updateNotifier.js",
         "src/contentScripts/features/topNav.js",
         "src/contentScripts/features/sidebarRenderer.js",

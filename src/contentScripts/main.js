@@ -35,7 +35,16 @@
       toastCustomSoundName: '',
       toastCustomSoundDataUrl: '',
       chatHistoryEnabled: true,
-      moderationHistoryEnabled: true
+      moderationHistoryEnabled: true,
+      sevenTvEmotesEnabled: false,
+      betterTtvEmotesEnabled: false,
+      playerLatencyEnabled: false,
+      chatFontEnabled: false,
+      chatFontFamily: 'system',
+      chatCustomFontName: '',
+      chatCustomFontDataUrl: '',
+      showDeletedMessagesEnabled: false,
+      showFullRepliesEnabled: false
     }
   };
 
@@ -403,6 +412,17 @@
       'favorites.settingsTooltip': 'Param\u00e8tres du streamer',
       'details.panelTitle': 'Param\u00e8tres pour {name}',
       'details.panelClose': 'Fermer les param\u00e8tres de {name}',
+      'details.login.fix': 'Corriger le pseudo',
+      'details.login.prompt': 'Nouveau pseudo Twitch pour {name}',
+      'details.login.notFound': 'Ce compte Twitch est introuvable.',
+      'details.login.unavailable': 'Impossible de v\u00e9rifier ce compte pour le moment.',
+      'details.login.duplicate': 'Ce compte est d\u00e9j\u00e0 pr\u00e9sent dans les favoris.',
+      'favorites.issues.title': 'Favoris \u00e0 v\u00e9rifier ({count})',
+      'favorites.issues.description': 'Twitch ne retrouve plus ces pseudos apr\u00e8s plusieurs v\u00e9rifications. Corrigez le pseudo ou supprimez la favorite.',
+      'favorites.issues.missing': 'Cha\u00eene introuvable',
+      'favorites.issues.retry': 'R\u00e9essayer',
+      'favorites.issues.remove': 'Supprimer',
+      'favorites.issues.confirmRemove': 'Supprimer {name} des favoris ?',
       'common.closeAction': 'Fermer',
       'prompts.newCategory': 'Nom de la cat\u00e9gorie',
       'prompts.newSubcategory': 'Nom de la sous-cat\u00e9gorie',
@@ -433,6 +453,30 @@
       'settings.chatHistory.description': 'Affiche les derniers messages captur\u00e9s dans la carte d\u2019un viewer.',
       'settings.moderation.toggle': 'Bouton historique mod\u00e9ration',
       'settings.moderation.description': 'Ajoute un bouton dans le chat pour consulter les bans, timeouts et messages supprim\u00e9s.',
+      'settings.sevenTv.toggle': 'Afficher les \u00e9motes 7TV',
+      'settings.sevenTv.description': 'Affiche les \u00e9motes globales et celles de la cha\u00eene directement dans le chat Twitch.',
+      'settings.betterTtv.toggle': 'Afficher les \u00e9motes BetterTTV',
+      'settings.betterTtv.description': 'Affiche les \u00e9motes BetterTTV globales, partag\u00e9es et propres \u00e0 la cha\u00eene.',
+      'settings.playerLatency.toggle': 'Afficher le buffer du stream',
+      'settings.playerLatency.description': 'Ajoute sous le lecteur un indicateur du buffer vid\u00e9o disponible.',
+      'settings.playerLatency.value': 'Buffer {buffer}s',
+      'settings.chatFont.toggle': 'Personnaliser la police du chat',
+      'settings.chatFont.description': 'Remplace la police des messages et de la zone de saisie du chat.',
+      'settings.chatFont.choice': 'Police du chat',
+      'settings.chatFont.system': 'Moderne (syst\u00e8me)',
+      'settings.chatFont.arial': 'Arial',
+      'settings.chatFont.verdana': 'Verdana',
+      'settings.chatFont.georgia': 'Georgia',
+      'settings.chatFont.monospace': 'Monospace',
+      'settings.chatFont.custom': 'Police import\u00e9e',
+      'settings.chatFont.import': 'Importer une police',
+      'settings.chatFont.remove': 'Supprimer la police import\u00e9e',
+      'settings.chatFont.invalid': 'Fichier invalide ou trop volumineux (maximum 3 Mo).',
+      'settings.deletedMessages.toggle': 'Afficher les messages supprim\u00e9s',
+      'settings.deletedMessages.description': 'Conserve le contenu des messages supprim\u00e9s par la mod\u00e9ration directement dans le chat.',
+      'settings.deletedMessages.badge': 'Supprim\u00e9',
+      'settings.fullReplies.toggle': 'Afficher les r\u00e9ponses compl\u00e8tes',
+      'settings.fullReplies.description': 'D\u00e9plie le message d\u2019origine lorsqu\u2019une personne utilise la fonction R\u00e9pondre du chat.',
       'settings.collapsedGroups.toggle': 'Masquer les groupes repli\u00e9s hors survol',
       'settings.collapsedGroups.description': 'La sidebar reste compacte et les groupes masqu\u00e9s r\u00e9apparaissent quand la souris passe dessus.',
       'settings.autoCompactSidebar.toggle': 'Activer le compact automatique',
@@ -735,6 +779,17 @@
       'favorites.settingsTooltip': 'Streamer settings',
       'details.panelTitle': 'Settings for {name}',
       'details.panelClose': 'Close settings for {name}',
+      'details.login.fix': 'Fix username',
+      'details.login.prompt': 'New Twitch username for {name}',
+      'details.login.notFound': 'This Twitch account could not be found.',
+      'details.login.unavailable': 'This account cannot be verified right now.',
+      'details.login.duplicate': 'This account is already in favorites.',
+      'favorites.issues.title': 'Favorites to review ({count})',
+      'favorites.issues.description': 'Twitch could not find these usernames after several checks. Fix the username or remove the favorite.',
+      'favorites.issues.missing': 'Channel not found',
+      'favorites.issues.retry': 'Retry',
+      'favorites.issues.remove': 'Remove',
+      'favorites.issues.confirmRemove': 'Remove {name} from favorites?',
       'common.closeAction': 'Close',
       'prompts.newCategory': 'Name of the category',
       'prompts.newSubcategory': 'Name of the subcategory',
@@ -764,6 +819,30 @@
       'settings.chatHistory.description': 'Shows captured recent messages inside viewer cards.',
       'settings.moderation.toggle': 'Moderation history button',
       'settings.moderation.description': 'Adds a chat button for bans, timeouts, and deleted messages.',
+      'settings.sevenTv.toggle': 'Show 7TV emotes',
+      'settings.sevenTv.description': 'Displays global and channel 7TV emotes directly in Twitch chat.',
+      'settings.betterTtv.toggle': 'Show BetterTTV emotes',
+      'settings.betterTtv.description': 'Displays global, shared, and channel BetterTTV emotes.',
+      'settings.playerLatency.toggle': 'Show stream buffer',
+      'settings.playerLatency.description': 'Adds an indicator below the player for the available video buffer.',
+      'settings.playerLatency.value': 'Buffer {buffer}s',
+      'settings.chatFont.toggle': 'Customize chat font',
+      'settings.chatFont.description': 'Replaces the font used by chat messages and the chat input.',
+      'settings.chatFont.choice': 'Chat font',
+      'settings.chatFont.system': 'Modern (system)',
+      'settings.chatFont.arial': 'Arial',
+      'settings.chatFont.verdana': 'Verdana',
+      'settings.chatFont.georgia': 'Georgia',
+      'settings.chatFont.monospace': 'Monospace',
+      'settings.chatFont.custom': 'Imported font',
+      'settings.chatFont.import': 'Import a font',
+      'settings.chatFont.remove': 'Remove imported font',
+      'settings.chatFont.invalid': 'Invalid or oversized file (3 MB maximum).',
+      'settings.deletedMessages.toggle': 'Show deleted messages',
+      'settings.deletedMessages.description': 'Keeps messages removed by moderation visible directly in chat.',
+      'settings.deletedMessages.badge': 'Deleted',
+      'settings.fullReplies.toggle': 'Show full replies',
+      'settings.fullReplies.description': 'Expands the original message when someone uses the chat Reply feature.',
       'settings.collapsedGroups.toggle': 'Hide collapsed groups until hover',
       'settings.collapsedGroups.description': 'Keeps the sidebar compact and reveals hidden groups when the mouse hovers it.',
       'settings.autoCompactSidebar.toggle': 'Enable automatic compact mode',
@@ -1151,9 +1230,12 @@
         '[data-a-target="animated-channel-viewers-count"], [data-a-target="channel-viewers-count"], [data-a-target="stream-title"], [data-a-target="video-player"], .video-player__container'
       )
     );
-    const pageText = document.body?.innerText || '';
-    const hasLiveText = /\bLIVE\b|Bienvenue sur le chat de|spectateurs?/i.test(pageText);
-    if (!hasLiveMarker && !hasLiveText) {
+    const hasLiveChat = Boolean(
+      document.querySelector(
+        '[data-a-target="chat-input"], [data-a-target="chat-send-button"], [data-test-selector="chat-scrollable-area__message-container"]'
+      )
+    );
+    if (!hasLiveMarker && !hasLiveChat) {
       return null;
     }
     const title = getFirstText([
@@ -1200,7 +1282,11 @@
 
   const createLiveDataFallback = (login, fallback = {}) => {
     const offline = createOfflineLiveData(login, fallback);
-    if (fallback && fallback.isLive) {
+    const lastConfirmedAt = Number(fallback?.lastConfirmedAt || 0);
+    const isRecentlyConfirmed = Number.isFinite(lastConfirmedAt)
+      && lastConfirmedAt > 0
+      && Date.now() - lastConfirmedAt <= 5 * 60 * 1000;
+    if (fallback && fallback.isLive && isRecentlyConfirmed) {
       return {
         ...offline,
         ...fallback,
@@ -1208,6 +1294,7 @@
         login: String(fallback.login || login || '').toLowerCase(),
         displayName: fallback.displayName || offline.displayName,
         avatarUrl: fallback.avatarUrl || offline.avatarUrl,
+        lastConfirmedAt,
         fetchFailed: true
       };
     }
@@ -1247,7 +1334,12 @@
       const data = Array.isArray(payload) ? payload[0]?.data : payload?.data;
       const user = data?.user;
       if (!user) {
-        return fallbackLiveData;
+        return {
+          ...createOfflineLiveData(login, fallback),
+          fetchFailed: false,
+          userNotFound: true,
+          lastConfirmedAt: Date.now()
+        };
       }
       const stream = user.stream;
       return {
@@ -1260,6 +1352,7 @@
         title: stream?.title || '',
         game: stream?.game?.name || '',
         startedAt: stream?.createdAt || null,
+        lastConfirmedAt: Date.now(),
         fetchFailed: false
       };
     } catch (error) {
@@ -1308,6 +1401,23 @@
     ModerationHistoryUI,
     ViewerCardHistoryRenderer
   } = chatModerationFeatures;
+  const NoopEnhancement = class {
+    init() {}
+    configure() {}
+    dispose() {}
+  };
+  let streamEnhancements = null;
+  try {
+    streamEnhancements = window.TFRStreamEnhancements?.create?.({ t }) || null;
+  } catch (error) {
+    console.error('[TFR] stream enhancements unavailable', error);
+  }
+  const ThirdPartyChatEmotes = streamEnhancements?.ThirdPartyChatEmotes || NoopEnhancement;
+  const PlayerLatencyIndicator = streamEnhancements?.PlayerLatencyIndicator || NoopEnhancement;
+  const ChatFontManager = streamEnhancements?.ChatFontManager || NoopEnhancement;
+  const DeletedMessageViewer = streamEnhancements?.DeletedMessageViewer || NoopEnhancement;
+  const FullReplyViewer = streamEnhancements?.FullReplyViewer || NoopEnhancement;
+  const ReplyExpansionTracker = streamEnhancements?.ReplyExpansionTracker || NoopEnhancement;
   const UpdateNotifier = window.TFRUpdateNotifier?.create?.({
     UPDATE_STORAGE_KEY,
     UPDATE_REPO_API_URL,
@@ -1360,7 +1470,13 @@
     ChatHistoryTracker,
     ViewerCardHistoryRenderer,
     ModerationActionTracker,
-    ModerationHistoryUI
+    ModerationHistoryUI,
+    ThirdPartyChatEmotes,
+    PlayerLatencyIndicator,
+    ChatFontManager,
+    DeletedMessageViewer,
+    FullReplyViewer,
+    ReplyExpansionTracker
   });
   if (!FeatureController) {
     throw new Error('[TFR] feature controller module is missing');
