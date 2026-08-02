@@ -13,10 +13,30 @@ const loadSidebarRenderer = (windowRef, documentRef) => {
     cancelAnimationFrame() {}
   });
   const source = fs.readFileSync(
-    path.join(__dirname, '../src/contentScripts/features/sidebarRenderer.js'),
+    path.join(__dirname, '../src/contentScripts/features/colorTools.js'),
     'utf8'
   );
   vm.runInContext(source, context);
+  const appearanceSource = fs.readFileSync(
+    path.join(__dirname, '../src/contentScripts/features/appearancePreferences.js'),
+    'utf8'
+  );
+  vm.runInContext(appearanceSource, context);
+  const compactSource = fs.readFileSync(
+    path.join(__dirname, '../src/contentScripts/features/autoCompactEngine.js'),
+    'utf8'
+  );
+  vm.runInContext(compactSource, context);
+  const signatureSource = fs.readFileSync(
+    path.join(__dirname, '../src/contentScripts/features/sidebarSignatures.js'),
+    'utf8'
+  );
+  vm.runInContext(signatureSource, context);
+  const rendererSource = fs.readFileSync(
+    path.join(__dirname, '../src/contentScripts/features/sidebarRenderer.js'),
+    'utf8'
+  );
+  vm.runInContext(rendererSource, context);
   return context.window.TFRSidebarRenderer.create({});
 };
 
@@ -79,7 +99,7 @@ test('auto compact is immediately remeasured after crossing its release threshol
 
 test('auto compact also reduces groups containing a single streamer', () => {
   const block = {
-    dataset: { totalEntries: '1', groupId: 'single-streamer-group' },
+    dataset: { totalEntries: '1', groupId: 'single-streamer-group', singleton: 'true' },
     classList: { contains: () => false },
     scrollHeight: 120,
     removeAttribute(name) {
@@ -117,8 +137,8 @@ test('auto compact also reduces groups containing a single streamer', () => {
 
   renderer.scheduleAutoCompactCheck(true);
 
-  assert.equal(renderer.autoCompactLevel, 2);
-  assert.equal(block.dataset.compactLevel, '2');
+  assert.equal(renderer.autoCompactLevel, 3);
+  assert.equal(block.dataset.compactLevel, '3');
 });
 
 test('collapsed groups restore normal cards when the available sidebar height is sufficient', () => {

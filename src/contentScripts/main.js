@@ -2,6 +2,7 @@
   const STORAGE_KEY = 'tfr_state';
   const LIVE_CACHE_KEY = 'tfr_live_cache';
   const DEFAULT_STATE = {
+    revision: 0,
     activeProfileId: 'default',
     profiles: {},
     favorites: {},

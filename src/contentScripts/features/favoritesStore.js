@@ -48,12 +48,41 @@
   class FavoritesStore {
     constructor() {
       this.state = deepCopy(DEFAULT_STATE);
+      this.profileTools = window.TFRProfileStateTools.create({
+        deepCopy,
+        defaultPreferences: DEFAULT_STATE.preferences,
+        getDefaultName: () => t('profiles.defaultName')
+      });
+      this.backupNormalizer = window.TFRBackupNormalizer.create({
+        defaultAvatar: DEFAULT_AVATAR,
+        sanitizeCategoryList,
+        sanitizeColor: (color) => this.sanitizeCategoryColor(color)
+      });
+      this.normalizeBackupPreferences = window.TFRBackupPreferenceNormalizer.create({
+        categoryColorOpacity: (value) => this.sanitizeCategoryColorOpacity(value),
+        categoryColorGradient: (value) => this.sanitizeCategoryColorGradient(value),
+        categoryColorStyle: (value) => this.sanitizeCategoryColorStyle(value),
+        streamerItemStyle: (value) => this.sanitizeStreamerItemStyle(value),
+        autoCompactGroupStyle: (value) => this.sanitizeAutoCompactGroupStyle(value),
+        sidebarAnimationStyle: (value) => this.sanitizeSidebarAnimationStyle(value),
+        sidebarSurfaceStyle: (value) => this.sanitizeSidebarSurfaceStyle(value),
+        categoryColor: (value) => this.sanitizeCategoryColor(value),
+        specialCategoryColors: (value) => this.sanitizeSpecialCategoryColors(value),
+        toastPosition: (value) => this.sanitizeToastPosition(value),
+        toastSoundVolume: (value) => this.sanitizeToastSoundVolume(value),
+        toastSoundId: (value) => this.sanitizeToastSoundId(value),
+        toastCustomSoundName: (value) => this.sanitizeToastCustomSoundName(value),
+        toastCustomSoundDataUrl: (value) => this.sanitizeToastCustomSoundDataUrl(value),
+        chatFontFamily: (value) => this.sanitizeChatFontFamily(value),
+        chatCustomFontDataUrl: (value) => this.sanitizeChatCustomFontDataUrl(value)
+      });
       this.liveData = {};
       this.emitter = new EventEmitter();
       this.pollTimer = null;
       this.isRefreshing = false;
       this.lastLiveRefreshAt = 0;
       this.lastLiveStorageAt = 0;
+      this.stateMutationQueue = Promise.resolve();
       this.liveRefreshCooldownMs = Math.max(15_000, Math.min(60_000, Math.floor(POLL_INTERVAL_MS / 2)));
 
       chrome.storage.onChanged.addListener((changes, area) => {
@@ -61,6 +90,9 @@
         if (Object.prototype.hasOwnProperty.call(changes, STORAGE_KEY)) {
           const nextValue = changes[STORAGE_KEY]?.newValue;
           if (nextValue) {
+            const incomingRevision = Number(nextValue.revision || 0);
+            const currentRevision = Number(this.state.revision || 0);
+            if (incomingRevision < currentRevision) return;
             this.state = deepCopy({ ...DEFAULT_STATE, ...nextValue });
             this.ensureStateIntegrity();
             this.emitter.emit({ kind: CHANGE_KIND.STATE, state: this.getSnapshot() });
@@ -107,49 +139,15 @@
     }
 
     createProfileSnapshot(profile = {}) {
-      const now = Date.now();
-      return {
-        id: typeof profile.id === 'string' && profile.id.trim() ? profile.id.trim() : 'default',
-        name: typeof profile.name === 'string' && profile.name.trim() ? profile.name.trim() : t('profiles.defaultName'),
-        favorites: deepCopy(profile.favorites && typeof profile.favorites === 'object' ? profile.favorites : {}),
-        categories: deepCopy(Array.isArray(profile.categories) ? profile.categories : []),
-        preferences: deepCopy(profile.preferences && typeof profile.preferences === 'object' ? profile.preferences : this.state.preferences || DEFAULT_STATE.preferences),
-        createdAt: Number.isFinite(profile.createdAt) ? profile.createdAt : now,
-        updatedAt: Number.isFinite(profile.updatedAt) ? profile.updatedAt : now
-      };
+      return this.profileTools.createSnapshot(profile, this.state.preferences);
     }
 
     syncActiveProfile(target = this.state) {
-      const activeId = typeof target.activeProfileId === 'string' && target.activeProfileId.trim()
-        ? target.activeProfileId
-        : 'default';
-      const profiles = target.profiles && typeof target.profiles === 'object' ? target.profiles : {};
-      const current = profiles[activeId] || {};
-      profiles[activeId] = this.createProfileSnapshot({
-        ...current,
-        id: activeId,
-        favorites: target.favorites || {},
-        categories: target.categories || [],
-        preferences: target.preferences || {},
-        updatedAt: Date.now()
-      });
-      target.profiles = profiles;
-      target.activeProfileId = activeId;
+      this.profileTools.syncActive(target);
     }
 
     applyProfileToRoot(target, profileId) {
-      const profile = target.profiles?.[profileId];
-      if (!profile) {
-        return false;
-      }
-      target.activeProfileId = profileId;
-      target.favorites = deepCopy(profile.favorites || {});
-      target.categories = deepCopy(Array.isArray(profile.categories) ? profile.categories : []);
-      target.preferences = {
-        ...deepCopy(DEFAULT_STATE.preferences),
-        ...deepCopy(profile.preferences || {})
-      };
-      return true;
+      return this.profileTools.applyToRoot(target, profileId);
     }
 
     ensureStateIntegrity() {
@@ -525,16 +523,25 @@
       }
     }
 
-  async updateState(mutator, emit = true) {
-    const draft = deepCopy(this.state);
-    mutator(draft);
-    this.state = draft;
-    this.ensureStateIntegrity();
-    await this.persistState();
-    if (emit) {
-      this.emitter.emit({ kind: CHANGE_KIND.STATE, state: this.getSnapshot() });
+    async updateState(mutator, emit = true) {
+      const operation = this.stateMutationQueue.then(async () => {
+        const stored = await chrome.storage.local.get(STORAGE_KEY);
+        const persisted = stored?.[STORAGE_KEY];
+        if (persisted) {
+          this.state = deepCopy({ ...DEFAULT_STATE, ...persisted });
+          this.ensureStateIntegrity();
+        }
+        const draft = deepCopy(this.state);
+        mutator(draft);
+        draft.revision = Math.max(Number(this.state.revision || 0), Number(draft.revision || 0)) + 1;
+        this.state = draft;
+        this.ensureStateIntegrity();
+        await this.persistState();
+        if (emit) this.emitter.emit({ kind: CHANGE_KIND.STATE, state: this.getSnapshot() });
+      });
+      this.stateMutationQueue = operation.catch(() => {});
+      return operation;
     }
-  }
 
   getBackupData() {
     this.syncActiveProfile(this.state);
@@ -593,218 +600,10 @@
     if (!payload || typeof payload !== 'object') {
       throw new Error('Backup invalide');
     }
-    const safeFavorites = {};
-    const sourceFavorites = payload.favorites && typeof payload.favorites === 'object' ? payload.favorites : {};
-    Object.entries(sourceFavorites).forEach(([login, raw]) => {
-      if (!login || typeof login !== 'string' || !raw || typeof raw !== 'object') {
-        return;
-      }
-      const normalized = login.toLowerCase();
-      const entry = {
-        userId: String(raw.userId || raw.id || ''),
-        login: normalized,
-        displayName: typeof raw.displayName === 'string' && raw.displayName ? raw.displayName : normalized,
-        avatarUrl: typeof raw.avatarUrl === 'string' && raw.avatarUrl ? raw.avatarUrl : DEFAULT_AVATAR,
-        categories: Array.isArray(raw.categories)
-          ? raw.categories.filter((id) => typeof id === 'string' && id)
-          : [],
-        addedAt: typeof raw.addedAt === 'number' ? raw.addedAt : Date.now(),
-        filterMatchSince: typeof raw.filterMatchSince === 'number' ? raw.filterMatchSince : 0,
-        accountLookupFailures: Math.max(0, Number(raw.accountLookupFailures || 0)),
-        accountStatus: raw.accountStatus === 'unresolved' || raw.accountStatus === 'checking' ? raw.accountStatus : '',
-        recentHighlightEnabled:
-          typeof raw.recentHighlightEnabled === 'boolean'
-            ? raw.recentHighlightEnabled
-            : true
-      };
-      if (!entry.categories.length && typeof raw.category === 'string' && raw.category) {
-        entry.categories = [raw.category];
-      }
-      const rawFilter = raw.categoryFilter && typeof raw.categoryFilter === 'object' ? raw.categoryFilter : null;
-      let categoryFilter = { enabled: false, categories: [] };
-      if (rawFilter) {
-        let categories = [];
-        if (Array.isArray(rawFilter.categories)) {
-          categories = sanitizeCategoryList(rawFilter.categories);
-        } else if (typeof rawFilter.category === 'string') {
-          categories = sanitizeCategoryList([rawFilter.category]);
-        }
-        categoryFilter = { enabled: Boolean(rawFilter.enabled), categories };
-      } else if (typeof raw.requiredCategory === 'string' && raw.requiredCategory.trim()) {
-        categoryFilter = { enabled: true, categories: sanitizeCategoryList([raw.requiredCategory]) };
-      }
-      entry.categoryFilter = categoryFilter;
-      safeFavorites[normalized] = entry;
-    });
+    const safeFavorites = this.backupNormalizer.favorites(payload.favorites);
+    const safeCategories = this.backupNormalizer.categories(payload.categories);
 
-    const safeCategories = [];
-    const sourceCategories = Array.isArray(payload.categories) ? payload.categories : [];
-    const idUsage = new Set();
-    sourceCategories.forEach((raw, index) => {
-      if (!raw || typeof raw !== 'object') {
-        return;
-      }
-      let id = typeof raw.id === 'string' && raw.id.trim() ? raw.id.trim() : `cat_${Date.now()}_${index}`;
-      const baseId = id;
-      let dedupe = 1;
-      while (idUsage.has(id)) {
-        id = `${baseId}_${dedupe++}`;
-      }
-      idUsage.add(id);
-      const name = typeof raw.name === 'string' && raw.name.trim() ? raw.name.trim() : `Cat\u00e9gorie ${index + 1}`;
-      const sortOrder = typeof raw.sortOrder === 'number' ? raw.sortOrder : Date.now() + index;
-      const collapsed = typeof raw.collapsed === 'boolean' ? raw.collapsed : false;
-      const parentId = typeof raw.parentId === 'string' && raw.parentId.trim() ? raw.parentId.trim() : null;
-      const color = this.sanitizeCategoryColor(raw.color);
-      safeCategories.push({ id, name, sortOrder, collapsed, parentId, color });
-    });
-
-    const safePreferences = {};
-    if (payload.preferences && typeof payload.preferences === 'object') {
-      if (typeof payload.preferences.sortMode === 'string') {
-        safePreferences.sortMode = payload.preferences.sortMode;
-      }
-      if (typeof payload.preferences.uncategorizedCollapsed === 'boolean') {
-        safePreferences.uncategorizedCollapsed = payload.preferences.uncategorizedCollapsed;
-      }
-      if (typeof payload.preferences.liveFavoritesCollapsed === 'boolean') {
-        safePreferences.liveFavoritesCollapsed = payload.preferences.liveFavoritesCollapsed;
-      }
-      if (typeof payload.preferences.liveFavoritesEnabled === 'boolean') {
-        safePreferences.liveFavoritesEnabled = payload.preferences.liveFavoritesEnabled;
-      }
-      if (typeof payload.preferences.recentLiveEnabled === 'boolean') {
-        safePreferences.recentLiveEnabled = payload.preferences.recentLiveEnabled;
-      }
-      if (typeof payload.preferences.recentLiveCollapsed === 'boolean') {
-        safePreferences.recentLiveCollapsed = payload.preferences.recentLiveCollapsed;
-      }
-      if (typeof payload.preferences.hideCollapsedGroupsUntilHover === 'boolean') {
-        safePreferences.hideCollapsedGroupsUntilHover = payload.preferences.hideCollapsedGroupsUntilHover;
-      }
-      if (typeof payload.preferences.autoCompactSidebarEnabled === 'boolean') {
-        safePreferences.autoCompactSidebarEnabled = payload.preferences.autoCompactSidebarEnabled;
-      }
-      if (payload.preferences.categoryColorOpacity != null) {
-        safePreferences.categoryColorOpacity = this.sanitizeCategoryColorOpacity(payload.preferences.categoryColorOpacity);
-      }
-      if (payload.preferences.categoryColorGradient != null) {
-        safePreferences.categoryColorGradient = this.sanitizeCategoryColorGradient(payload.preferences.categoryColorGradient);
-      }
-      if (typeof payload.preferences.categoryColorStyle === 'string') {
-        safePreferences.categoryColorStyle = this.sanitizeCategoryColorStyle(payload.preferences.categoryColorStyle);
-      }
-      if (typeof payload.preferences.streamerItemStyle === 'string') {
-        safePreferences.streamerItemStyle = this.sanitizeStreamerItemStyle(payload.preferences.streamerItemStyle);
-      }
-      if (typeof payload.preferences.autoCompactStreamerStyle === 'string') {
-        safePreferences.autoCompactStreamerStyle = this.sanitizeStreamerItemStyle(payload.preferences.autoCompactStreamerStyle);
-      }
-      if (typeof payload.preferences.autoCompactGroupStyle === 'string') {
-        safePreferences.autoCompactGroupStyle = this.sanitizeAutoCompactGroupStyle(payload.preferences.autoCompactGroupStyle);
-      }
-      if (typeof payload.preferences.sidebarAnimationStyle === 'string') {
-        safePreferences.sidebarAnimationStyle = this.sanitizeSidebarAnimationStyle(payload.preferences.sidebarAnimationStyle);
-      }
-      if (typeof payload.preferences.sidebarSurfaceStyle === 'string') {
-        safePreferences.sidebarSurfaceStyle = this.sanitizeSidebarSurfaceStyle(payload.preferences.sidebarSurfaceStyle);
-      }
-      if (typeof payload.preferences.sidebarSurfaceColor === 'string') {
-        safePreferences.sidebarSurfaceColor = this.sanitizeCategoryColor(payload.preferences.sidebarSurfaceColor);
-      }
-      if (payload.preferences.specialCategoryColors && typeof payload.preferences.specialCategoryColors === 'object') {
-        safePreferences.specialCategoryColors = this.sanitizeSpecialCategoryColors(payload.preferences.specialCategoryColors);
-      }
-      if (payload.preferences.recentLiveThresholdMinutes != null) {
-        const parsed = Number(payload.preferences.recentLiveThresholdMinutes);
-        if (Number.isFinite(parsed)) {
-          safePreferences.recentLiveThresholdMinutes = Math.max(1, Math.min(120, Math.round(parsed)));
-        }
-      }
-      if (payload.preferences.toastDurationSeconds != null) {
-        const parsed = Number(payload.preferences.toastDurationSeconds);
-        if (Number.isFinite(parsed)) {
-          safePreferences.toastDurationSeconds = Math.max(2, Math.min(60, Math.round(parsed)));
-        }
-      }
-      if (typeof payload.preferences.toastEnabled === 'boolean') {
-        safePreferences.toastEnabled = payload.preferences.toastEnabled;
-      }
-      if (typeof payload.preferences.toastPosition === 'string') {
-        safePreferences.toastPosition = this.sanitizeToastPosition(payload.preferences.toastPosition);
-      }
-      if (typeof payload.preferences.toastSoundEnabled === 'boolean') {
-        safePreferences.toastSoundEnabled = payload.preferences.toastSoundEnabled;
-      }
-      if (payload.preferences.toastSoundVolume != null) {
-        safePreferences.toastSoundVolume = this.sanitizeToastSoundVolume(payload.preferences.toastSoundVolume);
-      }
-      if (typeof payload.preferences.toastSoundId === 'string') {
-        safePreferences.toastSoundId = this.sanitizeToastSoundId(payload.preferences.toastSoundId);
-      }
-      if (typeof payload.preferences.toastCustomSoundName === 'string') {
-        safePreferences.toastCustomSoundName = this.sanitizeToastCustomSoundName(payload.preferences.toastCustomSoundName);
-      }
-      if (typeof payload.preferences.toastCustomSoundDataUrl === 'string') {
-        safePreferences.toastCustomSoundDataUrl = this.sanitizeToastCustomSoundDataUrl(payload.preferences.toastCustomSoundDataUrl);
-      }
-      if (typeof payload.preferences.chatHistoryEnabled === 'boolean') {
-        safePreferences.chatHistoryEnabled = payload.preferences.chatHistoryEnabled;
-      }
-      if (typeof payload.preferences.moderationHistoryEnabled === 'boolean') {
-        safePreferences.moderationHistoryEnabled = payload.preferences.moderationHistoryEnabled;
-      }
-      ['sevenTvEmotesEnabled', 'betterTtvEmotesEnabled', 'playerLatencyEnabled'].forEach((key) => {
-        if (typeof payload.preferences[key] === 'boolean') {
-          safePreferences[key] = payload.preferences[key];
-        }
-      });
-      if (typeof payload.preferences.chatFontEnabled === 'boolean') {
-        safePreferences.chatFontEnabled = payload.preferences.chatFontEnabled;
-      }
-      if (typeof payload.preferences.chatFontFamily === 'string') {
-        safePreferences.chatFontFamily = this.sanitizeChatFontFamily(payload.preferences.chatFontFamily);
-      }
-      if (typeof payload.preferences.chatCustomFontName === 'string') {
-        safePreferences.chatCustomFontName = payload.preferences.chatCustomFontName.slice(0, 160);
-      }
-      if (typeof payload.preferences.chatCustomFontDataUrl === 'string') {
-        safePreferences.chatCustomFontDataUrl = this.sanitizeChatCustomFontDataUrl(payload.preferences.chatCustomFontDataUrl);
-      }
-      if (typeof payload.preferences.showDeletedMessagesEnabled === 'boolean') {
-        safePreferences.showDeletedMessagesEnabled = payload.preferences.showDeletedMessagesEnabled;
-      }
-      if (typeof payload.preferences.showFullRepliesEnabled === 'boolean') {
-        safePreferences.showFullRepliesEnabled = payload.preferences.showFullRepliesEnabled;
-      }
-      if (payload.preferences.toastDurationSeconds != null) {
-        const parsed = Number(payload.preferences.toastDurationSeconds);
-        if (Number.isFinite(parsed)) {
-          safePreferences.toastDurationSeconds = Math.max(2, Math.min(60, Math.round(parsed)));
-        }
-      }
-      if (typeof payload.preferences.toastEnabled === 'boolean') {
-        safePreferences.toastEnabled = payload.preferences.toastEnabled;
-      }
-      if (typeof payload.preferences.toastPosition === 'string') {
-        safePreferences.toastPosition = this.sanitizeToastPosition(payload.preferences.toastPosition);
-      }
-      if (typeof payload.preferences.toastSoundEnabled === 'boolean') {
-        safePreferences.toastSoundEnabled = payload.preferences.toastSoundEnabled;
-      }
-      if (payload.preferences.toastSoundVolume != null) {
-        safePreferences.toastSoundVolume = this.sanitizeToastSoundVolume(payload.preferences.toastSoundVolume);
-      }
-      if (typeof payload.preferences.toastSoundId === 'string') {
-        safePreferences.toastSoundId = this.sanitizeToastSoundId(payload.preferences.toastSoundId);
-      }
-      if (typeof payload.preferences.toastCustomSoundName === 'string') {
-        safePreferences.toastCustomSoundName = this.sanitizeToastCustomSoundName(payload.preferences.toastCustomSoundName);
-      }
-      if (typeof payload.preferences.toastCustomSoundDataUrl === 'string') {
-        safePreferences.toastCustomSoundDataUrl = this.sanitizeToastCustomSoundDataUrl(payload.preferences.toastCustomSoundDataUrl);
-      }
-    }
+    const safePreferences = this.normalizeBackupPreferences(payload.preferences);
 
     await this.updateState((draft) => {
       draft.favorites = safeFavorites;
@@ -901,37 +700,10 @@
     }
 
     getCategoriesTree() {
-      const nodes = this.state.categories.map((category) => ({
-        id: category.id,
-        name: category.name,
-        collapsed: Boolean(category.collapsed),
-        sortOrder: typeof category.sortOrder === 'number' ? category.sortOrder : 0,
-        parentId: category.parentId || null,
-        color: this.sanitizeCategoryColor(category.color),
-        children: []
-      }));
-      const nodeMap = new Map();
-      nodes.forEach((node) => nodeMap.set(node.id, node));
-      const roots = [];
-      nodes.forEach((node) => {
-        if (node.parentId && nodeMap.has(node.parentId) && node.parentId !== node.id) {
-          nodeMap.get(node.parentId).children.push(node);
-        } else {
-          node.parentId = null;
-          roots.push(node);
-        }
-      });
-      const sortRecursive = (list) => {
-        list.sort((a, b) => {
-          if (a.sortOrder !== b.sortOrder) {
-            return a.sortOrder - b.sortOrder;
-          }
-          return a.name.localeCompare(b.name, 'fr');
-        });
-        list.forEach((child) => sortRecursive(child.children));
-      };
-      sortRecursive(roots);
-      return roots;
+      return window.TFRCategoryTreeTools.build(
+        this.state.categories,
+        (color) => this.sanitizeCategoryColor(color)
+      );
     }
 
     async addFavorite(login) {
@@ -1604,53 +1376,19 @@
     }
 
     sanitizeStreamerItemStyle(value) {
-      const allowed = new Set([
-        'default',
-        'compact',
-        'card',
-        'soft-card',
-        'outline',
-        'left-line',
-        'avatar-ring',
-        'avatar-square',
-        'neon',
-        'viewer-badge',
-        'game-focus',
-        'title-focus',
-        'glass',
-        'minimal',
-        'avatar-grid'
-      ]);
-      return allowed.has(value) ? value : 'default';
+      return window.TFRAppearancePreferences.sanitizeStreamerItemStyle(value);
     }
 
     sanitizeSidebarSurfaceStyle(value) {
-      const allowed = new Set([
-        'default',
-        'full',
-        'panel',
-        'glow',
-        'rail',
-        'connected',
-        'layers',
-        'canvas',
-        'edge',
-        'spectrum',
-        'pulse',
-        'poster',
-        'arcade'
-      ]);
-      return allowed.has(value) ? value : 'default';
+      return window.TFRAppearancePreferences.sanitizeSidebarSurfaceStyle(value);
     }
 
     sanitizeAutoCompactGroupStyle(value) {
-      const allowed = new Set(['default', 'dense', 'vertical']);
-      return allowed.has(value) ? value : 'default';
+      return window.TFRAppearancePreferences.sanitizeAutoCompactGroupStyle(value);
     }
 
     sanitizeSidebarAnimationStyle(value) {
-      const allowed = new Set(['none', 'soft', 'slide', 'pop', 'glow', 'fly', 'bounce', 'spin', 'glitch']);
-      return allowed.has(value) ? value : 'soft';
+      return window.TFRAppearancePreferences.sanitizeSidebarAnimationStyle(value);
     }
 
     sanitizeSpecialCategoryColors(colors = {}) {

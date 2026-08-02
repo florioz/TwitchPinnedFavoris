@@ -67,13 +67,7 @@ class FavoritesOverlay {
   }
 
   hexToRgb(hex) {
-    const normalized = typeof hex === 'string' && /^#[0-9a-f]{6}$/i.test(hex) ? hex.slice(1) : '';
-    if (!normalized) return null;
-    return {
-      r: parseInt(normalized.slice(0, 2), 16),
-      g: parseInt(normalized.slice(2, 4), 16),
-      b: parseInt(normalized.slice(4, 6), 16)
-    };
+    return window.TFRColorTools.hexToRgb(hex);
   }
 
   applyCategoryColorVars(element, color) {
@@ -86,37 +80,7 @@ class FavoritesOverlay {
   }
 
   hsvToHex(hue, saturation, value) {
-    const h = ((hue % 360) + 360) % 360;
-    const s = Math.max(0, Math.min(1, saturation));
-    const v = Math.max(0, Math.min(1, value));
-    const c = v * s;
-    const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
-    const m = v - c;
-    let r = 0;
-    let g = 0;
-    let b = 0;
-    if (h < 60) {
-      r = c;
-      g = x;
-    } else if (h < 120) {
-      r = x;
-      g = c;
-    } else if (h < 180) {
-      g = c;
-      b = x;
-    } else if (h < 240) {
-      g = x;
-      b = c;
-    } else if (h < 300) {
-      r = x;
-      b = c;
-    } else {
-      r = c;
-      b = x;
-    }
-    return `#${[r, g, b]
-      .map((channel) => Math.round((channel + m) * 255).toString(16).padStart(2, '0'))
-      .join('')}`;
+    return window.TFRColorTools.hsvToHex(hue, saturation, value);
   }
 
   getColorFromWheelEvent(event, element) {
@@ -528,26 +492,13 @@ class FavoritesOverlay {
   }
 
   downloadJson(payload, filename) {
-    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement('a');
-    anchor.href = url;
-    anchor.download = filename;
-    document.body.appendChild(anchor);
-    anchor.click();
-    anchor.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    window.TFRBackupTools.downloadJson(payload, filename);
   }
 
   handleExportProfile() {
     try {
       const payload = this.store.getActiveProfileExportData();
-      const safeName = String(payload.profile?.name || 'profil')
-        .normalize('NFD')
-        .replace(/[\u0300-\u036f]/g, '')
-        .replace(/[^a-z0-9_-]+/gi, '-')
-        .replace(/^-+|-+$/g, '')
-        .toLowerCase() || 'profil';
+      const safeName = window.TFRBackupTools.slugify(payload.profile?.name, 'profil');
       this.downloadJson(payload, `twitch-favoris-profil-${safeName}.json`);
     } catch (error) {
       console.error('[TFR] Profile export error', error);
@@ -3013,17 +2964,8 @@ class FavoritesOverlay {
   async handleExportBackup() {
     try {
       const payload = this.store.getBackupData();
-      const serialized = JSON.stringify(payload, null, 2);
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-      const blob = new Blob([serialized], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const anchor = document.createElement('a');
-      anchor.href = url;
-      anchor.download = `twitch-favoris-backup-${timestamp}.json`;
-      document.body.appendChild(anchor);
-      anchor.click();
-      document.body.removeChild(anchor);
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      this.downloadJson(payload, `twitch-favoris-backup-${timestamp}.json`);
     } catch (error) {
       console.error('[TFR] Export backup error', error);
       window.alert(t('backup.exportError'));
@@ -3075,16 +3017,7 @@ class FavoritesOverlay {
   }
 
   async applyBackupContent(rawText) {
-    const normalizedText = typeof rawText === 'string' ? rawText.trim() : '';
-    if (!normalizedText) {
-      throw new Error('Contenu vide');
-    }
-    let parsed = null;
-    try {
-      parsed = JSON.parse(normalizedText);
-    } catch (error) {
-      throw new Error('JSON invalide');
-    }
+    const parsed = window.TFRBackupTools.parseJson(rawText);
     const confirmed = window.confirm(t('confirms.import'));
     if (!confirmed) {
       return;

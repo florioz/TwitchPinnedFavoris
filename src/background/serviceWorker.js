@@ -21,6 +21,7 @@ const STORAGE_KEY = 'tfr_state';
 const LIVE_CACHE_KEY = 'tfr_live_cache';
 const NOTIFIED_STREAMS_KEY = 'tfr_notified_streams';
 const DEFAULT_STATE = {
+  revision: 0,
   activeProfileId: 'default',
   profiles: {},
   favorites: {},
@@ -672,9 +673,29 @@ const performLiveStatusEvaluation = async (reason = 'manual') => {
   }
 
   if (favoriteMetadataUpdates.size) {
-    const nextFavorites = { ...favorites };
-    const nextNotifiedStreams = { ...previousNotifiedStreams };
+    const latestStored = await extensionApi.storage.local.get([STORAGE_KEY, NOTIFIED_STREAMS_KEY]);
+    const latestState = latestStored?.[STORAGE_KEY] && typeof latestStored[STORAGE_KEY] === 'object'
+      ? latestStored[STORAGE_KEY]
+      : state;
+    const nextFavorites = { ...(latestState.favorites || {}) };
+    const nextNotifiedStreams = {
+      ...(latestStored?.[NOTIFIED_STREAMS_KEY] || previousNotifiedStreams)
+    };
+    const renamedTargets = new Set(renamedFavorites.values());
     renamedFavorites.forEach((nextLogin, previousLogin) => {
+      const currentFavorite = nextFavorites[previousLogin];
+      const identityUpdate = favoriteMetadataUpdates.get(nextLogin);
+      if (currentFavorite && identityUpdate) {
+        nextFavorites[nextLogin] = {
+          ...currentFavorite,
+          userId: identityUpdate.userId,
+          login: identityUpdate.login,
+          displayName: identityUpdate.displayName,
+          avatarUrl: identityUpdate.avatarUrl,
+          accountLookupFailures: identityUpdate.accountLookupFailures,
+          accountStatus: identityUpdate.accountStatus
+        };
+      }
       delete nextFavorites[previousLogin];
       if (nextNotifiedStreams[previousLogin] && !nextNotifiedStreams[nextLogin]) {
         nextNotifiedStreams[nextLogin] = nextNotifiedStreams[previousLogin];
@@ -682,18 +703,30 @@ const performLiveStatusEvaluation = async (reason = 'manual') => {
       delete nextNotifiedStreams[previousLogin];
     });
     favoriteMetadataUpdates.forEach((favorite, login) => {
-      nextFavorites[login] = favorite;
+      if (renamedTargets.has(login)) return;
+      const currentFavorite = nextFavorites[login];
+      if (!currentFavorite) return;
+      nextFavorites[login] = {
+        ...currentFavorite,
+        userId: favorite.userId,
+        login: favorite.login,
+        displayName: favorite.displayName,
+        avatarUrl: favorite.avatarUrl,
+        accountLookupFailures: favorite.accountLookupFailures,
+        accountStatus: favorite.accountStatus
+      };
     });
     favorites = nextFavorites;
     previousNotifiedStreams = nextNotifiedStreams;
-    state.favorites = nextFavorites;
-    const activeProfileId = state.activeProfileId;
-    if (activeProfileId && state.profiles?.[activeProfileId]) {
-      state.profiles[activeProfileId].favorites = nextFavorites;
-      state.profiles[activeProfileId].updatedAt = now;
+    latestState.favorites = nextFavorites;
+    latestState.revision = Number(latestState.revision || 0) + 1;
+    const activeProfileId = latestState.activeProfileId;
+    if (activeProfileId && latestState.profiles?.[activeProfileId]) {
+      latestState.profiles[activeProfileId].favorites = nextFavorites;
+      latestState.profiles[activeProfileId].updatedAt = now;
     }
     await extensionApi.storage.local.set({
-      [STORAGE_KEY]: state,
+      [STORAGE_KEY]: latestState,
       [NOTIFIED_STREAMS_KEY]: nextNotifiedStreams
     });
   }

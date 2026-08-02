@@ -9,6 +9,7 @@
   class SidebarRenderer {
     constructor(store) {
       this.store = store;
+      this.signatures = window.TFRSidebarSignatures.create({ getLiveDataEntry });
       this.container = null;
       this.sideNavObserver = null;
       this.unsubscribe = null;
@@ -162,118 +163,46 @@
         cancelAnimationFrame(this.autoCompactFrame);
         this.autoCompactFrame = null;
       }
-      const clearGroupCompaction = () => {
-        this.container?.querySelectorAll('.tfr-category-block[data-compact-level]').forEach((block) => {
-          block.removeAttribute('data-compact-level');
-        });
-      };
+      const engine = window.TFRAutoCompactEngine;
       if (!enabled || !this.container) {
-        this.isAutoCompact = false;
-        this.autoCompactLevel = 0;
-        this.autoCompactActivationHeight = 0;
-        this.previousCompactLevels = new Map();
+        const result = engine?.clear(this.container) || {
+          active: false,
+          level: 0,
+          activationHeight: 0,
+          levels: new Map()
+        };
+        this.isAutoCompact = result.active;
+        this.autoCompactLevel = result.level;
+        this.autoCompactActivationHeight = result.activationHeight;
+        this.previousCompactLevels = result.levels;
         this.lastAutoCompactSignature = '';
-        clearGroupCompaction();
-        this.container?.classList.remove('is-auto-compact');
-        this.container?.removeAttribute('data-auto-compact');
-        this.container?.removeAttribute('data-auto-compact-level');
         return;
       }
-      if (!document.body.contains(this.container)) {
-        return;
-      }
+      if (!document.body.contains(this.container) || !engine) return;
       const parent = this.container.parentElement;
       const windowHeight = Math.max(1, Number(window.innerHeight) || 1);
       const viewportHeight = Math.max(1, window.innerHeight - this.container.getBoundingClientRect().top - 8);
-      const measuredHeights = [
-        parent?.clientHeight || 0,
-        viewportHeight
-      ].filter((height) => Number.isFinite(height) && height > 0);
-      const visibleHeight = Math.max(1, Math.min(...measuredHeights));
-      this.container.dataset.autoCompact = 'measuring';
-      clearGroupCompaction();
-
-      if (
-        this.autoCompactActivationHeight > 0
-        && windowHeight >= this.autoCompactActivationHeight + 120
-      ) {
-        this.isAutoCompact = false;
-        this.autoCompactLevel = 0;
-        this.autoCompactActivationHeight = 0;
-        this.container.classList.remove('is-auto-compact');
-        this.container.dataset.autoCompact = 'idle';
-        this.container.dataset.autoCompactLevel = '0';
-        this.previousCompactLevels = new Map();
-      }
-
-      const isOverflowing = (ratio = 1) => this.container.scrollHeight > visibleHeight * ratio;
-      if (!isOverflowing(1.08)) {
-        this.isAutoCompact = false;
-        this.autoCompactLevel = 0;
-        this.autoCompactActivationHeight = 0;
-        this.container.classList.remove('is-auto-compact');
-        this.container.dataset.autoCompact = 'idle';
-        this.container.dataset.autoCompactLevel = '0';
-        this.previousCompactLevels = new Map();
-        return;
-      }
-
-      const candidates = Array.from(this.container.querySelectorAll('.tfr-category-block'))
-        .filter((block) => !block.classList.contains('is-collapsed'))
-        .map((block, index) => ({
-          block,
-          index,
-          entries: Number(block.dataset.totalEntries || '0'),
-          height: block.scrollHeight
-        }))
-        .filter((item) => item.entries > 0 && item.height > 0)
-        .sort((a, b) => (b.height - a.height) || (b.entries - a.entries) || (a.index - b.index));
-
-      for (const item of candidates) {
-        item.block.dataset.compactLevel = '1';
-        if (!isOverflowing(1.02)) break;
-      }
-
-      if (isOverflowing(1.02)) {
-        for (const item of candidates) {
-          item.block.dataset.compactLevel = '2';
-          if (!isOverflowing(1.0)) break;
-        }
-      }
-
-      const nextLevel = candidates.reduce((level, item) => Math.max(level, Number(item.block.dataset.compactLevel || '0')), 0);
-      const shouldCompact = nextLevel > 0;
-      this.autoCompactLevel = nextLevel;
-      this.isAutoCompact = shouldCompact;
-      if (shouldCompact && !this.autoCompactActivationHeight) {
-        this.autoCompactActivationHeight = windowHeight;
-      }
-      this.container.classList.toggle('is-auto-compact', shouldCompact);
-      this.container.dataset.autoCompact = shouldCompact ? 'active' : 'idle';
-      this.container.dataset.autoCompactLevel = String(nextLevel);
-      this.previousCompactLevels = new Map(
-        Array.from(this.container.querySelectorAll('.tfr-category-block[data-group-id]')).map((block) => [
-          block.dataset.groupId,
-          block.dataset.compactLevel || '0'
-        ])
-      );
+      const result = engine.measure({
+        container: this.container,
+        parent,
+        windowHeight,
+        viewportHeight,
+        activationHeight: this.autoCompactActivationHeight
+      });
+      this.isAutoCompact = result.active;
+      this.autoCompactLevel = result.level;
+      this.autoCompactActivationHeight = result.activationHeight;
+      this.previousCompactLevels = result.levels;
     }
 
     getSidebarAnimationStyle() {
       if (this.suppressAnimationsOnce || document.hidden) return 'none';
-      const allowed = new Set(['none', 'soft', 'slide', 'pop', 'glow', 'fly', 'bounce', 'spin', 'glitch']);
       const value = this.store.getState()?.preferences?.sidebarAnimationStyle;
-      return allowed.has(value) ? value : 'soft';
+      return this.sanitizeSidebarAnimationStyle(value);
     }
 
     hexToRgb(hex) {
-      const normalized = typeof hex === 'string' && /^#[0-9a-f]{6}$/i.test(hex) ? hex.slice(1) : '';
-      if (!normalized) return null;
-      return {
-        r: parseInt(normalized.slice(0, 2), 16),
-        g: parseInt(normalized.slice(2, 4), 16),
-        b: parseInt(normalized.slice(4, 6), 16)
-      };
+      return window.TFRColorTools.hexToRgb(hex);
     }
 
     getCategoryAppearance(preferences = {}) {
@@ -354,148 +283,34 @@
 
 
     sanitizeStreamerItemStyle(value) {
-      const allowed = new Set([
-        'default',
-        'compact',
-        'card',
-        'soft-card',
-        'outline',
-        'left-line',
-        'avatar-ring',
-        'avatar-square',
-        'neon',
-        'viewer-badge',
-        'game-focus',
-        'title-focus',
-        'glass',
-        'minimal',
-        'avatar-grid'
-      ]);
-      return allowed.has(value) ? value : 'default';
+      return window.TFRAppearancePreferences.sanitizeStreamerItemStyle(value);
     }
 
     sanitizeSidebarSurfaceStyle(value) {
-      const allowed = new Set([
-        'default',
-        'full',
-        'panel',
-        'glow',
-        'rail',
-        'connected',
-        'layers',
-        'canvas',
-        'edge',
-        'spectrum',
-        'pulse',
-        'poster',
-        'arcade'
-      ]);
-      return allowed.has(value) ? value : 'default';
+      return window.TFRAppearancePreferences.sanitizeSidebarSurfaceStyle(value);
     }
 
     sanitizeSidebarAnimationStyle(value) {
-      const allowed = new Set(['none', 'soft', 'slide', 'pop', 'glow', 'fly', 'bounce', 'spin', 'glitch']);
-      return allowed.has(value) ? value : 'soft';
+      return window.TFRAppearancePreferences.sanitizeSidebarAnimationStyle(value);
     }
 
     sanitizeAutoCompactGroupStyle(value) {
-      const allowed = new Set(['default', 'dense', 'vertical']);
-      return allowed.has(value) ? value : 'default';
+      return window.TFRAppearancePreferences.sanitizeAutoCompactGroupStyle(value);
     }
 
     createRenderSignature(state, liveData, groups, options = {}) {
-      const preferences = state.preferences || {};
-      const liveParts = groups.flatMap((group) => {
-        const parts = [];
-        const walk = (item) => {
-          parts.push([
-            'g',
-            item.id,
-            item.name,
-            item.collapsed ? 1 : 0,
-            item.color || '',
-            item.totalEntries || 0
-          ].join(':'));
-          (item.entries || []).forEach((fav) => {
-            const live = getLiveDataEntry(liveData, fav) || {};
-            parts.push([
-              'f',
-              fav.login,
-              live.isLive ? 1 : 0,
-              live.displayName || fav.displayName || fav.login,
-              live.avatarUrl || fav.avatarUrl || '',
-              live.viewers || 0,
-              live.game || '',
-              live.title || ''
-            ].join(':'));
-          });
-          (item.children || []).forEach(walk);
-        };
-        walk(group);
-        return parts;
-      });
-      return JSON.stringify({
-        enabled: state.preferences?.liveFavoritesEnabled !== false,
-        hover: Boolean(options.isSidebarHovering),
-        compactLevel: this.autoCompactLevel,
-        prefs: {
-          hideCollapsedGroupsUntilHover: Boolean(preferences.hideCollapsedGroupsUntilHover),
-          autoCompactSidebarEnabled: Boolean(preferences.autoCompactSidebarEnabled),
-          streamerItemStyle: preferences.streamerItemStyle || '',
-          autoCompactStreamerStyle: preferences.autoCompactStreamerStyle || '',
-          autoCompactGroupStyle: preferences.autoCompactGroupStyle || '',
-          sidebarAnimationStyle: preferences.sidebarAnimationStyle || '',
-          sidebarSurfaceStyle: preferences.sidebarSurfaceStyle || '',
-          sidebarSurfaceColor: preferences.sidebarSurfaceColor || '',
-          categoryColorOpacity: preferences.categoryColorOpacity,
-          categoryColorGradient: preferences.categoryColorGradient,
-          categoryColorStyle: preferences.categoryColorStyle || '',
-          specialCategoryColors: preferences.specialCategoryColors || {}
-        },
-        liveParts
+      return this.signatures.render(state, liveData, groups, {
+        ...options,
+        compactLevel: this.autoCompactLevel
       });
     }
 
     createAutoCompactSignature(state, groups) {
-      const preferences = state.preferences || {};
-      const groupParts = [];
-      groups.forEach((group) => {
-        const walk = (item) => {
-          groupParts.push([
-            item.id,
-            item.collapsed ? 1 : 0,
-            item.totalEntries || 0,
-            (item.children || []).length
-          ].join(':'));
-          (item.children || []).forEach(walk);
-        };
-        walk(group);
-      });
-      return JSON.stringify({
-        enabled: Boolean(preferences.autoCompactSidebarEnabled),
-        streamerItemStyle: preferences.streamerItemStyle || '',
-        autoCompactStreamerStyle: preferences.autoCompactStreamerStyle || '',
-        autoCompactGroupStyle: preferences.autoCompactGroupStyle || '',
-        sidebarSurfaceStyle: preferences.sidebarSurfaceStyle || '',
-        hideCollapsedGroupsUntilHover: Boolean(preferences.hideCollapsedGroupsUntilHover),
-        hover: Boolean(this.isSidebarHovering),
-        groupParts
-      });
+      return this.signatures.autoCompact(state, groups, this.isSidebarHovering);
     }
 
     createLiveStructureSignature(groups) {
-      const parts = [];
-      const walk = (group) => {
-        parts.push([
-          group.id,
-          group.collapsed ? 1 : 0,
-          (group.entries || []).map((favorite) => favorite.login).sort().join(','),
-          (group.children || []).map((child) => child.id).sort().join(',')
-        ].join(':'));
-        (group.children || []).forEach(walk);
-      };
-      groups.forEach(walk);
-      return parts.sort().join('|');
+      return this.signatures.liveStructure(groups);
     }
 
     patchLiveDataOrRender() {
@@ -1167,6 +982,7 @@
       block.dataset.depth = String(depth);
       block.dataset.totalEntries = String(group.totalEntries);
       block.dataset.groupId = group.id;
+      block.dataset.singleton = String(group.entries.length === 1 && visibleChildBlocks.length === 0);
       const previousCompactLevel = this.previousCompactLevels.get(group.id);
       if (previousCompactLevel && previousCompactLevel !== '0') {
         block.dataset.compactLevel = previousCompactLevel;
@@ -1188,6 +1004,7 @@
       chevron.textContent = '>';
       chevron.setAttribute('aria-hidden', 'true');
       const name = document.createElement('span');
+      name.className = 'tfr-category-name';
       name.textContent = group.name;
       const count = document.createElement('span');
       count.className = 'tfr-category-count';
