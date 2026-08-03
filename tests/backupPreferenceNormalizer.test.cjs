@@ -26,7 +26,10 @@ const normalize = context.window.TFRBackupPreferenceNormalizer.create({
   toastCustomSoundName: identity,
   toastCustomSoundDataUrl: identity,
   chatFontFamily: identity,
-  chatCustomFontDataUrl: identity
+  chatCustomFontDataUrl: identity,
+  chatMentionHighlightColor: identity,
+  chatMentionSoundId: identity,
+  liveHoverPreviewMode: (value) => value === 'video' ? 'video' : 'image'
 });
 
 test('backup preferences keep typed values and ignore invalid booleans', () => {
@@ -34,23 +37,33 @@ test('backup preferences keep typed values and ignore invalid booleans', () => {
     liveFavoritesEnabled: true,
     recentLiveEnabled: 'yes',
     sortMode: 'nameAsc',
-    streamerItemStyle: 'compact'
+    streamerItemStyle: 'compact',
+    liveHoverPreviewMode: 'video',
+    chatMentionHighlightEnabled: true,
+    chatMentionHighlightColor: '#123456',
+    chatMentionSoundId: 'chime'
   });
   assert.equal(result.liveFavoritesEnabled, true);
   assert.equal(result.recentLiveEnabled, undefined);
   assert.equal(result.sortMode, 'nameAsc');
   assert.equal(result.streamerItemStyle, 'compact');
+  assert.equal(result.liveHoverPreviewMode, 'video');
+  assert.equal(result.chatMentionHighlightEnabled, true);
+  assert.equal(result.chatMentionHighlightColor, '#123456');
+  assert.equal(result.chatMentionSoundId, 'chime');
 });
 
 test('backup preferences clamp durations and truncate custom font names', () => {
   const result = normalize({
     recentLiveThresholdMinutes: 999,
     toastDurationSeconds: 0,
+    chatPaddingPx: 99,
     categoryColorOpacity: 150,
     chatCustomFontName: 'x'.repeat(200)
   });
   assert.equal(result.recentLiveThresholdMinutes, 120);
   assert.equal(result.toastDurationSeconds, 2);
+  assert.equal(result.chatPaddingPx, 20);
   assert.equal(result.categoryColorOpacity, 100);
   assert.equal(result.chatCustomFontName.length, 160);
 });

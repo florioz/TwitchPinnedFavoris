@@ -1757,3 +1757,66 @@ nav[data-a-target="side-nav"] * {
 #tfr-favorites-root * {
   pointer-events: auto !important;
 }
+
+.tfr-live-hover-preview {
+  position: fixed;
+  z-index: 2147483646;
+  width: min(300px, calc(100vw - 20px));
+  overflow: hidden;
+  border: 1px solid rgba(191, 148, 255, 0.42);
+  border-radius: 10px;
+  background: rgba(14, 9, 24, 0.97);
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.48);
+  color: #f7f7f8;
+  pointer-events: none;
+  animation: tfr-live-preview-enter 0.16s ease-out both;
+}
+
+.tfr-live-hover-preview.is-video {
+  pointer-events: auto;
+}
+
+.tfr-live-hover-preview__media {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border: 0;
+  background: #0e0e10;
+}
+
+.tfr-live-hover-preview__image {
+  object-fit: cover;
+}
+
+.tfr-live-hover-preview__body {
+  display: grid;
+  gap: 3px;
+  padding: 9px 10px 10px;
+}
+
+.tfr-live-hover-preview__body strong,
+.tfr-live-hover-preview__body span,
+.tfr-live-hover-preview__body small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tfr-live-hover-preview__body strong {
+  font-size: 13px;
+}
+
+.tfr-live-hover-preview__body span {
+  color: #bf94ff;
+  font-size: 11px;
+}
+
+.tfr-live-hover-preview__body small {
+  color: #c8c8d0;
+  font-size: 11px;
+}
+
+@keyframes tfr-live-preview-enter {
+  from { opacity: 0; transform: translateX(-4px) scale(0.98); }
+  to { opacity: 1; transform: translateX(0) scale(1); }
+}

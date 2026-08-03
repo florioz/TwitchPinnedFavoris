@@ -8,8 +8,9 @@
     ThirdPartyChatEmotes,
     PlayerLatencyIndicator,
     ChatFontManager,
+    ChatPaddingManager,
+    ChatMentionHighlighter,
     DeletedMessageViewer,
-    FullReplyViewer,
     ReplyExpansionTracker
   }) => {
 class FeatureController {
@@ -20,20 +21,57 @@ class FeatureController {
     this.moderationTracker = null;
     this.moderationHistoryUI = null;
     this.unsubscribe = null;
-    this.thirdPartyChatEmotes = null;
-    this.playerLatencyIndicator = null;
-    this.chatFontManager = null;
-    this.deletedMessageViewer = null;
-    this.fullReplyViewer = null;
-    this.replyExpansionTracker = null;
     this.enhancementDefinitions = [
-      { property: 'thirdPartyChatEmotes', Type: ThirdPartyChatEmotes, label: 'emote enhancement' },
-      { property: 'playerLatencyIndicator', Type: PlayerLatencyIndicator, label: 'player indicator' },
-      { property: 'chatFontManager', Type: ChatFontManager, label: 'chat font' },
-      { property: 'deletedMessageViewer', Type: DeletedMessageViewer, label: 'deleted message viewer' },
-      { property: 'fullReplyViewer', Type: FullReplyViewer, label: 'full reply viewer' },
-      { property: 'replyExpansionTracker', Type: ReplyExpansionTracker, label: 'reply expansion tracker' }
+      {
+        property: 'thirdPartyChatEmotes', Type: ThirdPartyChatEmotes, label: 'emote enhancement',
+        selectPreferences: (prefs) => ({
+          sevenTvEnabled: prefs.sevenTvEmotesEnabled === true,
+          betterTtvEnabled: prefs.betterTtvEmotesEnabled === true
+        })
+      },
+      {
+        property: 'playerLatencyIndicator', Type: PlayerLatencyIndicator, label: 'player indicator',
+        selectPreferences: (prefs) => prefs.playerLatencyEnabled === true
+      },
+      {
+        property: 'chatFontManager', Type: ChatFontManager, label: 'chat font',
+        selectPreferences: (prefs) => ({
+          enabled: prefs.chatFontEnabled === true,
+          font: prefs.chatFontFamily || 'system',
+          customName: prefs.chatCustomFontName || '',
+          customDataUrl: prefs.chatCustomFontDataUrl || ''
+        })
+      },
+      {
+        property: 'chatPaddingManager', Type: ChatPaddingManager, label: 'chat padding',
+        selectPreferences: (prefs) => ({
+          enabled: prefs.chatNoPaddingEnabled === true,
+          paddingPx: Number.isFinite(Number(prefs.chatPaddingPx))
+            ? Math.max(0, Math.min(20, Math.round(Number(prefs.chatPaddingPx))))
+            : 0
+        })
+      },
+      {
+        property: 'chatMentionHighlighter', Type: ChatMentionHighlighter, label: 'chat mention highlighter',
+        selectPreferences: (prefs) => ({
+          enabled: prefs.chatMentionHighlightEnabled === true,
+          color: prefs.chatMentionHighlightColor || '#9147ff',
+          soundEnabled: prefs.chatMentionSoundEnabled === true,
+          soundId: prefs.chatMentionSoundId || 'soft'
+        })
+      },
+      {
+        property: 'deletedMessageViewer', Type: DeletedMessageViewer, label: 'deleted message viewer',
+        selectPreferences: (prefs) => prefs.showDeletedMessagesEnabled === true
+      },
+      {
+        property: 'replyExpansionTracker', Type: ReplyExpansionTracker, label: 'reply expansion tracker',
+        selectPreferences: (prefs) => prefs.showFullRepliesEnabled === true
+      }
     ];
+    this.enhancementDefinitions.forEach(({ property }) => {
+      this[property] = null;
+    });
   }
 
   init() {
@@ -81,36 +119,9 @@ class FeatureController {
     const wantsModeration = prefs.moderationHistoryEnabled !== false;
     const needsMessageTracker = wantsViewerChatHistory || wantsModeration;
 
-    this.configureEnhancement('thirdPartyChatEmotes', {
-        sevenTvEnabled: prefs.sevenTvEmotesEnabled === true,
-        betterTtvEnabled: prefs.betterTtvEmotesEnabled === true
-      }, 'emote enhancement');
-    this.configureEnhancement(
-      'playerLatencyIndicator',
-      prefs.playerLatencyEnabled === true,
-      'player indicator'
-    );
-    this.configureEnhancement('chatFontManager', {
-        enabled: prefs.chatFontEnabled === true,
-        font: prefs.chatFontFamily || 'system',
-        customName: prefs.chatCustomFontName || '',
-        customDataUrl: prefs.chatCustomFontDataUrl || ''
-      }, 'chat font');
-    this.configureEnhancement(
-      'deletedMessageViewer',
-      prefs.showDeletedMessagesEnabled === true,
-      'deleted message viewer'
-    );
-    this.configureEnhancement(
-      'fullReplyViewer',
-      prefs.showFullRepliesEnabled === true,
-      'full reply viewer'
-    );
-    this.configureEnhancement(
-      'replyExpansionTracker',
-      prefs.showFullRepliesEnabled === true,
-      'reply expansion tracker'
-    );
+    this.enhancementDefinitions.forEach(({ property, label, selectPreferences }) => {
+      this.configureEnhancement(property, selectPreferences(prefs), label);
+    });
 
     if (needsMessageTracker) {
       this.ensureChatHistory();
@@ -165,17 +176,20 @@ class FeatureController {
       this.ensureChatHistory();
     }
     if (this.moderationTracker) {
-      if (!this.moderationHistoryUI) {
-        this.moderationHistoryUI = new ModerationHistoryUI(this.moderationTracker);
-        this.moderationHistoryUI.init();
-      }
+      this.ensureModerationHistoryUI();
       return;
     }
     this.moderationTracker = new ModerationActionTracker(this.chatHistory);
     this.moderationTracker.init();
+    this.ensureModerationHistoryUI();
+  }
+
+  ensureModerationHistoryUI() {
+    if (this.moderationHistoryUI || !this.moderationTracker) return;
     this.moderationHistoryUI = new ModerationHistoryUI(this.moderationTracker);
     this.moderationHistoryUI.init();
   }
+
   teardownModeration() {
     this.moderationHistoryUI?.dispose();
     this.moderationHistoryUI = null;

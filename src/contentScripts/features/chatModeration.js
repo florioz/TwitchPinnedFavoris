@@ -1873,6 +1873,7 @@
       this.latestActions = [];
       this.isOpen = false;
       this.mountFrame = null;
+      this.buttonAnchor = null;
       this.seenActionIds = new Set();
       this.hasUnread = false;
       this.dragState = null;
@@ -1880,6 +1881,7 @@
       this.handleDocumentClick = this.handleDocumentClick.bind(this);
       this.handleKeydown = this.handleKeydown.bind(this);
       this.handleResize = this.handleResize.bind(this);
+      this.handleControlsResize = this.scheduleMount.bind(this);
       this.handlePanelDragMove = this.handlePanelDragMove.bind(this);
       this.handlePanelDragEnd = this.handlePanelDragEnd.bind(this);
     }
@@ -1892,6 +1894,7 @@
         }
       }
       this.observeControls();
+      window.addEventListener('resize', this.handleControlsResize);
       this.scheduleMount();
     }
 
@@ -1900,6 +1903,7 @@
       this.unsubscribe = null;
       this.containerObserver?.disconnect();
       this.containerObserver = null;
+      window.removeEventListener('resize', this.handleControlsResize);
       if (this.mountFrame) {
         cancelAnimationFrame(this.mountFrame);
         this.mountFrame = null;
@@ -1908,6 +1912,7 @@
       if (this.button?.parentElement) {
         this.button.parentElement.removeChild(this.button);
       }
+      this.clearButtonAnchor();
       this.button = null;
       this.panel = null;
       this.panelContent = null;
@@ -1937,17 +1942,78 @@
     }
 
     mountButton() {
+      const anchor = this.findControlsAnchor();
       const container = this.findControlsContainer();
       const button = this.ensureButton();
-      if (!container) {
+      const anchorToolbar = this.findAnchorToolbar(anchor);
+      const mountContainer = anchorToolbar || container;
+      if (!mountContainer) {
         if (button?.parentElement) {
           button.parentElement.removeChild(button);
         }
+        this.clearButtonAnchor();
         return;
       }
-      if (!container.contains(button)) {
-        container.appendChild(button);
+      if (anchor && anchorToolbar) {
+        this.mountAnchoredButton(button, anchor, mountContainer);
+      } else {
+        this.clearButtonAnchor();
+        button.style.removeProperty('left');
+        button.style.removeProperty('top');
+        if (!mountContainer.contains(button)) mountContainer.appendChild(button);
       }
+    }
+
+    clearButtonAnchor() {
+      this.buttonAnchor?.classList.remove('tfr-mod-history-anchor');
+      this.buttonAnchor = null;
+    }
+
+    mountAnchoredButton(button, anchor, toolbar) {
+      if (this.buttonAnchor !== toolbar) {
+        this.clearButtonAnchor();
+        this.buttonAnchor = toolbar;
+        toolbar.classList.add('tfr-mod-history-anchor');
+      }
+      if (button.parentElement !== toolbar) toolbar.appendChild(button);
+
+      const toolbarRect = toolbar.getBoundingClientRect();
+      const anchorRect = anchor.getBoundingClientRect();
+      const buttonWidth = button.offsetWidth || 32;
+      const buttonHeight = button.offsetHeight || 32;
+      button.style.left = `${Math.max(0, anchorRect.left - toolbarRect.left - buttonWidth)}px`;
+      button.style.top = `${Math.max(0, anchorRect.top - toolbarRect.top + (anchorRect.height - buttonHeight) / 2)}px`;
+    }
+
+    findAnchorToolbar(anchor) {
+      let candidate = anchor?.parentElement;
+      while (candidate instanceof HTMLElement) {
+        if (candidate.getBoundingClientRect().width >= 120) {
+          return candidate;
+        }
+        candidate = candidate.parentElement;
+      }
+      return null;
+    }
+
+    findControlsAnchor() {
+      const selectors = [
+        'button[data-a-target="chat-settings"]',
+        'button[data-a-target="chat-settings-button"]',
+        'button[data-test-selector="chat-settings-button"]',
+        'button[data-a-target="chat-room-settings"]',
+        'button[aria-label*="Paramètres"]',
+        'button[aria-label*="Settings"]'
+      ];
+      for (const selector of selectors) {
+        try {
+          const anchor = document.querySelector(selector);
+          if (anchor instanceof HTMLElement) return anchor;
+        } catch {
+          // Twitch can replace this toolbar while selectors are evaluated.
+        }
+      }
+      return null;
     }
 
     findControlsContainer() {
@@ -1973,13 +2039,9 @@
         }
       }
       const anchors = [
-        'button[data-a-target="chat-settings"]',
-        'button[data-a-target="chat-settings-button"]',
-        'button[data-test-selector="chat-settings-button"]',
-        'button[data-a-target="chat-room-settings"]',
         'button[data-a-target="chat-slow-mode-toggle"]',
         'button[data-test-selector="chat-slow-mode-toggle"]',
-        'button[aria-label*="Settings"]'
+        'button[aria-label*="Mode lent"]'
       ];
       for (const selector of anchors) {
         try {

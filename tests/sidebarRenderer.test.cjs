@@ -32,6 +32,11 @@ const loadSidebarRenderer = (windowRef, documentRef) => {
     'utf8'
   );
   vm.runInContext(signatureSource, context);
+  const previewSource = fs.readFileSync(
+    path.join(__dirname, '../src/contentScripts/features/liveHoverPreview.js'),
+    'utf8'
+  );
+  vm.runInContext(previewSource, context);
   const rendererSource = fs.readFileSync(
     path.join(__dirname, '../src/contentScripts/features/sidebarRenderer.js'),
     'utf8'

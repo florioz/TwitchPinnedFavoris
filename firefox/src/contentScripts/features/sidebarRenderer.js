@@ -10,6 +10,7 @@
     constructor(store) {
       this.store = store;
       this.signatures = window.TFRSidebarSignatures.create({ getLiveDataEntry });
+      this.liveHoverPreview = window.TFRLiveHoverPreview.create({ formatViewers, t });
       this.container = null;
       this.sideNavObserver = null;
       this.unsubscribe = null;
@@ -118,6 +119,7 @@
         clearTimeout(this.previewTimer);
         this.previewTimer = null;
       }
+      this.liveHoverPreview.dispose();
     }
 
     scheduleRender({ defer = false, liveUpdate = false } = {}) {
@@ -336,14 +338,7 @@
         const live = getLiveDataEntry(liveData, favorite) || {};
         const displayName = live.displayName || favorite.displayName || favorite.login;
         const viewers = formatViewers(live.viewers || 0);
-        const tooltip = [
-          displayName,
-          live.game || '',
-          live.title || '',
-          live.viewers ? t('sidebar.viewerCount', { count: viewers }) : ''
-        ].filter(Boolean).join('\n');
-        entry.title = tooltip;
-        entry.dataset.tooltip = tooltip;
+        this.applyPreviewMetadata(entry, favorite, live);
 
         const avatar = entry.querySelector('.tfr-favorite-entry__avatar');
         if (avatar) {
@@ -706,6 +701,7 @@
       });
 
       this.container = container;
+      this.liveHoverPreview.attach(container);
     }
 
     collectGroups(state, liveData) {
@@ -826,6 +822,28 @@
       return groups;
     }
 
+    applyPreviewMetadata(entry, favorite, live = {}) {
+      const stream = live || {};
+      const displayName = stream.displayName || favorite.displayName || favorite.login;
+      const viewers = Number(stream.viewers || 0);
+      const tooltip = [
+        displayName,
+        stream.game || '',
+        stream.title || '',
+        viewers ? t('sidebar.viewerCount', { count: formatViewers(viewers) }) : ''
+      ].filter(Boolean).join('\n');
+      entry.title = tooltip;
+      Object.assign(entry.dataset, {
+        tooltip,
+        livePreview: String(Boolean(stream.isLive)),
+        previewName: displayName,
+        previewGame: stream.game || '',
+        previewTitle: stream.title || '',
+        previewViewers: String(viewers)
+      });
+      if (this.liveHoverPreview.enabled && stream.isLive) entry.removeAttribute('title');
+    }
+
     createFavoriteEntry(fav, liveData, groupColor = '') {
       const live = getLiveDataEntry(liveData, fav);
       const anchor = document.createElement('a');
@@ -835,14 +853,7 @@
       anchor.href = `https://www.twitch.tv/${fav.login}`;
       anchor.target = '_self';
       anchor.rel = 'noopener noreferrer';
-      const tooltipParts = [
-        live?.displayName || fav.displayName,
-        live?.game || '',
-        live?.title || '',
-        live?.viewers ? t('sidebar.viewerCount', { count: formatViewers(live.viewers) }) : ''
-      ].filter(Boolean);
-      anchor.title = tooltipParts.join('\n');
-      anchor.dataset.tooltip = anchor.title;
+      this.applyPreviewMetadata(anchor, fav, live);
       this.applyFavoriteAccent(anchor, groupColor);
 
       const avatar = document.createElement('img');
@@ -898,7 +909,11 @@
       const liveData = this.store.getLiveData();
     const hideCollapsedUntilHover = Boolean(state.preferences?.hideCollapsedGroupsUntilHover);
     const shouldHideCollapsedGroups = hideCollapsedUntilHover && !this.isSidebarHovering;
-    const autoCompactEnabled = Boolean(state.preferences?.autoCompactSidebarEnabled);
+      const autoCompactEnabled = Boolean(state.preferences?.autoCompactSidebarEnabled);
+    this.liveHoverPreview.configure(
+      state.preferences?.liveHoverPreviewEnabled === true,
+      state.preferences?.liveHoverPreviewMode || 'image'
+    );
     if (!autoCompactEnabled) {
       this.isAutoCompact = false;
       this.autoCompactLevel = 0;

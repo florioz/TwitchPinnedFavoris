@@ -10,6 +10,38 @@
     const MESSAGE_BODY_SELECTOR = '[data-a-target="chat-message-text"], [data-a-target="chat-line-message-body"], [data-test-selector="chat-line-message-body"]';
     const TWITCH_GQL_ENDPOINT = 'https://gql.twitch.tv/gql';
     const TWITCH_CLIENT_ID = 'kimne78kx3ncx6brgo4mv6wki5h1ko';
+    const CHAT_RETRY_DELAY_MS = 1500;
+
+    const findChatContainer = () => {
+      for (const selector of CHAT_CONTAINER_SELECTORS) {
+        const node = document.querySelector(selector);
+        if (node) return node;
+      }
+      return null;
+    };
+
+    const scheduleChatRetry = (owner, callback) => {
+      if (owner.retryTimer) return;
+      owner.retryTimer = window.setTimeout(() => {
+        owner.retryTimer = null;
+        callback();
+      }, CHAT_RETRY_DELAY_MS);
+    };
+
+    const clearChatRetry = (owner) => {
+      clearTimeout(owner.retryTimer);
+      owner.retryTimer = null;
+    };
+
+    const visitMatchingElements = (node, selector, callback) => {
+      if (!(node instanceof Element)) return;
+      const matches = new Set();
+      if (node.matches?.(selector)) matches.add(node);
+      const closest = node.closest?.(selector);
+      if (closest) matches.add(closest);
+      node.querySelectorAll?.(selector).forEach((element) => matches.add(element));
+      matches.forEach(callback);
+    };
 
     const currentLogin = () => {
       const login = window.location.pathname.match(/^\/([^/?#]+)/)?.[1]?.toLowerCase() || '';
@@ -41,10 +73,9 @@
 
       dispose() {
         this.observer?.disconnect();
-        clearTimeout(this.retryTimer);
+        clearChatRetry(this);
         clearInterval(this.locationTimer);
         this.observer = null;
-        this.retryTimer = null;
         this.locationTimer = null;
         this.emotes.clear();
       }
@@ -138,22 +169,11 @@
         return target;
       }
 
-      findContainer() {
-        for (const selector of CHAT_CONTAINER_SELECTORS) {
-          const node = document.querySelector(selector);
-          if (node) return node;
-        }
-        return null;
-      }
-
       observeChat() {
         if (!this.enabledSevenTv && !this.enabledBetterTtv) return;
-        const container = this.findContainer();
+        const container = findChatContainer();
         if (!container) {
-          if (!this.retryTimer) this.retryTimer = window.setTimeout(() => {
-            this.retryTimer = null;
-            this.observeChat();
-          }, 1500);
+          scheduleChatRetry(this, () => this.observeChat());
           return;
         }
         if (container === this.container && this.observer) return;
@@ -173,11 +193,7 @@
       }
 
       scanNode(node) {
-        if (!(node instanceof Element)) return;
-        if (node.matches(MESSAGE_SELECTOR)) this.renderMessage(node);
-        const parentMessage = node.closest?.(MESSAGE_SELECTOR);
-        if (parentMessage) this.renderMessage(parentMessage);
-        node.querySelectorAll?.(MESSAGE_SELECTOR).forEach((message) => this.renderMessage(message));
+        visitMatchingElements(node, MESSAGE_SELECTOR, (message) => this.renderMessage(message));
       }
 
       renderMessage(message) {
@@ -359,27 +375,15 @@
       stop() {
         this.observer?.disconnect();
         this.observer = null;
-        clearTimeout(this.retryTimer);
-        this.retryTimer = null;
+        clearChatRetry(this);
         document.querySelectorAll('.tfr-deleted-message-content').forEach((node) => node.remove());
         this.snapshotsById.clear();
       }
 
-      findContainer() {
-        for (const selector of CHAT_CONTAINER_SELECTORS) {
-          const node = document.querySelector(selector);
-          if (node) return node;
-        }
-        return null;
-      }
-
       observe() {
-        const container = this.findContainer();
+        const container = findChatContainer();
         if (!container) {
-          if (!this.retryTimer) this.retryTimer = window.setTimeout(() => {
-            this.retryTimer = null;
-            this.observe();
-          }, 1500);
+          scheduleChatRetry(this, () => this.observe());
           return;
         }
         this.container = container;
@@ -403,10 +407,7 @@
 
       scanNode(node) {
         if (!(node instanceof Element) || node.classList.contains('tfr-deleted-message-content')) return;
-        if (node.matches(MESSAGE_SELECTOR)) this.processMessage(node);
-        const parent = node.closest?.(MESSAGE_SELECTOR);
-        if (parent) this.processMessage(parent);
-        node.querySelectorAll?.(MESSAGE_SELECTOR).forEach((message) => this.processMessage(message));
+        visitMatchingElements(node, MESSAGE_SELECTOR, (message) => this.processMessage(message));
       }
 
       isDeleted(message) {
@@ -458,15 +459,152 @@
       }
     }
 
-    class FullReplyViewer {
+    class RootClassToggle {
+      constructor(className) {
+        this.className = className;
+      }
+
       init() {}
 
       configure(enabled) {
-        document.documentElement.classList.toggle('tfr-chat-full-replies', Boolean(enabled));
+        document.documentElement.classList.toggle(this.className, Boolean(enabled));
       }
 
       dispose() {
-        document.documentElement.classList.remove('tfr-chat-full-replies');
+        document.documentElement.classList.remove(this.className);
+      }
+    }
+
+    class ChatPaddingManager extends RootClassToggle {
+      constructor() {
+        super('tfr-chat-no-padding');
+      }
+
+      configure(preferences) {
+        const enabled = preferences?.enabled === true || preferences === true;
+        const parsed = Number(preferences?.paddingPx);
+        const paddingPx = Number.isFinite(parsed) ? Math.max(0, Math.min(20, Math.round(parsed))) : 0;
+        document.documentElement.classList.toggle(this.className, enabled);
+        if (enabled) {
+          document.documentElement.style.setProperty('--tfr-chat-padding', `${paddingPx}px`);
+        } else {
+          document.documentElement.style.removeProperty('--tfr-chat-padding');
+        }
+      }
+
+      dispose() {
+        super.dispose();
+        document.documentElement.style.removeProperty('--tfr-chat-padding');
+      }
+    }
+
+    class ChatMentionHighlighter {
+      constructor() {
+        this.enabled = false;
+        this.soundEnabled = false;
+        this.soundId = 'soft';
+        this.login = '';
+        this.container = null;
+        this.observer = null;
+        this.retryTimer = null;
+        this.audio = null;
+      }
+
+      init() {
+        this.ensureAudio();
+      }
+
+      ensureAudio() {
+        if (this.audio) return this.audio;
+        const audioFactory = globalThis.__TFR_TOAST_AUDIO__?.createToastAudio;
+        if (audioFactory) {
+          this.audio = audioFactory({
+            AudioContextConstructor: window.AudioContext || window.webkitAudioContext,
+            AudioConstructor: window.Audio
+          });
+        }
+        return this.audio;
+      }
+
+      configure({ enabled, color, soundEnabled, soundId }) {
+        this.enabled = Boolean(enabled);
+        this.soundEnabled = Boolean(soundEnabled);
+        this.soundId = new Set(['soft', 'chime', 'arcade', 'pulse', 'alert']).has(soundId) ? soundId : 'soft';
+        document.documentElement.style.setProperty('--tfr-chat-mention-color', this.sanitizeColor(color));
+        if (this.enabled) this.observe();
+        else this.stop();
+      }
+
+      sanitizeColor(color) {
+        return /^#[0-9a-f]{6}$/i.test(String(color || '')) ? color : '#9147ff';
+      }
+
+      resolveLogin() {
+        for (const key of ['twilight-user', 'current-user']) {
+          try {
+            const user = JSON.parse(window.localStorage.getItem(key) || 'null');
+            const login = user?.login || user?.name || user?.username;
+            if (login) return String(login).toLowerCase();
+          } catch {}
+        }
+        const menu = document.querySelector('[data-a-target="user-menu-toggle"]');
+        const candidate = menu?.querySelector('img[alt]')?.alt
+          || menu?.dataset?.aUser
+          || menu?.getAttribute('data-user-login');
+        return String(candidate || '').replace(/^@/, '').trim().toLowerCase();
+      }
+
+      observe() {
+        this.login = this.resolveLogin();
+        const container = findChatContainer();
+        if (!container || !this.login) {
+          scheduleChatRetry(this, () => {
+            if (this.enabled) this.observe();
+          });
+          return;
+        }
+        if (container === this.container && this.observer) return;
+        this.container = container;
+        container.querySelectorAll(MESSAGE_SELECTOR).forEach((message) => this.processMessage(message, false));
+        this.observer?.disconnect();
+        this.observer = new MutationObserver((mutations) => mutations.forEach((mutation) =>
+          mutation.addedNodes.forEach((node) => this.scanNode(node))
+        ));
+        this.observer.observe(container, { childList: true, subtree: true });
+      }
+
+      scanNode(node) {
+        visitMatchingElements(node, MESSAGE_SELECTOR, (message) => this.processMessage(message, true));
+      }
+
+      processMessage(message, allowSound) {
+        if (!this.enabled || !this.login || message.dataset.tfrMentionChecked === this.login) return;
+        const body = message.querySelector(MESSAGE_BODY_SELECTOR);
+        if (!body) return;
+        const normalizedText = String(body.textContent || '').toLowerCase();
+        const escapedLogin = this.login.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const mentioned = new RegExp(`(^|[^a-z0-9_])@${escapedLogin}(?=$|[^a-z0-9_])`, 'i').test(normalizedText);
+        message.dataset.tfrMentionChecked = this.login;
+        message.classList.toggle('tfr-chat-mention', mentioned);
+        if (mentioned && allowSound && this.soundEnabled) {
+          this.ensureAudio()?.play({ soundId: this.soundId, volume: 35 });
+        }
+      }
+
+      stop() {
+        this.observer?.disconnect();
+        this.observer = null;
+        clearChatRetry(this);
+        this.container = null;
+        document.querySelectorAll('.tfr-chat-mention').forEach((message) => {
+          message.classList.remove('tfr-chat-mention');
+          delete message.dataset.tfrMentionChecked;
+        });
+      }
+
+      dispose() {
+        this.stop();
+        document.documentElement.style.removeProperty('--tfr-chat-mention-color');
       }
     }
 
@@ -488,27 +626,15 @@
       stop() {
         this.observer?.disconnect();
         this.observer = null;
-        clearTimeout(this.retryTimer);
-        this.retryTimer = null;
+        clearChatRetry(this);
         document.querySelectorAll('.tfr-custom-reply-content').forEach((node) => node.remove());
-        document.querySelectorAll('.tfr-native-reply-content').forEach((wrapper) => {
-          wrapper.replaceWith(...wrapper.childNodes);
-        });
         document.querySelectorAll('.tfr-custom-reply-context').forEach((node) => node.classList.remove('tfr-custom-reply-context'));
       }
 
-      findContainer() {
-        for (const selector of CHAT_CONTAINER_SELECTORS) {
-          const node = document.querySelector(selector);
-          if (node) return node;
-        }
-        return null;
-      }
-
       observe() {
-        const container = this.findContainer();
+        const container = findChatContainer();
         if (!container) {
-          if (!this.retryTimer) this.retryTimer = window.setTimeout(() => { this.retryTimer = null; this.observe(); }, 1500);
+          scheduleChatRetry(this, () => this.observe());
           return;
         }
         this.container = container;
@@ -521,11 +647,7 @@
       }
 
       scanNode(node) {
-        if (!(node instanceof Element)) return;
-        const closestContext = node.closest?.('p[title]');
-        if (closestContext) this.renderNativeContext(closestContext);
-        if (node.matches?.('p[title]')) this.renderNativeContext(node);
-        node.querySelectorAll?.('p[title]').forEach((context) => this.renderNativeContext(context));
+        visitMatchingElements(node, 'p[title]', (context) => this.renderNativeContext(context));
       }
 
       renderNativeContext(replyContext) {
@@ -539,31 +661,30 @@
         const customReply = document.createElement('span');
         customReply.className = 'tfr-custom-reply-content';
 
-        const label = document.createElement('span');
-        label.className = 'tfr-custom-reply-label';
-        label.textContent = /^replying\s+to/i.test(nativeText) ? 'Replying to ' : 'R\u00e9pond \u00e0 ';
-
         const author = document.createElement('span');
         author.className = 'tfr-custom-reply-author';
-        author.textContent = nativeAuthor.startsWith('@') ? nativeAuthor : `@${nativeAuthor}`;
+        author.dataset.tfrText = nativeAuthor.startsWith('@') ? nativeAuthor : `@${nativeAuthor}`;
 
         const message = document.createElement('span');
         message.className = 'tfr-custom-reply-message';
-        message.textContent = ` : ${fullMessage}`;
+        message.dataset.tfrText = ` : ${fullMessage}`;
 
-        customReply.append(label, author, message);
-        const nativeWrapper = document.createElement('span');
-        nativeWrapper.className = 'tfr-native-reply-content';
-        nativeWrapper.hidden = true;
-        nativeWrapper.style.setProperty('display', 'none', 'important');
-        while (replyContext.firstChild) nativeWrapper.appendChild(replyContext.firstChild);
+        customReply.append(author, message);
         replyContext.classList.add('tfr-custom-reply-context');
-        replyContext.append(nativeWrapper, customReply);
+        replyContext.appendChild(customReply);
       }
 
     }
 
-    return { ThirdPartyChatEmotes, PlayerLatencyIndicator, ChatFontManager, DeletedMessageViewer, FullReplyViewer, ReplyExpansionTracker };
+    return {
+      ThirdPartyChatEmotes,
+      PlayerLatencyIndicator,
+      ChatFontManager,
+      ChatPaddingManager,
+      ChatMentionHighlighter,
+      DeletedMessageViewer,
+      ReplyExpansionTracker
+    };
   };
 
   window.TFRStreamEnhancements = { create: createStreamEnhancements };

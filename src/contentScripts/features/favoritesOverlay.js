@@ -8,6 +8,23 @@
     normalizeCategoryName,
     fetchCategorySuggestions
   }) => {
+const categoryFilterTools = window.TFRFavoriteCategoryFilterTools?.create?.({ normalizeCategoryName });
+if (!categoryFilterTools) {
+  throw new Error('[TFR] favorite category filter tools are missing');
+}
+const categoryFilterView = window.TFRFavoriteCategoryFilterView?.create?.({ t });
+if (!categoryFilterView) {
+  throw new Error('[TFR] favorite category filter view is missing');
+}
+const FavoriteCategoryFilterController = window.TFRFavoriteCategoryFilterController?.create?.({
+  t,
+  normalizeCategoryName,
+  tools: categoryFilterTools,
+  view: categoryFilterView
+});
+if (!FavoriteCategoryFilterController) {
+  throw new Error('[TFR] favorite category filter controller is missing');
+}
 class FavoritesOverlay {
   constructor(store) {
     this.store = store;
@@ -34,6 +51,12 @@ class FavoritesOverlay {
     this.appearanceWizardOpen = false;
     this.appearanceAdvancedOpen = false;
     this.dataToolsOpen = false;
+    this.featureCardsOpen = new Set();
+    this.categoryFilterController = new FavoriteCategoryFilterController({
+      store: this.store,
+      getCategorySuggestions: (term) => this.getCategorySuggestions(term),
+      onChange: () => this.render()
+    });
     this.favoriteIssuesPanel = window.TFRFavoriteIssuesPanel?.create?.({
       store: this.store,
       t,
@@ -254,77 +277,15 @@ class FavoritesOverlay {
     content.innerHTML = '';
 
     content.appendChild(this.renderProfileControls(state));
-
-    const controls = document.createElement('div');
-    controls.className = 'tfr-manager-controls';
-    const searchInput = document.createElement('input');
-    searchInput.type = 'search';
-    searchInput.dataset.tfrFocusKey = 'manager-search';
-    searchInput.placeholder = t('search.placeholder');
-    searchInput.value = this.searchTerm;
-    searchInput.addEventListener('input', (event) => {
-      this.searchTerm = event.target.value;
-      this.render();
-    });
-    const sortSelect = document.createElement('select');
-    [
-      { value: 'viewersDesc', label: t('sort.viewersDesc') },
-      { value: 'alphabetical', label: t('sort.alphabetical') },
-      { value: 'recent', label: t('sort.recent') }
-    ].forEach(({ value, label }) => {
-      const option = document.createElement('option');
-      option.value = value;
-      option.textContent = label;
-      sortSelect.appendChild(option);
-    });
-    sortSelect.value = this.sortMode;
-    sortSelect.addEventListener('change', async (event) => {
-      const value = event.target.value;
-      this.sortMode = value;
-      await this.store.setSortMode(value);
-      this.render();
-    });
-    controls.appendChild(searchInput);
-    controls.appendChild(sortSelect);
-    content.appendChild(controls);
-
-    const favoriteIssues = this.renderFavoriteIssues(state);
-    if (favoriteIssues) content.appendChild(favoriteIssues);
-
-    const dataTools = document.createElement('details');
-    dataTools.className = 'tfr-data-tools';
-    dataTools.open = this.dataToolsOpen;
-    dataTools.addEventListener('toggle', () => {
-      this.dataToolsOpen = dataTools.open;
-    });
-    const dataToolsSummary = document.createElement('summary');
-    dataToolsSummary.textContent = t('backup.tools');
-    dataTools.appendChild(dataToolsSummary);
-    const dataToolsBody = document.createElement('div');
-    dataToolsBody.className = 'tfr-data-tools__body';
-    dataToolsBody.append(this.renderBackupControls(), this.renderDriveControls());
-    dataTools.appendChild(dataToolsBody);
-    content.appendChild(dataTools);
-
-    const recentSettings = this.renderRecentLiveSettings(state);
-    if (recentSettings) {
-      content.appendChild(recentSettings);
-    }
+    content.appendChild(this.renderManagerControls());
+    this.appendIfPresent(content, this.renderFavoriteIssues(state));
+    content.appendChild(this.renderDataTools());
+    this.appendIfPresent(content, this.renderRecentLiveSettings(state));
 
     content.appendChild(this.renderSidebarAppearanceWizard(state));
-
-    const toastSettings = this.renderToastSettings(state);
-    if (toastSettings) {
-      content.appendChild(toastSettings);
-    }
-
-    const featureToggles = this.renderFeatureToggles(state);
-    if (featureToggles) {
-      content.appendChild(featureToggles);
-    }
-
-    const board = this.renderBoard(state, liveData);
-    content.appendChild(board);
+    this.appendIfPresent(content, this.renderToastSettings(state));
+    this.appendIfPresent(content, this.renderFeatureToggles(state));
+    content.appendChild(this.renderBoard(state, liveData));
 
     this.renderFavoriteDetailsPanel(state, liveData);
     requestAnimationFrame(() => {
@@ -339,6 +300,61 @@ class FavoritesOverlay {
       }
       this.restoreFocusSnapshot(focusSnapshot);
     });
+  }
+
+  appendIfPresent(parent, child) {
+    if (child) parent.appendChild(child);
+    return child;
+  }
+
+  renderManagerControls() {
+    const controls = document.createElement('div');
+    controls.className = 'tfr-manager-controls';
+    const searchInput = document.createElement('input');
+    searchInput.type = 'search';
+    searchInput.dataset.tfrFocusKey = 'manager-search';
+    searchInput.placeholder = t('search.placeholder');
+    searchInput.value = this.searchTerm;
+    searchInput.addEventListener('input', (event) => {
+      this.searchTerm = event.target.value;
+      this.render();
+    });
+
+    const sortSelect = document.createElement('select');
+    [
+      ['viewersDesc', 'sort.viewersDesc'],
+      ['alphabetical', 'sort.alphabetical'],
+      ['recent', 'sort.recent']
+    ].forEach(([value, labelKey]) => {
+      const option = document.createElement('option');
+      option.value = value;
+      option.textContent = t(labelKey);
+      sortSelect.appendChild(option);
+    });
+    sortSelect.value = this.sortMode;
+    sortSelect.addEventListener('change', async (event) => {
+      this.sortMode = event.target.value;
+      await this.store.setSortMode(this.sortMode);
+      this.render();
+    });
+    controls.append(searchInput, sortSelect);
+    return controls;
+  }
+
+  renderDataTools() {
+    const tools = document.createElement('details');
+    tools.className = 'tfr-data-tools';
+    tools.open = this.dataToolsOpen;
+    tools.addEventListener('toggle', () => {
+      this.dataToolsOpen = tools.open;
+    });
+    const summary = document.createElement('summary');
+    summary.textContent = t('backup.tools');
+    const body = document.createElement('div');
+    body.className = 'tfr-data-tools__body';
+    body.append(this.renderBackupControls(), this.renderDriveControls());
+    tools.append(summary, body);
+    return tools;
   }
 
   renderFavoriteIssues(state) {
@@ -1466,6 +1482,69 @@ class FavoritesOverlay {
     return wrapper;
   }
 
+  createToastToggle(labelKey, checked) {
+    const label = document.createElement('label');
+    label.className = 'tfr-toast-settings__toggle';
+    const input = document.createElement('input');
+    input.type = 'checkbox';
+    input.checked = Boolean(checked);
+    input.className = 'tfr-toast-settings__checkbox';
+    const text = document.createElement('span');
+    text.textContent = t(labelKey);
+    label.append(input, text);
+    return { label, input };
+  }
+
+  validateToastSoundFile(file) {
+    if (!file) return 'toast.settings.customSoundInvalid';
+    const hasAudioType = /^audio\//i.test(file.type || '');
+    const hasAudioExtension = /\.(mp3|wav|ogg|webm)$/i.test(file.name || '');
+    if (!hasAudioType && !hasAudioExtension) return 'toast.settings.customSoundInvalid';
+    return file.size > 1_048_576 ? 'toast.settings.customSoundTooLarge' : '';
+  }
+
+  readFileAsDataUrl(file) {
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.addEventListener('load', () => resolve(String(reader.result || '')));
+      reader.addEventListener('error', () => resolve(''));
+      reader.readAsDataURL(file);
+    });
+  }
+
+  dispatchToastTestSound({ soundId, volume, customSoundDataUrl = '' }) {
+    window.dispatchEvent(new CustomEvent('TFR_TEST_TOAST_SOUND', {
+      detail: { soundId, volume: Number(volume), customSoundDataUrl }
+    }));
+  }
+
+  setToastControlsEnabled(enabled, controls, container) {
+    controls.forEach((control) => {
+      control.disabled = !enabled;
+    });
+    container?.classList.toggle('is-disabled', !enabled);
+  }
+
+  async importToastSound(file, volume) {
+    const validationError = this.validateToastSoundFile(file);
+    if (validationError) {
+      this.toastSoundMessage = t(validationError);
+      this.render();
+      return false;
+    }
+    const dataUrl = await this.readFileAsDataUrl(file);
+    if (!dataUrl) {
+      this.toastSoundMessage = t('toast.settings.customSoundInvalid');
+      this.render();
+      return false;
+    }
+    await this.store.setToastCustomSound({ name: file.name, dataUrl });
+    this.toastSoundMessage = '';
+    this.render();
+    this.dispatchToastTestSound({ soundId: 'custom', volume, customSoundDataUrl: dataUrl });
+    return true;
+  }
+
   renderToastSettings(state) {
     const prefs = state.preferences || {};
     const wrapper = document.createElement('section');
@@ -1476,16 +1555,9 @@ class FavoritesOverlay {
     title.textContent = t('toast.settings.title');
     wrapper.appendChild(title);
 
-    const enabledLabel = document.createElement('label');
-    enabledLabel.className = 'tfr-toast-settings__toggle';
-    const enabledInput = document.createElement('input');
-    enabledInput.type = 'checkbox';
-    enabledInput.checked = prefs.toastEnabled !== false;
-    enabledInput.className = 'tfr-toast-settings__checkbox';
-    enabledLabel.appendChild(enabledInput);
-    const enabledText = document.createElement('span');
-    enabledText.textContent = t('toast.settings.enabled');
-    enabledLabel.appendChild(enabledText);
+    const { label: enabledLabel, input: enabledInput } = this.createToastToggle(
+      'toast.settings.enabled', prefs.toastEnabled !== false
+    );
     wrapper.appendChild(enabledLabel);
 
     const controls = document.createElement('div');
@@ -1548,10 +1620,7 @@ class FavoritesOverlay {
     wrapper.appendChild(hint);
 
     const applyEnabledState = () => {
-      const enabled = enabledInput.checked;
-      input.disabled = !enabled;
-      positionSelect.disabled = !enabled;
-      wrapper.classList.toggle('is-disabled', !enabled);
+      this.setToastControlsEnabled(enabledInput.checked, [input, positionSelect], wrapper);
     };
     applyEnabledState();
 
@@ -1578,16 +1647,9 @@ class FavoritesOverlay {
       this.render();
     });
 
-    const soundLabel = document.createElement('label');
-    soundLabel.className = 'tfr-toast-settings__toggle';
-    const soundInput = document.createElement('input');
-    soundInput.type = 'checkbox';
-    soundInput.checked = prefs.toastSoundEnabled === true;
-    soundInput.className = 'tfr-toast-settings__checkbox';
-    soundLabel.appendChild(soundInput);
-    const soundText = document.createElement('span');
-    soundText.textContent = t('toast.settings.soundEnabled');
-    soundLabel.appendChild(soundText);
+    const { label: soundLabel, input: soundInput } = this.createToastToggle(
+      'toast.settings.soundEnabled', prefs.toastSoundEnabled === true
+    );
     wrapper.appendChild(soundLabel);
 
     const soundControls = document.createElement('div');
@@ -1673,21 +1735,19 @@ class FavoritesOverlay {
     wrapper.appendChild(customSoundControls);
 
     const playTestSound = () => {
-      window.dispatchEvent(new CustomEvent('TFR_TEST_TOAST_SOUND', {
-        detail: {
-          soundId: soundSelect.value,
-          volume: Number(volumeInput.value),
-          customSoundDataUrl: prefs.toastCustomSoundDataUrl
-        }
-      }));
+      this.dispatchToastTestSound({
+        soundId: soundSelect.value,
+        volume: volumeInput.value,
+        customSoundDataUrl: prefs.toastCustomSoundDataUrl
+      });
     };
 
     const applySoundEnabledState = () => {
-      const enabled = soundInput.checked;
-      soundSelect.disabled = !enabled;
-      volumeInput.disabled = !enabled;
-      testSoundButton.disabled = !enabled;
-      soundControls.classList.toggle('is-disabled', !enabled);
+      this.setToastControlsEnabled(
+        soundInput.checked,
+        [soundSelect, volumeInput, testSoundButton],
+        soundControls
+      );
     };
     applySoundEnabledState();
 
@@ -1711,39 +1771,7 @@ class FavoritesOverlay {
       if (!file) {
         return;
       }
-      const hasAudioType = /^audio\//i.test(file.type || '');
-      const hasAudioExtension = /\.(mp3|wav|ogg|webm)$/i.test(file.name || '');
-      if (!hasAudioType && !hasAudioExtension) {
-        this.toastSoundMessage = t('toast.settings.customSoundInvalid');
-        this.render();
-        return;
-      }
-      if (file.size > 1_048_576) {
-        this.toastSoundMessage = t('toast.settings.customSoundTooLarge');
-        this.render();
-        return;
-      }
-      const dataUrl = await new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.addEventListener('load', () => resolve(String(reader.result || '')));
-        reader.addEventListener('error', () => reject(reader.error || new Error('read failed')));
-        reader.readAsDataURL(file);
-      }).catch(() => '');
-      if (!dataUrl) {
-        this.toastSoundMessage = t('toast.settings.customSoundInvalid');
-        this.render();
-        return;
-      }
-      await this.store.setToastCustomSound({ name: file.name, dataUrl });
-      this.toastSoundMessage = '';
-      this.render();
-      window.dispatchEvent(new CustomEvent('TFR_TEST_TOAST_SOUND', {
-        detail: {
-          soundId: 'custom',
-          volume: Number(volumeInput.value),
-          customSoundDataUrl: dataUrl
-        }
-      }));
+      await this.importToastSound(file, volumeInput.value);
     });
 
     removeButton.addEventListener('click', async () => {
@@ -1770,145 +1798,377 @@ class FavoritesOverlay {
     return wrapper;
   }
 
+  isFeatureEnabled(config, preferences) {
+    if (!config) return false;
+    return config?.defaultEnabled === false
+      ? preferences[config.key] === true
+      : preferences[config.key] !== false;
+  }
+
+  createFeatureToggle(config, preferences) {
+    const item = document.createElement('label');
+    item.className = 'tfr-feature-toggle';
+    const input = document.createElement('input');
+    input.type = 'checkbox';
+    input.checked = this.isFeatureEnabled(config, preferences);
+    input.className = 'tfr-feature-toggle__input';
+    const body = document.createElement('span');
+    body.className = 'tfr-feature-toggle__body';
+    const label = document.createElement('strong');
+    label.textContent = config.label;
+    const description = document.createElement('small');
+    description.textContent = config.description;
+    body.append(label, description);
+    input.addEventListener('change', (event) => {
+      this.applyFeatureToggle(config.setter, Boolean(event.target.checked));
+    });
+    item.append(input, body);
+    return item;
+  }
+
+  async applyFeatureToggle(setter, enabled) {
+    if (typeof setter !== 'string' || !/^set[A-Z][A-Za-z]+(?:Enabled|Hover)$/.test(setter)) return false;
+    const update = this.store[setter];
+    if (typeof update !== 'function') return false;
+    await update.call(this.store, enabled);
+    this.render();
+    return true;
+  }
+
+  createFeatureCard(group, toggles, preferences) {
+    const card = document.createElement('details');
+    card.className = 'tfr-feature-card';
+    card.open = this.featureCardsOpen.has(group.id);
+    card.addEventListener('toggle', () => {
+      if (card.open) this.featureCardsOpen.add(group.id);
+      else this.featureCardsOpen.delete(group.id);
+    });
+
+    const summary = document.createElement('summary');
+    summary.className = 'tfr-feature-card__summary';
+    const summaryBody = document.createElement('span');
+    summaryBody.className = 'tfr-feature-card__summary-body';
+    const title = document.createElement('strong');
+    title.textContent = group.title;
+    const description = document.createElement('small');
+    description.textContent = group.description;
+    summaryBody.append(title, description);
+
+    const activeCount = group.keys.filter((key) => {
+      const config = toggles.find((toggle) => toggle.key === key);
+      return this.isFeatureEnabled(config, preferences);
+    }).length;
+    const status = document.createElement('span');
+    status.className = 'tfr-feature-card__status';
+    status.textContent = activeCount
+      ? t('settings.enhancements.activeCount', { count: activeCount })
+      : t('settings.enhancements.noneActive');
+    const action = document.createElement('span');
+    action.className = 'tfr-feature-card__action';
+    action.textContent = t('settings.enhancements.configure');
+    summary.append(summaryBody, status, action);
+
+    const body = document.createElement('div');
+    body.className = 'tfr-feature-card__body';
+    card.append(summary, body);
+    return { card, body };
+  }
+
+  playFeatureTestSound(soundId) {
+    const audioFactory = globalThis.__TFR_TOAST_AUDIO__?.createToastAudio;
+    const audio = audioFactory?.({
+      AudioContextConstructor: window.AudioContext || window.webkitAudioContext,
+      AudioConstructor: window.Audio
+    });
+    audio?.play({ soundId, volume: 35 });
+  }
+
+  createMentionSettings(preferences) {
+    const enabled = preferences.chatMentionHighlightEnabled === true;
+    const soundEnabled = preferences.chatMentionSoundEnabled === true;
+    const controls = document.createElement('div');
+    controls.className = 'tfr-chat-mention-settings';
+    controls.classList.toggle('is-disabled', !enabled);
+
+    const colorLabel = document.createElement('label');
+    colorLabel.className = 'tfr-chat-mention-settings__color';
+    const colorText = document.createElement('strong');
+    colorText.textContent = t('settings.chatMentions.color');
+    const colorInput = document.createElement('input');
+    colorInput.type = 'color';
+    colorInput.value = /^#[0-9a-f]{6}$/i.test(preferences.chatMentionHighlightColor || '')
+      ? preferences.chatMentionHighlightColor
+      : '#9147ff';
+    colorInput.disabled = !enabled;
+    colorInput.addEventListener('change', (event) => this.store.setChatMentionHighlightColor(event.target.value));
+    colorLabel.append(colorText, colorInput);
+
+    const soundLabel = document.createElement('label');
+    soundLabel.className = 'tfr-chat-mention-settings__sound';
+    const soundInput = document.createElement('input');
+    soundInput.type = 'checkbox';
+    soundInput.checked = soundEnabled;
+    soundInput.disabled = !enabled;
+    const soundText = document.createElement('strong');
+    soundText.textContent = t('settings.chatMentions.sound');
+    soundInput.addEventListener('change', async (event) => {
+      await this.store.setChatMentionSoundEnabled(event.target.checked);
+      this.render();
+    });
+    soundLabel.append(soundInput, soundText);
+
+    const soundSelect = document.createElement('select');
+    soundSelect.disabled = !enabled || !soundEnabled;
+    ['soft', 'chime', 'arcade', 'pulse', 'alert'].forEach((soundId) => {
+      const option = document.createElement('option');
+      option.value = soundId;
+      option.textContent = t(`toast.settings.sound.${soundId}`);
+      option.selected = (preferences.chatMentionSoundId || 'soft') === soundId;
+      soundSelect.appendChild(option);
+    });
+    soundSelect.addEventListener('change', (event) => this.store.setChatMentionSoundId(event.target.value));
+
+    const testButton = document.createElement('button');
+    testButton.type = 'button';
+    testButton.className = 'tfr-chat-mention-settings__test';
+    testButton.textContent = t('settings.chatMentions.testSound');
+    testButton.disabled = !enabled || !soundEnabled;
+    testButton.addEventListener('click', () => this.playFeatureTestSound(soundSelect.value));
+
+    const preview = document.createElement('div');
+    preview.className = 'tfr-chat-mention-settings__preview';
+    preview.style.setProperty('--tfr-chat-mention-preview-color', colorInput.value);
+    preview.textContent = t('settings.chatMentions.preview');
+    colorInput.addEventListener('input', (event) => {
+      preview.style.setProperty('--tfr-chat-mention-preview-color', event.target.value);
+    });
+
+    controls.append(colorLabel, soundLabel, soundSelect, testButton, preview);
+    return controls;
+  }
+
+  normalizeChatPaddingPx(value) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? Math.max(0, Math.min(20, Math.round(parsed))) : 0;
+  }
+
+  createChatPaddingSettings(preferences) {
+    const enabled = preferences.chatNoPaddingEnabled === true;
+    const value = this.normalizeChatPaddingPx(preferences.chatPaddingPx);
+    const choice = document.createElement('label');
+    choice.className = 'tfr-chat-padding-choice';
+    choice.classList.toggle('is-disabled', !enabled);
+
+    const heading = document.createElement('span');
+    heading.className = 'tfr-chat-padding-choice__heading';
+    const title = document.createElement('strong');
+    title.textContent = t('settings.chatPadding.amount');
+    const output = document.createElement('output');
+    output.className = 'tfr-chat-padding-choice__value';
+    output.textContent = `${value} px`;
+    heading.append(title, output);
+
+    const input = document.createElement('input');
+    input.type = 'range';
+    input.min = '0';
+    input.max = '20';
+    input.step = '1';
+    input.value = String(value);
+    input.disabled = !enabled;
+    input.addEventListener('input', (event) => {
+      const nextValue = this.normalizeChatPaddingPx(event.target.value);
+      output.textContent = `${nextValue} px`;
+      document.documentElement.style.setProperty('--tfr-chat-padding', `${nextValue}px`);
+    });
+    input.addEventListener('change', (event) => {
+      this.store.setChatPaddingPx(this.normalizeChatPaddingPx(event.target.value));
+    });
+
+    choice.append(heading, input);
+    return choice;
+  }
+
   renderFeatureToggles(state) {
     const prefs = state.preferences || {};
     const wrapper = document.createElement('section');
     wrapper.className = 'tfr-feature-toggles';
+
+    const heading = document.createElement('div');
+    heading.className = 'tfr-feature-dashboard__heading';
+    const headingTitle = document.createElement('h3');
+    headingTitle.textContent = t('settings.enhancements.title');
+    const headingHint = document.createElement('p');
+    headingHint.textContent = t('settings.enhancements.description');
+    heading.append(headingTitle, headingHint);
+    wrapper.appendChild(heading);
 
     const toggles = [
       {
         key: 'liveFavoritesEnabled',
         label: t('settings.liveSidebar.toggle'),
         description: t('settings.liveSidebar.description'),
-        handler: async (checked) => {
-          await this.store.setLiveFavoritesEnabled(checked);
-          this.render();
-        }
+        setter: 'setLiveFavoritesEnabled'
       },
       {
         key: 'chatHistoryEnabled',
         label: t('settings.chatHistory.toggle'),
         description: t('settings.chatHistory.description'),
-        handler: async (checked) => {
-          await this.store.setChatHistoryEnabled(checked);
-          this.render();
-        }
+        setter: 'setChatHistoryEnabled'
       },
       {
         key: 'moderationHistoryEnabled',
         label: t('settings.moderation.toggle'),
         description: t('settings.moderation.description'),
-        handler: async (checked) => {
-          await this.store.setModerationHistoryEnabled(checked);
-          this.render();
-        }
+        setter: 'setModerationHistoryEnabled'
       },
       {
         key: 'sevenTvEmotesEnabled',
         defaultEnabled: false,
         label: t('settings.sevenTv.toggle'),
         description: t('settings.sevenTv.description'),
-        handler: async (checked) => {
-          await this.store.setSevenTvEmotesEnabled(checked);
-          this.render();
-        }
+        setter: 'setSevenTvEmotesEnabled'
       },
       {
         key: 'betterTtvEmotesEnabled',
         defaultEnabled: false,
         label: t('settings.betterTtv.toggle'),
         description: t('settings.betterTtv.description'),
-        handler: async (checked) => {
-          await this.store.setBetterTtvEmotesEnabled(checked);
-          this.render();
-        }
+        setter: 'setBetterTtvEmotesEnabled'
       },
       {
         key: 'playerLatencyEnabled',
         defaultEnabled: false,
         label: t('settings.playerLatency.toggle'),
         description: t('settings.playerLatency.description'),
-        handler: async (checked) => {
-          await this.store.setPlayerLatencyEnabled(checked);
-          this.render();
-        }
+        setter: 'setPlayerLatencyEnabled'
       },
       {
         key: 'chatFontEnabled',
         defaultEnabled: false,
         label: t('settings.chatFont.toggle'),
         description: t('settings.chatFont.description'),
-        handler: async (checked) => {
-          await this.store.setChatFontEnabled(checked);
-          this.render();
-        }
+        setter: 'setChatFontEnabled'
+      },
+      {
+        key: 'chatNoPaddingEnabled',
+        defaultEnabled: false,
+        label: t('settings.chatPadding.toggle'),
+        description: t('settings.chatPadding.description'),
+        setter: 'setChatNoPaddingEnabled'
+      },
+      {
+        key: 'chatMentionHighlightEnabled',
+        defaultEnabled: false,
+        label: t('settings.chatMentions.toggle'),
+        description: t('settings.chatMentions.description'),
+        setter: 'setChatMentionHighlightEnabled'
       },
       {
         key: 'showDeletedMessagesEnabled',
         defaultEnabled: false,
         label: t('settings.deletedMessages.toggle'),
         description: t('settings.deletedMessages.description'),
-        handler: async (checked) => {
-          await this.store.setShowDeletedMessagesEnabled(checked);
-          this.render();
-        }
+        setter: 'setShowDeletedMessagesEnabled'
       },
       {
         key: 'showFullRepliesEnabled',
         defaultEnabled: false,
         label: t('settings.fullReplies.toggle'),
         description: t('settings.fullReplies.description'),
-        handler: async (checked) => {
-          await this.store.setShowFullRepliesEnabled(checked);
-          this.render();
-        }
+        setter: 'setShowFullRepliesEnabled'
       },
       {
         key: 'hideCollapsedGroupsUntilHover',
         defaultEnabled: false,
         label: t('settings.collapsedGroups.toggle'),
         description: t('settings.collapsedGroups.description'),
-        handler: async (checked) => {
-          await this.store.setHideCollapsedGroupsUntilHover(checked);
-          this.render();
-        }
+        setter: 'setHideCollapsedGroupsUntilHover'
       },
       {
         key: 'autoCompactSidebarEnabled',
         defaultEnabled: false,
         label: t('settings.autoCompactSidebar.toggle'),
         description: t('settings.autoCompactSidebar.description'),
-        handler: async (checked) => {
-          await this.store.setAutoCompactSidebarEnabled(checked);
-          this.render();
-        }
+        setter: 'setAutoCompactSidebarEnabled'
+      },
+      {
+        key: 'liveHoverPreviewEnabled',
+        defaultEnabled: false,
+        label: t('settings.livePreview.toggle'),
+        description: t('settings.livePreview.description'),
+        setter: 'setLiveHoverPreviewEnabled'
       }
     ];
 
-    toggles.forEach((toggleConfig) => {
-      const item = document.createElement('label');
-      item.className = 'tfr-feature-toggle';
-      const input = document.createElement('input');
-      input.type = 'checkbox';
-      input.checked = toggleConfig.defaultEnabled === false
-        ? prefs[toggleConfig.key] === true
-        : prefs[toggleConfig.key] !== false;
-      input.className = 'tfr-feature-toggle__input';
-      item.appendChild(input);
-      const body = document.createElement('span');
-      body.className = 'tfr-feature-toggle__body';
-      const label = document.createElement('strong');
-      label.textContent = toggleConfig.label;
-      const description = document.createElement('small');
-      description.textContent = toggleConfig.description;
-      body.appendChild(label);
-      body.appendChild(description);
-      item.appendChild(body);
-      input.addEventListener('change', (event) => {
-        toggleConfig.handler(Boolean(event.target.checked));
-      });
-      wrapper.appendChild(item);
+    const groups = [
+      {
+        id: 'chat',
+        title: t('settings.enhancements.chat'),
+        description: t('settings.enhancements.chatDescription'),
+        keys: ['chatHistoryEnabled', 'moderationHistoryEnabled', 'chatFontEnabled', 'chatNoPaddingEnabled', 'showDeletedMessagesEnabled', 'showFullRepliesEnabled']
+      },
+      {
+        id: 'mentions',
+        title: t('settings.enhancements.mentions'),
+        description: t('settings.enhancements.mentionsDescription'),
+        keys: ['chatMentionHighlightEnabled']
+      },
+      {
+        id: 'emotes',
+        title: t('settings.enhancements.emotes'),
+        description: t('settings.enhancements.emotesDescription'),
+        keys: ['sevenTvEmotesEnabled', 'betterTtvEmotesEnabled']
+      },
+      {
+        id: 'player',
+        title: t('settings.enhancements.player'),
+        description: t('settings.enhancements.playerDescription'),
+        keys: ['liveFavoritesEnabled', 'playerLatencyEnabled', 'hideCollapsedGroupsUntilHover', 'autoCompactSidebarEnabled', 'liveHoverPreviewEnabled']
+      }
+    ];
+    const cards = new Map();
+    const grid = document.createElement('div');
+    grid.className = 'tfr-feature-dashboard';
+    groups.forEach((group) => {
+      const cardParts = this.createFeatureCard(group, toggles, prefs);
+      grid.appendChild(cardParts.card);
+      cards.set(group.id, cardParts);
     });
+    wrapper.appendChild(grid);
+
+    const groupByKey = new Map(groups.flatMap((group) => group.keys.map((key) => [key, group.id])));
+    toggles.forEach((toggleConfig) => {
+      cards.get(groupByKey.get(toggleConfig.key))?.body.appendChild(
+        this.createFeatureToggle(toggleConfig, prefs)
+      );
+    });
+
+    cards.get('mentions').body.appendChild(this.createMentionSettings(prefs));
+
+    cards.get('chat').body.appendChild(this.createChatPaddingSettings(prefs));
+
+    const previewChoice = document.createElement('label');
+    previewChoice.className = 'tfr-live-preview-choice';
+    previewChoice.classList.toggle('is-disabled', prefs.liveHoverPreviewEnabled !== true);
+    const previewLabel = document.createElement('strong');
+    previewLabel.textContent = t('settings.livePreview.mode');
+    const previewSelect = document.createElement('select');
+    previewSelect.disabled = prefs.liveHoverPreviewEnabled !== true;
+    [
+      ['image', 'settings.livePreview.photo'],
+      ['video', 'settings.livePreview.video']
+    ].forEach(([value, labelKey]) => {
+      const option = document.createElement('option');
+      option.value = value;
+      option.textContent = t(labelKey);
+      option.selected = (prefs.liveHoverPreviewMode || 'image') === value;
+      previewSelect.appendChild(option);
+    });
+    previewSelect.addEventListener('change', async (event) => {
+      await this.store.setLiveHoverPreviewMode(event.target.value);
+    });
+    previewChoice.append(previewLabel, previewSelect);
+    cards.get('player').body.appendChild(previewChoice);
 
     const fontChoice = document.createElement('label');
     fontChoice.className = 'tfr-chat-font-choice';
@@ -1983,7 +2243,7 @@ class FavoritesOverlay {
       fontActions.appendChild(removeFontButton);
     }
     fontChoice.appendChild(fontActions);
-    wrapper.appendChild(fontChoice);
+    cards.get('chat').body.appendChild(fontChoice);
 
     return wrapper;
   }
@@ -3570,35 +3830,8 @@ class FavoritesOverlay {
       return;
     }
     const categoryTree = this.store.getCategoriesTree();
-    const flatCategories = [];
-    const flattenForSelect = (nodes, depth = 0) => {
-      nodes.forEach((node) => {
-        flatCategories.push({ id: node.id, name: node.name, depth });
-        if (node.children && node.children.length) {
-          flattenForSelect(node.children, depth + 1);
-        }
-      });
-    };
-    flattenForSelect(categoryTree);
-    const knownCategoriesSet = new Set();
-    Object.values(liveData).forEach((live) => {
-      if (live?.game) {
-        const trimmed = typeof live.game === 'string' ? live.game.trim() : '';
-        if (trimmed) {
-          knownCategoriesSet.add(trimmed);
-        }
-      }
-    });
-    Object.values(state.favorites).forEach((fav) => {
-      const filterCategories = Array.isArray(fav.categoryFilter?.categories) ? fav.categoryFilter.categories : [];
-      filterCategories.forEach((category) => {
-        const trimmed = typeof category === 'string' ? category.trim() : '';
-        if (trimmed) {
-          knownCategoriesSet.add(trimmed);
-        }
-      });
-    });
-    const knownCategories = Array.from(knownCategoriesSet).sort((a, b) => a.localeCompare(b, 'fr'));
+    const flatCategories = window.TFRCategoryTreeTools.flatten(categoryTree);
+    const knownCategories = categoryFilterTools.collectKnownCategories(state, liveData);
     const detailsPanel = this.renderFavoriteDetails(state, liveData, flatCategories, knownCategories);
     if (detailsPanel) {
       panelContainer.appendChild(detailsPanel);
@@ -3606,43 +3839,16 @@ class FavoritesOverlay {
     }
   }
 
-  renderFavoriteDetails(state, liveData, flatCategories, knownCategories) {
-    const login = this.activeFavoriteLogin;
-    if (!login) {
-      return null;
-    }
-    const favorite = state.favorites?.[login];
-    if (!favorite) {
-      this.activeFavoriteLogin = null;
-      return null;
-    }
-    const live = getLiveDataEntry(liveData, login);
-    const prefs = state.preferences || {};
-    const filterCategories = Array.isArray(favorite.categoryFilter?.categories)
-      ? favorite.categoryFilter.categories
-      : [];
-    const panel = document.createElement('aside');
-    panel.className = 'tfr-favorite-details';
-    panel.setAttribute('role', 'dialog');
-    panel.setAttribute('aria-label', t('details.panelTitle', { name: favorite.displayName }));
-    panel.tabIndex = -1;
-    requestAnimationFrame(() => {
-      try {
-        panel.focus();
-      } catch {
-        // ignore focus errors
-      }
-    });
-
+  renderFavoriteDetailsHeader(favorite, live) {
     const header = document.createElement('div');
     header.className = 'tfr-favorite-details__header';
-    const headerInfo = document.createElement('div');
-    headerInfo.className = 'tfr-favorite-details__header-info';
+    const info = document.createElement('div');
+    info.className = 'tfr-favorite-details__header-info';
     const avatar = document.createElement('img');
     avatar.className = 'tfr-favorite-details__avatar';
     avatar.src = live?.avatarUrl || favorite.avatarUrl || DEFAULT_AVATAR;
     avatar.alt = favorite.displayName;
-    headerInfo.appendChild(avatar);
+
     const titleWrapper = document.createElement('div');
     titleWrapper.className = 'tfr-favorite-details__title-wrapper';
     const title = document.createElement('h3');
@@ -3651,8 +3857,6 @@ class FavoritesOverlay {
     const subtitle = document.createElement('span');
     subtitle.className = 'tfr-favorite-details__subtitle';
     subtitle.textContent = `@${favorite.login}`;
-    titleWrapper.appendChild(title);
-    titleWrapper.appendChild(subtitle);
     const fixLoginButton = document.createElement('button');
     fixLoginButton.type = 'button';
     fixLoginButton.className = 'tfr-favorite-details__fix-login';
@@ -3675,364 +3879,172 @@ class FavoritesOverlay {
       this.activeFavoriteLogin = result.login;
       this.render();
     });
-    titleWrapper.appendChild(fixLoginButton);
-    headerInfo.appendChild(titleWrapper);
-    header.appendChild(headerInfo);
+    titleWrapper.append(title, subtitle, fixLoginButton);
+    info.append(avatar, titleWrapper);
+
     const closeButton = document.createElement('button');
     closeButton.type = 'button';
     closeButton.className = 'tfr-favorite-details__close';
     closeButton.setAttribute('aria-label', t('details.panelClose', { name: favorite.displayName }));
     closeButton.textContent = '\u00D7';
     closeButton.addEventListener('click', () => this.closeFavoriteDetails());
-    header.appendChild(closeButton);
-    panel.appendChild(header);
+    header.append(info, closeButton);
+    return header;
+  }
 
-    const body = document.createElement('div');
-    body.className = 'tfr-favorite-details__body';
-    panel.appendChild(body);
+  renderFavoriteDetailsInfo(favorite, live, preferences) {
+    const section = document.createElement('section');
+    section.className = 'tfr-details-section tfr-details-section--info';
+    const status = document.createElement('p');
+    status.className = 'tfr-details-info';
+    let highlight = null;
+    if (live?.isLive) {
+      const now = Date.now();
+      const viewers = formatViewers(live.viewers || 0);
+      const startedAt = live.startedAt ? Date.parse(live.startedAt) : NaN;
+      const game = live.game || t('details.status.unknownCategory');
+      status.textContent = Number.isFinite(startedAt)
+        ? t('details.status.liveSince', {
+            minutes: Math.max(0, Math.floor((now - startedAt) / 60000)), game, viewers
+          })
+        : t('details.status.live', { game, viewers });
 
-    const categorySection = document.createElement('section');
-    categorySection.className = 'tfr-details-section';
-    const categoryTitle = document.createElement('h4');
-    categoryTitle.className = 'tfr-details-section__title';
-    categoryTitle.textContent = t('details.category.title');
-    categorySection.appendChild(categoryTitle);
-    const categorySelect = document.createElement('select');
-    categorySelect.className = 'tfr-category-select tfr-category-select--wide';
-    const placeholderOption = document.createElement('option');
-    placeholderOption.value = '';
-    placeholderOption.textContent = flatCategories.length ? t('categories.noneName') : t('details.category.noneAvailable');
-    categorySelect.appendChild(placeholderOption);
+      const matchSince = Number.isFinite(favorite.filterMatchSince) && favorite.filterMatchSince > 0
+        ? favorite.filterMatchSince
+        : 0;
+      const recentReference = Math.max(Number.isFinite(startedAt) ? startedAt : 0, matchSince);
+      if (preferences.recentLiveEnabled && recentReference > 0) {
+        const threshold = Number.isFinite(Number(preferences.recentLiveThresholdMinutes))
+          ? Math.max(1, Math.min(120, Math.round(Number(preferences.recentLiveThresholdMinutes))))
+          : 10;
+        if (Math.max(0, Math.floor((now - recentReference) / 60000)) <= threshold) {
+          highlight = document.createElement('p');
+          highlight.className = 'tfr-details-info tfr-details-info--highlight';
+          highlight.textContent = t('details.status.recentHighlight', { minutes: threshold });
+        }
+      }
+    } else {
+      status.textContent = t('details.status.offline');
+    }
+
+    const visibility = getSidebarVisibilityInfo(favorite, live);
+    const visibilityLine = document.createElement('p');
+    visibilityLine.className = visibility.visible
+      ? 'tfr-details-info tfr-details-info--highlight'
+      : 'tfr-details-info tfr-details-info--warning';
+    visibilityLine.textContent = visibility.reason;
+    const closeButton = document.createElement('button');
+    closeButton.type = 'button';
+    closeButton.className = 'tfr-details-close';
+    closeButton.textContent = t('details.closeLink');
+    closeButton.setAttribute('aria-label', t('common.closeAction'));
+    closeButton.addEventListener('click', () => this.closeFavoriteDetails());
+    section.append(status, visibilityLine);
+    if (highlight) section.appendChild(highlight);
+    section.appendChild(closeButton);
+    return section;
+  }
+
+  renderFavoriteCategorySection(favorite, flatCategories) {
+    const section = document.createElement('section');
+    section.className = 'tfr-details-section';
+    const title = document.createElement('h4');
+    title.className = 'tfr-details-section__title';
+    title.textContent = t('details.category.title');
+    const select = document.createElement('select');
+    select.className = 'tfr-category-select tfr-category-select--wide';
+    const placeholder = document.createElement('option');
+    placeholder.value = '';
+    placeholder.textContent = flatCategories.length
+      ? t('categories.noneName')
+      : t('details.category.noneAvailable');
+    select.appendChild(placeholder);
     flatCategories.forEach((category) => {
       const option = document.createElement('option');
       option.value = category.id;
       const prefix = category.depth ? `${'  '.repeat(category.depth)}- ` : '';
       option.textContent = `${prefix}${category.name}`;
-      categorySelect.appendChild(option);
+      select.appendChild(option);
     });
-    const currentCategory =
-      Array.isArray(favorite.categories) && favorite.categories.length ? favorite.categories[0] : '';
-    categorySelect.value = currentCategory || '';
-    categorySelect.disabled = !flatCategories.length;
-    categorySelect.addEventListener('change', async (event) => {
-      const value = event.target.value;
-      await this.store.setFavoriteCategory(favorite.login, value || null);
+    select.value = Array.isArray(favorite.categories) && favorite.categories.length
+      ? favorite.categories[0]
+      : '';
+    select.disabled = !flatCategories.length;
+    select.addEventListener('change', async (event) => {
+      await this.store.setFavoriteCategory(favorite.login, event.target.value || null);
       this.render();
     });
-    categorySection.appendChild(categorySelect);
+    section.append(title, select);
     if (!flatCategories.length) {
-      const categoryHint = document.createElement('p');
-      categoryHint.className = 'tfr-details-hint';
-      categoryHint.textContent = t('details.category.hint');
-      categorySection.appendChild(categoryHint);
+      const hint = document.createElement('p');
+      hint.className = 'tfr-details-hint';
+      hint.textContent = t('details.category.hint');
+      section.appendChild(hint);
     }
-    body.appendChild(categorySection);
+    return section;
+  }
 
-    const filterSection = document.createElement('section');
-    filterSection.className = 'tfr-details-section';
-    const filterTitle = document.createElement('h4');
-    filterTitle.className = 'tfr-details-section__title';
-    filterTitle.textContent = t('details.filter.title');
-    filterSection.appendChild(filterTitle);
-    const filterContainer = document.createElement('div');
-    filterContainer.className = 'tfr-category-filter';
-    const filterToggleId = `tfr-detail-filter-${favorite.login}`;
-    const filterToggleLabel = document.createElement('label');
-    filterToggleLabel.className = 'tfr-category-filter__toggle';
-    filterToggleLabel.setAttribute('for', filterToggleId);
-    const filterToggle = document.createElement('input');
-    filterToggle.type = 'checkbox';
-    filterToggle.id = filterToggleId;
-    filterToggle.className = 'tfr-category-filter__checkbox';
-    filterToggle.checked = Boolean(favorite.categoryFilter?.enabled);
-    const filterToggleText = document.createElement('span');
-    filterToggleText.textContent = t('details.filter.toggle');
-    filterToggleLabel.appendChild(filterToggle);
-    filterToggleLabel.appendChild(filterToggleText);
-    filterContainer.appendChild(filterToggleLabel);
-    const listWrapper = document.createElement('div');
-    listWrapper.className = 'tfr-category-filter__list';
-    if (!filterCategories.length) {
-      const empty = document.createElement('span');
-      empty.className = 'tfr-category-filter__empty';
-      empty.textContent = filterToggle.checked ? t('details.filter.emptyEnabled') : t('details.filter.emptyDisabled');
-      listWrapper.appendChild(empty);
-    } else {
-      filterCategories.forEach((category) => {
-        const chip = document.createElement('span');
-        chip.className = 'tfr-category-filter__chip';
-        chip.textContent = category;
-        const removeButton = document.createElement('button');
-        removeButton.type = 'button';
-        removeButton.className = 'tfr-category-filter__remove';
-        removeButton.setAttribute('aria-label', t('details.filter.remove', { category }));
-        removeButton.textContent = '\u00D7';
-        removeButton.addEventListener('click', async () => {
-          const latestCategories =
-            this.store.getState().favorites?.[favorite.login]?.categoryFilter?.categories;
-          const source = Array.isArray(latestCategories) ? latestCategories : filterCategories;
-          const next = source.filter(
-            (value) => normalizeCategoryName(value) !== normalizeCategoryName(category)
-          );
-          await this.store.setFavoriteCategoryFilter(favorite.login, {
-            categories: next,
-            enabled: next.length ? filterToggle.checked : false
-          });
-          this.render();
-        });
-        chip.appendChild(removeButton);
-        listWrapper.appendChild(chip);
-      });
-    }
-    filterContainer.appendChild(listWrapper);
-    const inputRow = document.createElement('div');
-    inputRow.className = 'tfr-category-filter__input-row';
-    const filterInput = document.createElement('input');
-    filterInput.type = 'text';
-    filterInput.className = 'tfr-category-filter__input';
-    filterInput.dataset.tfrFocusKey = `category-filter-${favorite.login}`;
-    filterInput.placeholder = t('details.filter.placeholder');
-    filterInput.value = '';
-    filterInput.autocomplete = 'off';
-    filterInput.spellcheck = false;
-    const datalistId = `${filterToggleId}-list`;
-    filterInput.setAttribute('list', datalistId);
-    const addButton = document.createElement('button');
-    addButton.type = 'button';
-    addButton.className = 'tfr-category-filter__add';
-    addButton.textContent = t('details.filter.add');
-    inputRow.appendChild(filterInput);
-    inputRow.appendChild(addButton);
-    const datalist = document.createElement('datalist');
-    datalist.id = datalistId;
-    knownCategories.forEach((category) => {
-      const option = document.createElement('option');
-      option.value = category;
-      datalist.appendChild(option);
-    });
-    filterContainer.appendChild(inputRow);
-    filterContainer.appendChild(datalist);
-    const suggestions = document.createElement('div');
-    suggestions.className = 'tfr-category-filter__suggestions';
-    filterContainer.appendChild(suggestions);
-    const liveCategoryInfo = document.createElement('small');
-    liveCategoryInfo.className = 'tfr-category-filter__hint';
-    if (live?.isLive) {
-      liveCategoryInfo.textContent = live?.game
-        ? t('details.filter.currentCategory', { game: live.game })
-        : t('details.filter.currentCategoryUnavailable');
-    } else {
-      liveCategoryInfo.textContent = t('details.filter.offline');
-    }
-    filterContainer.appendChild(liveCategoryInfo);
-    const applyToggleState = (enabled) => {
-      filterInput.disabled = !enabled;
-      addButton.disabled = !enabled;
-    };
-    applyToggleState(filterToggle.checked);
-    const normalizedKnownCategories = knownCategories.map((name) => ({
-      raw: name,
-      normalized: normalizeCategoryName(name)
-    }));
-    const clearSuggestions = () => {
-      suggestions.innerHTML = '';
-      suggestions.classList.remove('is-visible');
-    };
-    const getCurrentCategories = () => {
-      const latestCategories =
-        this.store.getState().favorites?.[favorite.login]?.categoryFilter?.categories;
-      return Array.isArray(latestCategories) ? latestCategories : filterCategories;
-    };
-    let suggestionToken = 0;
-    const updateSuggestions = async () => {
-      const typedRaw = filterInput.value;
-      const normalizedTerm = normalizeCategoryName(typedRaw);
-      const currentToken = ++suggestionToken;
-      suggestions.innerHTML = '';
-      suggestions.classList.remove('is-visible');
-      if (!normalizedTerm) {
-        return;
-      }
-      const current = getCurrentCategories();
-      const normalizedCurrent = new Set(
-        current.map((entry) => normalizeCategoryName(entry)).filter(Boolean)
-      );
-      const candidateMap = new Map();
-      const remoteNames = await this.getCategorySuggestions(typedRaw);
-      if (currentToken !== suggestionToken) {
-        return;
-      }
-      remoteNames.forEach((name) => {
-        const normalized = normalizeCategoryName(name);
-        if (normalized && !candidateMap.has(normalized)) {
-          candidateMap.set(normalized, name);
-        }
-      });
-      normalizedKnownCategories.forEach(({ raw, normalized }) => {
-        if (normalized && !candidateMap.has(normalized)) {
-          candidateMap.set(normalized, raw);
-        }
-      });
-      const matches = [];
-      candidateMap.forEach((raw, normalized) => {
-        if (!normalizedCurrent.has(normalized) && normalized.includes(normalizedTerm)) {
-          matches.push(raw);
-        }
-      });
-      if (!matches.length) {
-        return;
-      }
-      matches.slice(0, 8).forEach((name) => {
-        const suggestion = document.createElement('button');
-        suggestion.type = 'button';
-        suggestion.className = 'tfr-category-suggestion';
-        suggestion.textContent = name;
-        suggestion.addEventListener('mousedown', (event) => {
-          event.preventDefault();
-          addCategory(name);
-        });
-        suggestions.appendChild(suggestion);
-      });
-      suggestions.classList.add('is-visible');
-    };
-    filterToggle.addEventListener('change', async (event) => {
-      const enabled = event.target.checked;
-      applyToggleState(enabled);
-      if (!enabled) {
-        clearSuggestions();
-      } else {
-        updateSuggestions();
-      }
-      const payloadCategories = getCurrentCategories();
-      await this.store.setFavoriteCategoryFilter(favorite.login, {
-        enabled,
-        categories: Array.isArray(payloadCategories) ? [...payloadCategories] : []
-      });
-      this.render();
-    });
-    const addCategory = async (rawValue) => {
-      const value = (typeof rawValue === 'string' ? rawValue : filterInput.value).trim();
-      if (!value) {
-        filterInput.value = '';
-        clearSuggestions();
-        return;
-      }
-      const current = getCurrentCategories();
-      const exists = current.some(
-        (entry) => normalizeCategoryName(entry) === normalizeCategoryName(value)
-      );
-      if (exists) {
-        filterInput.value = '';
-        clearSuggestions();
-        return;
-      }
-      const next = [...current, value];
-      await this.store.setFavoriteCategoryFilter(favorite.login, {
-        categories: next,
-        enabled: true
-      });
-      filterToggle.checked = true;
-      applyToggleState(true);
-      filterInput.value = '';
-      clearSuggestions();
-      this.render();
-    };
-    addButton.addEventListener('click', () => addCategory());
-    filterInput.addEventListener('keydown', (event) => {
-      if (event.key === 'Enter') {
-        event.preventDefault();
-        addCategory();
-      }
-    });
-    filterInput.addEventListener('input', () => {
-      updateSuggestions();
-    });
-    filterInput.addEventListener('focus', () => {
-      updateSuggestions();
-    });
-    filterInput.addEventListener('blur', () => {
-      setTimeout(clearSuggestions, 120);
-    });
-    filterSection.appendChild(filterContainer);
-
-    const highlightToggle = document.createElement('label');
-    highlightToggle.className = 'tfr-details-toggle';
-    const highlightInput = document.createElement('input');
-    highlightInput.type = 'checkbox';
-    highlightInput.className = 'tfr-details-toggle__input';
-    highlightInput.checked = favorite.recentHighlightEnabled !== false;
-    highlightInput.addEventListener('change', async (event) => {
+  renderFavoriteRecentHighlightToggle(favorite) {
+    const label = document.createElement('label');
+    label.className = 'tfr-details-toggle';
+    const input = document.createElement('input');
+    input.type = 'checkbox';
+    input.className = 'tfr-details-toggle__input';
+    input.checked = favorite.recentHighlightEnabled !== false;
+    input.addEventListener('change', async (event) => {
       await this.store.setFavoriteRecentHighlight(favorite.login, Boolean(event.target.checked));
       this.render();
     });
-    const highlightLabel = document.createElement('span');
-    highlightLabel.textContent = t('details.recentHighlight.toggle');
-    highlightToggle.appendChild(highlightInput);
-    highlightToggle.appendChild(highlightLabel);
-    filterSection.appendChild(highlightToggle);
+    const text = document.createElement('span');
+    text.textContent = t('details.recentHighlight.toggle');
+    label.append(input, text);
+    return label;
+  }
 
+  renderFavoriteDetailsShell(favorite, live) {
+    const panel = document.createElement('aside');
+    panel.className = 'tfr-favorite-details';
+    panel.setAttribute('role', 'dialog');
+    panel.setAttribute('aria-label', t('details.panelTitle', { name: favorite.displayName }));
+    panel.tabIndex = -1;
+    requestAnimationFrame(() => {
+      try {
+        panel.focus();
+      } catch {
+        // ignore focus errors
+      }
+    });
+    panel.appendChild(this.renderFavoriteDetailsHeader(favorite, live));
+    const body = document.createElement('div');
+    body.className = 'tfr-favorite-details__body';
+    panel.appendChild(body);
+    return { panel, body };
+  }
+
+  renderFavoriteDetails(state, liveData, flatCategories, knownCategories) {
+    const login = this.activeFavoriteLogin;
+    if (!login) {
+      return null;
+    }
+    const favorite = state.favorites?.[login];
+    if (!favorite) {
+      this.activeFavoriteLogin = null;
+      return null;
+    }
+    const live = getLiveDataEntry(liveData, login);
+    const prefs = state.preferences || {};
+    const { panel, body } = this.renderFavoriteDetailsShell(favorite, live);
+
+    body.appendChild(this.renderFavoriteCategorySection(favorite, flatCategories));
+    const filterSection = this.categoryFilterController.render({
+      favorite,
+      live,
+      knownCategories
+    });
+    filterSection.appendChild(this.renderFavoriteRecentHighlightToggle(favorite));
     body.appendChild(filterSection);
 
-    const infoSection = document.createElement('section');
-    infoSection.className = 'tfr-details-section tfr-details-section--info';
-    const statusLine = document.createElement('p');
-    statusLine.className = 'tfr-details-info';
-    let highlightLine = null;
-    if (live?.isLive) {
-      const now = Date.now();
-      const viewers = formatViewers(live.viewers || 0);
-      const startedAtValue = live.startedAt ? Date.parse(live.startedAt) : NaN;
-      const gameLabel = live.game || t('details.status.unknownCategory');
-      if (Number.isFinite(startedAtValue)) {
-        const elapsedMinutes = Math.max(0, Math.floor((now - startedAtValue) / 60000));
-        statusLine.textContent = t('details.status.liveSince', {
-          minutes: elapsedMinutes,
-          game: gameLabel,
-          viewers
-        });
-      } else {
-        statusLine.textContent = t('details.status.live', { game: gameLabel, viewers });
-      }
-      const matchSince = Number.isFinite(favorite.filterMatchSince) && favorite.filterMatchSince > 0 ? favorite.filterMatchSince : 0;
-      let recentReference = Number.isFinite(startedAtValue) ? startedAtValue : NaN;
-      if (matchSince) {
-        if (!Number.isFinite(recentReference) || matchSince > recentReference) {
-          recentReference = matchSince;
-        }
-      }
-      if (prefs.recentLiveEnabled && Number.isFinite(recentReference)) {
-        const thresholdMinutes = Number.isFinite(Number(prefs.recentLiveThresholdMinutes))
-          ? Math.max(1, Math.min(120, Math.round(Number(prefs.recentLiveThresholdMinutes))))
-          : 10;
-        const recentMinutes = Math.max(0, Math.floor((now - recentReference) / 60000));
-        if (recentMinutes <= thresholdMinutes) {
-          highlightLine = document.createElement('p');
-          highlightLine.className = 'tfr-details-info tfr-details-info--highlight';
-          highlightLine.textContent = t('details.status.recentHighlight', { minutes: thresholdMinutes });
-        }
-      }
-    } else {
-      statusLine.textContent = t('details.status.offline');
-    }
-    infoSection.appendChild(statusLine);
-    const visibilityInfo = getSidebarVisibilityInfo(favorite, live);
-    const visibilityLine = document.createElement('p');
-    visibilityLine.className = visibilityInfo.visible
-      ? 'tfr-details-info tfr-details-info--highlight'
-      : 'tfr-details-info tfr-details-info--warning';
-    visibilityLine.textContent = visibilityInfo.reason;
-    infoSection.appendChild(visibilityLine);
-    if (highlightLine) {
-      infoSection.appendChild(highlightLine);
-    }
-    const closeLink = document.createElement('button');
-    closeLink.type = 'button';
-    closeLink.className = 'tfr-details-close';
-    closeLink.textContent = t('details.closeLink');
-    closeLink.setAttribute('aria-label', t('common.closeAction'));
-    closeLink.addEventListener('click', () => this.closeFavoriteDetails());
-    infoSection.appendChild(closeLink);
-    body.appendChild(infoSection);
+    body.appendChild(this.renderFavoriteDetailsInfo(favorite, live, prefs));
 
     return panel;
   }

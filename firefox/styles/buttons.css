@@ -154,3 +154,22 @@
   border-radius: 50%;
   background-color: #bf94ff;
 }
+
+.tfr-mod-history-button {
+  position: absolute;
+  z-index: 1;
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  border-radius: 8px;
+  opacity: 0.9;
+}
+
+.tfr-mod-history-anchor {
+  position: relative !important;
+}
+
+.tfr-mod-history-button .tfr-chat-action-button__icon {
+  width: 20px;
+  height: 20px;
+}

@@ -44,8 +44,16 @@
       chatFontFamily: 'system',
       chatCustomFontName: '',
       chatCustomFontDataUrl: '',
+      chatNoPaddingEnabled: false,
+      chatPaddingPx: 0,
+      chatMentionHighlightEnabled: false,
+      chatMentionHighlightColor: '#9147ff',
+      chatMentionSoundEnabled: false,
+      chatMentionSoundId: 'soft',
       showDeletedMessagesEnabled: false,
-      showFullRepliesEnabled: false
+      showFullRepliesEnabled: false,
+      liveHoverPreviewEnabled: false,
+      liveHoverPreviewMode: 'image'
     }
   };
 
@@ -473,6 +481,34 @@
       'settings.chatFont.import': 'Importer une police',
       'settings.chatFont.remove': 'Supprimer la police import\u00e9e',
       'settings.chatFont.invalid': 'Fichier invalide ou trop volumineux (maximum 3 Mo).',
+      'settings.chatPadding.toggle': 'Personnaliser les marges du chat',
+      'settings.chatPadding.description': 'Choisis librement l’espace horizontal autour des messages, de 0 à 20 px.',
+      'settings.chatPadding.amount': 'Espacement horizontal',
+      'settings.chatMentions.toggle': 'Mettre en évidence mes mentions',
+      'settings.chatMentions.description': 'Colore le message complet lorsqu’un utilisateur vous mentionne avec @votre_pseudo.',
+      'settings.chatMentions.color': 'Couleur du message',
+      'settings.chatMentions.sound': 'Jouer un son',
+      'settings.chatMentions.testSound': 'Tester le son',
+      'settings.chatMentions.preview': '21:42 Utilisateur : Salut @VotrePseudo !',
+      'settings.enhancements.title': 'Améliorations Twitch',
+      'settings.enhancements.description': 'Les réglages sont regroupés par usage. Ouvrez uniquement la partie que vous souhaitez modifier.',
+      'settings.enhancements.chat': 'Chat',
+      'settings.enhancements.chatDescription': 'Lecture, présentation et outils des messages.',
+      'settings.enhancements.mentions': 'Mentions',
+      'settings.enhancements.mentionsDescription': 'Repérez immédiatement les messages qui vous concernent.',
+      'settings.enhancements.emotes': 'Émoticônes',
+      'settings.enhancements.emotesDescription': 'Ajoutez les émoticônes 7TV et BetterTTV.',
+      'settings.enhancements.player': 'Lecteur et navigation',
+      'settings.enhancements.playerDescription': 'Sidebar, buffer et aperçu des lives.',
+      'settings.enhancements.activeCount': '{count} option(s) active(s)',
+      'settings.enhancements.noneActive': 'Aucune option active',
+      'settings.enhancements.configure': 'Configurer',
+      'settings.livePreview.toggle': 'Aperçu des lives au survol',
+      'settings.livePreview.description': 'Affiche après un court délai une miniature du live et ses informations sans multiplier les infobulles.',
+      'settings.livePreview.imageAlt': 'Aperçu du live de {name}',
+      'settings.livePreview.mode': 'Type d’aperçu',
+      'settings.livePreview.photo': 'Photo actualisée',
+      'settings.livePreview.video': 'Vidéo en direct',
       'settings.deletedMessages.toggle': 'Afficher les messages supprim\u00e9s',
       'settings.deletedMessages.description': 'Conserve le contenu des messages supprim\u00e9s par la mod\u00e9ration directement dans le chat.',
       'settings.deletedMessages.badge': 'Supprim\u00e9',
@@ -839,6 +875,34 @@
       'settings.chatFont.import': 'Import a font',
       'settings.chatFont.remove': 'Remove imported font',
       'settings.chatFont.invalid': 'Invalid or oversized file (3 MB maximum).',
+      'settings.chatPadding.toggle': 'Customize chat padding',
+      'settings.chatPadding.description': 'Choose the horizontal spacing around messages, from 0 to 20 px.',
+      'settings.chatPadding.amount': 'Horizontal spacing',
+      'settings.chatMentions.toggle': 'Highlight my mentions',
+      'settings.chatMentions.description': 'Colors the full message when another user mentions you with @your_username.',
+      'settings.chatMentions.color': 'Message color',
+      'settings.chatMentions.sound': 'Play a sound',
+      'settings.chatMentions.testSound': 'Test sound',
+      'settings.chatMentions.preview': '21:42 User: Hi @YourUsername!',
+      'settings.enhancements.title': 'Twitch enhancements',
+      'settings.enhancements.description': 'Settings are grouped by purpose. Open only the section you want to change.',
+      'settings.enhancements.chat': 'Chat',
+      'settings.enhancements.chatDescription': 'Message display, reading and chat tools.',
+      'settings.enhancements.mentions': 'Mentions',
+      'settings.enhancements.mentionsDescription': 'Immediately spot messages addressed to you.',
+      'settings.enhancements.emotes': 'Emotes',
+      'settings.enhancements.emotesDescription': 'Add 7TV and BetterTTV emotes.',
+      'settings.enhancements.player': 'Player and navigation',
+      'settings.enhancements.playerDescription': 'Sidebar, buffer and live previews.',
+      'settings.enhancements.activeCount': '{count} active option(s)',
+      'settings.enhancements.noneActive': 'No active options',
+      'settings.enhancements.configure': 'Configure',
+      'settings.livePreview.toggle': 'Live preview on hover',
+      'settings.livePreview.description': 'After a short delay, shows one stream thumbnail with its details without stacking tooltips.',
+      'settings.livePreview.imageAlt': 'Live preview for {name}',
+      'settings.livePreview.mode': 'Preview type',
+      'settings.livePreview.photo': 'Updated photo',
+      'settings.livePreview.video': 'Live video',
       'settings.deletedMessages.toggle': 'Show deleted messages',
       'settings.deletedMessages.description': 'Keeps messages removed by moderation visible directly in chat.',
       'settings.deletedMessages.badge': 'Deleted',
@@ -1416,8 +1480,9 @@
   const ThirdPartyChatEmotes = streamEnhancements?.ThirdPartyChatEmotes || NoopEnhancement;
   const PlayerLatencyIndicator = streamEnhancements?.PlayerLatencyIndicator || NoopEnhancement;
   const ChatFontManager = streamEnhancements?.ChatFontManager || NoopEnhancement;
+  const ChatPaddingManager = streamEnhancements?.ChatPaddingManager || NoopEnhancement;
+  const ChatMentionHighlighter = streamEnhancements?.ChatMentionHighlighter || NoopEnhancement;
   const DeletedMessageViewer = streamEnhancements?.DeletedMessageViewer || NoopEnhancement;
-  const FullReplyViewer = streamEnhancements?.FullReplyViewer || NoopEnhancement;
   const ReplyExpansionTracker = streamEnhancements?.ReplyExpansionTracker || NoopEnhancement;
   const UpdateNotifier = window.TFRUpdateNotifier?.create?.({
     UPDATE_STORAGE_KEY,
@@ -1475,8 +1540,9 @@
     ThirdPartyChatEmotes,
     PlayerLatencyIndicator,
     ChatFontManager,
+    ChatPaddingManager,
+    ChatMentionHighlighter,
     DeletedMessageViewer,
-    FullReplyViewer,
     ReplyExpansionTracker
   });
   if (!FeatureController) {

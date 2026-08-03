@@ -31,5 +31,15 @@
     return roots;
   };
 
-  window.TFRCategoryTreeTools = Object.freeze({ build });
+  const flatten = (nodes, depth = 0, result = []) => {
+    if (!Array.isArray(nodes)) return result;
+    nodes.forEach((node) => {
+      if (!node || typeof node !== 'object') return;
+      result.push({ id: node.id, name: node.name, depth });
+      flatten(node.children, depth + 1, result);
+    });
+    return result;
+  };
+
+  window.TFRCategoryTreeTools = Object.freeze({ build, flatten });
 })();

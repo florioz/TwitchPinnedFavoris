@@ -5,7 +5,8 @@
     'autoCompactSidebarEnabled', 'toastEnabled', 'toastSoundEnabled',
     'chatHistoryEnabled', 'moderationHistoryEnabled', 'sevenTvEmotesEnabled',
     'betterTtvEmotesEnabled', 'playerLatencyEnabled', 'chatFontEnabled',
-    'showDeletedMessagesEnabled', 'showFullRepliesEnabled'
+    'chatNoPaddingEnabled', 'showDeletedMessagesEnabled', 'showFullRepliesEnabled',
+    'liveHoverPreviewEnabled', 'chatMentionHighlightEnabled', 'chatMentionSoundEnabled'
   ];
 
   const createBackupPreferenceNormalizer = (sanitizers) => (source = {}) => {
@@ -37,6 +38,9 @@
     sanitizeIfPresent('toastCustomSoundDataUrl', sanitizers.toastCustomSoundDataUrl, 'string');
     sanitizeIfPresent('chatFontFamily', sanitizers.chatFontFamily, 'string');
     sanitizeIfPresent('chatCustomFontDataUrl', sanitizers.chatCustomFontDataUrl, 'string');
+    sanitizeIfPresent('chatMentionHighlightColor', sanitizers.chatMentionHighlightColor, 'string');
+    sanitizeIfPresent('chatMentionSoundId', sanitizers.chatMentionSoundId, 'string');
+    sanitizeIfPresent('liveHoverPreviewMode', sanitizers.liveHoverPreviewMode, 'string');
 
     if (source.specialCategoryColors && typeof source.specialCategoryColors === 'object') {
       result.specialCategoryColors = sanitizers.specialCategoryColors(source.specialCategoryColors);
@@ -53,6 +57,7 @@
     };
     copyClampedInteger('recentLiveThresholdMinutes', 1, 120);
     copyClampedInteger('toastDurationSeconds', 2, 60);
+    copyClampedInteger('chatPaddingPx', 0, 20);
     return result;
   };
 

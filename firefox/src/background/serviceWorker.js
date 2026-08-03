@@ -53,7 +53,15 @@ const DEFAULT_STATE = {
     toastSoundVolume: 35,
     toastSoundId: 'soft',
     toastCustomSoundName: '',
-    toastCustomSoundDataUrl: ''
+    toastCustomSoundDataUrl: '',
+    chatNoPaddingEnabled: false,
+    chatPaddingPx: 0,
+    chatMentionHighlightEnabled: false,
+    chatMentionHighlightColor: '#9147ff',
+    chatMentionSoundEnabled: false,
+    chatMentionSoundId: 'soft',
+    liveHoverPreviewEnabled: false,
+    liveHoverPreviewMode: 'image'
   }
 };
 

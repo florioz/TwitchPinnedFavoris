@@ -15,6 +15,17 @@
     inferCurrentPageLiveData,
     shouldDisplayFavorite
   }) => {
+  const CHAT_MENTION_SOUND_IDS = new Set(['soft', 'chime', 'arcade', 'pulse', 'alert']);
+  const CHAT_FONT_FAMILIES = new Set(['system', 'arial', 'verdana', 'georgia', 'monospace', 'custom']);
+  const CATEGORY_COLOR_STYLES = new Set([
+    'gradient', 'solid', 'stripe', 'glow', 'glass', 'outline', 'minimal', 'dot', 'rail',
+    'double', 'soft-card', 'soft-neon', 'ribbon', 'count-badge', 'ink', 'compact', 'parent-accent'
+  ]);
+  const TOAST_POSITIONS = new Set([
+    'top-left', 'top-center', 'top-right', 'bottom-left', 'bottom-center', 'bottom-right'
+  ]);
+  const TOAST_SOUND_IDS = new Set([...CHAT_MENTION_SOUND_IDS, 'custom']);
+
   class EventEmitter {
     constructor() {
       this.listeners = new Set();
@@ -74,7 +85,10 @@
         toastCustomSoundName: (value) => this.sanitizeToastCustomSoundName(value),
         toastCustomSoundDataUrl: (value) => this.sanitizeToastCustomSoundDataUrl(value),
         chatFontFamily: (value) => this.sanitizeChatFontFamily(value),
-        chatCustomFontDataUrl: (value) => this.sanitizeChatCustomFontDataUrl(value)
+        chatCustomFontDataUrl: (value) => this.sanitizeChatCustomFontDataUrl(value),
+        chatMentionHighlightColor: (value) => this.sanitizeChatMentionColor(value),
+        chatMentionSoundId: (value) => this.sanitizeChatMentionSoundId(value),
+        liveHoverPreviewMode: (value) => this.sanitizeLiveHoverPreviewMode(value)
       });
       this.liveData = {};
       this.emitter = new EventEmitter();
@@ -150,6 +164,20 @@
       return this.profileTools.applyToRoot(target, profileId);
     }
 
+    normalizeBooleanPreference(key, fallback = false, strict = false) {
+      const preferences = this.state.preferences;
+      const hasValue = Object.prototype.hasOwnProperty.call(preferences, key);
+      preferences[key] = hasValue
+        ? (strict ? preferences[key] === true : Boolean(preferences[key]))
+        : Boolean(fallback);
+    }
+
+    normalizeBooleanPreferences(definitions, strict = false) {
+      Object.entries(definitions).forEach(([key, fallback]) => {
+        this.normalizeBooleanPreference(key, fallback, strict);
+      });
+    }
+
     ensureStateIntegrity() {
       if (!this.state.profiles || typeof this.state.profiles !== 'object') {
         this.state.profiles = {};
@@ -161,88 +189,29 @@
         this.state.categories = [];
       }
       if (!this.state.preferences) {
-        this.state.preferences = {
-          sortMode: 'viewersDesc',
-          uncategorizedCollapsed: false,
-          liveFavoritesEnabled: true,
-          liveFavoritesCollapsed: false,
-          recentLiveEnabled: false,
-          recentLiveThresholdMinutes: 10,
-          recentLiveCollapsed: false,
-          hideCollapsedGroupsUntilHover: false,
-          autoCompactSidebarEnabled: false,
-          categoryColorOpacity: 7,
-          categoryColorGradient: 62,
-          categoryColorStyle: 'gradient',
-          streamerItemStyle: 'default',
-          autoCompactStreamerStyle: 'compact',
-          autoCompactGroupStyle: 'default',
-          sidebarAnimationStyle: 'soft',
-          sidebarSurfaceStyle: 'default',
-          sidebarSurfaceColor: '',
-          specialCategoryColors: {},
-          toastDurationSeconds: 6,
-          toastEnabled: true,
-          toastPosition: 'top-right',
-          toastSoundEnabled: false,
-          toastSoundVolume: 35,
-          toastSoundId: 'soft',
-          toastCustomSoundName: '',
-          toastCustomSoundDataUrl: '',
-          chatHistoryEnabled: true,
-          moderationHistoryEnabled: true,
-          sevenTvEmotesEnabled: false,
-          betterTtvEmotesEnabled: false,
-          playerLatencyEnabled: false,
-          chatFontEnabled: false,
-          chatFontFamily: 'system',
-          chatCustomFontName: '',
-          chatCustomFontDataUrl: '',
-          showDeletedMessagesEnabled: false,
-          showFullRepliesEnabled: false
-        };
+        this.state.preferences = deepCopy(DEFAULT_STATE.preferences || {});
       }
       if (!Object.prototype.hasOwnProperty.call(this.state.preferences, 'sortMode')) {
         this.state.preferences.sortMode = 'viewersDesc';
       }
-      if (!Object.prototype.hasOwnProperty.call(this.state.preferences, 'uncategorizedCollapsed')) {
-        this.state.preferences.uncategorizedCollapsed = false;
-      }
-      if (!Object.prototype.hasOwnProperty.call(this.state.preferences, 'liveFavoritesCollapsed')) {
-        this.state.preferences.liveFavoritesCollapsed = false;
-      }
+      this.normalizeBooleanPreferences({
+        uncategorizedCollapsed: false,
+        liveFavoritesCollapsed: false
+      });
       if (!Object.prototype.hasOwnProperty.call(this.state.preferences, 'liveFavoritesEnabled')) {
         this.state.preferences.liveFavoritesEnabled = !Boolean(this.state.preferences.liveFavoritesCollapsed);
       } else {
         this.state.preferences.liveFavoritesEnabled = Boolean(this.state.preferences.liveFavoritesEnabled);
       }
-      if (!Object.prototype.hasOwnProperty.call(this.state.preferences, 'recentLiveEnabled')) {
-        this.state.preferences.recentLiveEnabled = false;
-      } else {
-        this.state.preferences.recentLiveEnabled = Boolean(this.state.preferences.recentLiveEnabled);
-      }
-      if (!Object.prototype.hasOwnProperty.call(this.state.preferences, 'recentLiveThresholdMinutes')) {
-        this.state.preferences.recentLiveThresholdMinutes = 10;
-      } else {
-        const parsed = Number(this.state.preferences.recentLiveThresholdMinutes);
-        const sanitized = Number.isFinite(parsed) ? Math.max(1, Math.min(120, Math.round(parsed))) : 10;
-        this.state.preferences.recentLiveThresholdMinutes = sanitized;
-      }
-      if (!Object.prototype.hasOwnProperty.call(this.state.preferences, 'recentLiveCollapsed')) {
-        this.state.preferences.recentLiveCollapsed = false;
-      } else {
-        this.state.preferences.recentLiveCollapsed = Boolean(this.state.preferences.recentLiveCollapsed);
-      }
-      if (!Object.prototype.hasOwnProperty.call(this.state.preferences, 'hideCollapsedGroupsUntilHover')) {
-        this.state.preferences.hideCollapsedGroupsUntilHover = false;
-      } else {
-        this.state.preferences.hideCollapsedGroupsUntilHover = Boolean(this.state.preferences.hideCollapsedGroupsUntilHover);
-      }
-      if (!Object.prototype.hasOwnProperty.call(this.state.preferences, 'autoCompactSidebarEnabled')) {
-        this.state.preferences.autoCompactSidebarEnabled = false;
-      } else {
-        this.state.preferences.autoCompactSidebarEnabled = Boolean(this.state.preferences.autoCompactSidebarEnabled);
-      }
+      this.normalizeBooleanPreference('recentLiveEnabled', false);
+      this.state.preferences.recentLiveThresholdMinutes = this.sanitizeRecentLiveThreshold(
+        this.state.preferences.recentLiveThresholdMinutes
+      );
+      this.normalizeBooleanPreferences({
+        recentLiveCollapsed: false,
+        hideCollapsedGroupsUntilHover: false,
+        autoCompactSidebarEnabled: false
+      });
       this.state.preferences.categoryColorOpacity = this.sanitizeCategoryColorOpacity(
         this.state.preferences.categoryColorOpacity
       );
@@ -273,28 +242,16 @@
       this.state.preferences.specialCategoryColors = this.sanitizeSpecialCategoryColors(
         this.state.preferences.specialCategoryColors
       );
-      if (!Object.prototype.hasOwnProperty.call(this.state.preferences, 'toastDurationSeconds')) {
-        this.state.preferences.toastDurationSeconds = 6;
-      } else {
-        const parsed = Number(this.state.preferences.toastDurationSeconds);
-        const sanitized = Number.isFinite(parsed) ? Math.max(2, Math.min(60, Math.round(parsed))) : 6;
-        this.state.preferences.toastDurationSeconds = sanitized;
-      }
-      if (!Object.prototype.hasOwnProperty.call(this.state.preferences, 'toastEnabled')) {
-        this.state.preferences.toastEnabled = true;
-      } else {
-        this.state.preferences.toastEnabled = Boolean(this.state.preferences.toastEnabled);
-      }
+      this.state.preferences.toastDurationSeconds = this.sanitizeToastDuration(
+        this.state.preferences.toastDurationSeconds
+      );
+      this.normalizeBooleanPreference('toastEnabled', true);
       if (!Object.prototype.hasOwnProperty.call(this.state.preferences, 'toastPosition')) {
         this.state.preferences.toastPosition = 'top-right';
       } else {
         this.state.preferences.toastPosition = this.sanitizeToastPosition(this.state.preferences.toastPosition);
       }
-      if (!Object.prototype.hasOwnProperty.call(this.state.preferences, 'toastSoundEnabled')) {
-        this.state.preferences.toastSoundEnabled = false;
-      } else {
-        this.state.preferences.toastSoundEnabled = Boolean(this.state.preferences.toastSoundEnabled);
-      }
+      this.normalizeBooleanPreference('toastSoundEnabled', false);
       this.state.preferences.toastSoundVolume = this.sanitizeToastSoundVolume(
         this.state.preferences.toastSoundVolume
       );
@@ -307,59 +264,39 @@
       this.state.preferences.toastCustomSoundDataUrl = this.sanitizeToastCustomSoundDataUrl(
         this.state.preferences.toastCustomSoundDataUrl
       );
-      if (!Object.prototype.hasOwnProperty.call(this.state.preferences, 'chatHistoryEnabled')) {
-        this.state.preferences.chatHistoryEnabled = true;
-      } else {
-        this.state.preferences.chatHistoryEnabled = Boolean(this.state.preferences.chatHistoryEnabled);
-      }
-      if (!Object.prototype.hasOwnProperty.call(this.state.preferences, 'moderationHistoryEnabled')) {
-        this.state.preferences.moderationHistoryEnabled = true;
-      } else {
-        this.state.preferences.moderationHistoryEnabled = Boolean(this.state.preferences.moderationHistoryEnabled);
-      }
-      ['sevenTvEmotesEnabled', 'betterTtvEmotesEnabled', 'playerLatencyEnabled'].forEach((key) => {
-        this.state.preferences[key] = this.state.preferences[key] === true;
-      });
-      this.state.preferences.chatFontEnabled = this.state.preferences.chatFontEnabled === true;
+      this.normalizeBooleanPreferences({ chatHistoryEnabled: true, moderationHistoryEnabled: true });
+      this.normalizeBooleanPreferences({
+        sevenTvEmotesEnabled: false,
+        betterTtvEmotesEnabled: false,
+        playerLatencyEnabled: false,
+        chatFontEnabled: false,
+        chatNoPaddingEnabled: false,
+        chatMentionHighlightEnabled: false,
+        chatMentionSoundEnabled: false,
+        showDeletedMessagesEnabled: false,
+        showFullRepliesEnabled: false,
+        liveHoverPreviewEnabled: false
+      }, true);
+      this.state.preferences.chatPaddingPx = this.sanitizeChatPaddingPx(
+        this.state.preferences.chatPaddingPx
+      );
       this.state.preferences.chatFontFamily = this.sanitizeChatFontFamily(this.state.preferences.chatFontFamily);
       this.state.preferences.chatCustomFontName = String(this.state.preferences.chatCustomFontName || '').slice(0, 160);
       this.state.preferences.chatCustomFontDataUrl = this.sanitizeChatCustomFontDataUrl(this.state.preferences.chatCustomFontDataUrl);
-      this.state.preferences.showDeletedMessagesEnabled = this.state.preferences.showDeletedMessagesEnabled === true;
-      this.state.preferences.showFullRepliesEnabled = this.state.preferences.showFullRepliesEnabled === true;
-      if (!Object.prototype.hasOwnProperty.call(this.state.preferences, 'toastDurationSeconds')) {
-        this.state.preferences.toastDurationSeconds = 6;
-      } else {
-        const parsed = Number(this.state.preferences.toastDurationSeconds);
-        const sanitized = Number.isFinite(parsed) ? Math.max(2, Math.min(60, Math.round(parsed))) : 6;
-        this.state.preferences.toastDurationSeconds = sanitized;
-      }
-      if (!Object.prototype.hasOwnProperty.call(this.state.preferences, 'toastEnabled')) {
-        this.state.preferences.toastEnabled = true;
-      } else {
-        this.state.preferences.toastEnabled = Boolean(this.state.preferences.toastEnabled);
-      }
-      if (!Object.prototype.hasOwnProperty.call(this.state.preferences, 'toastPosition')) {
-        this.state.preferences.toastPosition = 'top-right';
-      } else {
-        this.state.preferences.toastPosition = this.sanitizeToastPosition(this.state.preferences.toastPosition);
-      }
-      if (!Object.prototype.hasOwnProperty.call(this.state.preferences, 'toastSoundEnabled')) {
-        this.state.preferences.toastSoundEnabled = false;
-      } else {
-        this.state.preferences.toastSoundEnabled = Boolean(this.state.preferences.toastSoundEnabled);
-      }
-      this.state.preferences.toastSoundVolume = this.sanitizeToastSoundVolume(
-        this.state.preferences.toastSoundVolume
+      this.state.preferences.chatMentionHighlightColor = this.sanitizeChatMentionColor(
+        this.state.preferences.chatMentionHighlightColor
       );
-      this.state.preferences.toastSoundId = this.sanitizeToastSoundId(
-        this.state.preferences.toastSoundId
+      this.state.preferences.chatMentionSoundId = this.sanitizeChatMentionSoundId(
+        this.state.preferences.chatMentionSoundId
       );
-      this.state.preferences.toastCustomSoundName = this.sanitizeToastCustomSoundName(
-        this.state.preferences.toastCustomSoundName
+      this.state.preferences.liveHoverPreviewMode = this.sanitizeLiveHoverPreviewMode(
+        this.state.preferences.liveHoverPreviewMode
       );
-      this.state.preferences.toastCustomSoundDataUrl = this.sanitizeToastCustomSoundDataUrl(
-        this.state.preferences.toastCustomSoundDataUrl
-      );
+      Object.entries(DEFAULT_STATE.preferences || {}).forEach(([key, defaultValue]) => {
+        if (!Object.prototype.hasOwnProperty.call(this.state.preferences, key)) {
+          this.state.preferences[key] = deepCopy(defaultValue);
+        }
+      });
       const categoryIdMap = new Map();
       this.state.categories.forEach((category, index) => {
         if (!category || typeof category !== 'object') {
@@ -1214,74 +1151,77 @@
       });
     }
 
-    async setRecentLiveEnabled(enabled) {
-      if (Boolean(this.state.preferences?.recentLiveEnabled) === Boolean(enabled)) {
-        return;
+    async setBooleanPreference(key, enabled) {
+      const next = Boolean(enabled);
+      const preferences = this.state.preferences || {};
+      if (Object.prototype.hasOwnProperty.call(preferences, key) && Boolean(preferences[key]) === next) {
+        return false;
       }
       await this.updateState((draft) => {
-        const prefs = draft.preferences || (draft.preferences = {});
-        prefs.recentLiveEnabled = Boolean(enabled);
+        (draft.preferences || (draft.preferences = {}))[key] = next;
       });
+      return true;
+    }
+
+    async setSanitizedPreference(key, value, sanitizer = (candidate) => candidate, options = {}) {
+      const next = sanitizer.call(this, value);
+      const stored = this.state.preferences?.[key] ?? options.currentFallback;
+      const current = options.normalizeCurrent ? sanitizer.call(this, stored) : stored;
+      if (Object.is(current, next)) return next;
+      await this.updateState((draft) => {
+        (draft.preferences || (draft.preferences = {}))[key] = next;
+      });
+      return next;
+    }
+
+    async setRecentLiveEnabled(enabled) {
+      await this.setBooleanPreference('recentLiveEnabled', enabled);
+    }
+
+    sanitizeBoundedInteger(value, minimum, maximum, fallback) {
+      const parsed = Number(value);
+      return Number.isFinite(parsed)
+        ? Math.max(minimum, Math.min(maximum, Math.round(parsed)))
+        : fallback;
+    }
+
+    sanitizeRecentLiveThreshold(value) {
+      return this.sanitizeBoundedInteger(value, 1, 120, 10);
     }
 
     async setRecentLiveThreshold(minutes) {
-      const numeric = Number(minutes);
-      if (!Number.isFinite(numeric)) {
-        return;
-      }
-      const sanitized = Math.max(1, Math.min(120, Math.round(numeric)));
-      if (Math.round(Number(this.state.preferences?.recentLiveThresholdMinutes)) === sanitized) {
-        return;
-      }
-      await this.updateState((draft) => {
-        const prefs = draft.preferences || (draft.preferences = {});
-        prefs.recentLiveThresholdMinutes = sanitized;
-      });
+      if (!Number.isFinite(Number(minutes))) return;
+      return this.setSanitizedPreference(
+        'recentLiveThresholdMinutes', minutes, this.sanitizeRecentLiveThreshold, { normalizeCurrent: true }
+      );
     }
 
     async setChatHistoryEnabled(enabled) {
-      await this.updateState((draft) => {
-        const prefs = draft.preferences || (draft.preferences = {});
-        prefs.chatHistoryEnabled = Boolean(enabled);
-      });
+      await this.setBooleanPreference('chatHistoryEnabled', enabled);
     }
 
     async setModerationHistoryEnabled(enabled) {
-      await this.updateState((draft) => {
-        const prefs = draft.preferences || (draft.preferences = {});
-        prefs.moderationHistoryEnabled = Boolean(enabled);
-      });
+      await this.setBooleanPreference('moderationHistoryEnabled', enabled);
     }
 
     async setSevenTvEmotesEnabled(enabled) {
-      await this.updateState((draft) => {
-        (draft.preferences || (draft.preferences = {})).sevenTvEmotesEnabled = Boolean(enabled);
-      });
+      await this.setBooleanPreference('sevenTvEmotesEnabled', enabled);
     }
 
     async setBetterTtvEmotesEnabled(enabled) {
-      await this.updateState((draft) => {
-        (draft.preferences || (draft.preferences = {})).betterTtvEmotesEnabled = Boolean(enabled);
-      });
+      await this.setBooleanPreference('betterTtvEmotesEnabled', enabled);
     }
 
     async setPlayerLatencyEnabled(enabled) {
-      await this.updateState((draft) => {
-        (draft.preferences || (draft.preferences = {})).playerLatencyEnabled = Boolean(enabled);
-      });
+      await this.setBooleanPreference('playerLatencyEnabled', enabled);
     }
 
     async setChatFontEnabled(enabled) {
-      await this.updateState((draft) => {
-        (draft.preferences || (draft.preferences = {})).chatFontEnabled = Boolean(enabled);
-      });
+      await this.setBooleanPreference('chatFontEnabled', enabled);
     }
 
     async setChatFontFamily(font) {
-      const sanitized = this.sanitizeChatFontFamily(font);
-      await this.updateState((draft) => {
-        (draft.preferences || (draft.preferences = {})).chatFontFamily = sanitized;
-      });
+      return this.setSanitizedPreference('chatFontFamily', font, this.sanitizeChatFontFamily);
     }
 
     async setChatCustomFont({ name, dataUrl }) {
@@ -1307,19 +1247,63 @@
     }
 
     async setShowDeletedMessagesEnabled(enabled) {
-      await this.updateState((draft) => {
-        (draft.preferences || (draft.preferences = {})).showDeletedMessagesEnabled = Boolean(enabled);
-      });
+      await this.setBooleanPreference('showDeletedMessagesEnabled', enabled);
+    }
+
+    async setChatNoPaddingEnabled(enabled) {
+      await this.setBooleanPreference('chatNoPaddingEnabled', enabled);
+    }
+
+    sanitizeChatPaddingPx(value) {
+      return this.sanitizeBoundedInteger(value, 0, 20, 0);
+    }
+
+    async setChatPaddingPx(value) {
+      return this.setSanitizedPreference('chatPaddingPx', value, this.sanitizeChatPaddingPx);
+    }
+
+    sanitizeChatMentionColor(color) {
+      return this.sanitizeCategoryColor(color) || '#9147ff';
+    }
+
+    sanitizeChatMentionSoundId(soundId) {
+      return CHAT_MENTION_SOUND_IDS.has(soundId) ? soundId : 'soft';
+    }
+
+    async setChatMentionHighlightEnabled(enabled) {
+      await this.setBooleanPreference('chatMentionHighlightEnabled', enabled);
+    }
+
+    async setChatMentionHighlightColor(color) {
+      return this.setSanitizedPreference('chatMentionHighlightColor', color, this.sanitizeChatMentionColor);
+    }
+
+    async setChatMentionSoundEnabled(enabled) {
+      await this.setBooleanPreference('chatMentionSoundEnabled', enabled);
+    }
+
+    async setChatMentionSoundId(soundId) {
+      return this.setSanitizedPreference('chatMentionSoundId', soundId, this.sanitizeChatMentionSoundId);
     }
 
     async setShowFullRepliesEnabled(enabled) {
-      await this.updateState((draft) => {
-        (draft.preferences || (draft.preferences = {})).showFullRepliesEnabled = Boolean(enabled);
-      });
+      await this.setBooleanPreference('showFullRepliesEnabled', enabled);
+    }
+
+    async setLiveHoverPreviewEnabled(enabled) {
+      await this.setBooleanPreference('liveHoverPreviewEnabled', enabled);
+    }
+
+    sanitizeLiveHoverPreviewMode(mode) {
+      return mode === 'video' ? 'video' : 'image';
+    }
+
+    async setLiveHoverPreviewMode(mode) {
+      return this.setSanitizedPreference('liveHoverPreviewMode', mode, this.sanitizeLiveHoverPreviewMode);
     }
 
     sanitizeChatFontFamily(font) {
-      return new Set(['system', 'arial', 'verdana', 'georgia', 'monospace', 'custom']).has(font) ? font : 'system';
+      return CHAT_FONT_FAMILIES.has(font) ? font : 'system';
     }
 
     sanitizeChatCustomFontDataUrl(dataUrl) {
@@ -1329,50 +1313,23 @@
     }
 
     async setHideCollapsedGroupsUntilHover(enabled) {
-      await this.updateState((draft) => {
-        const prefs = draft.preferences || (draft.preferences = {});
-        prefs.hideCollapsedGroupsUntilHover = Boolean(enabled);
-      });
+      await this.setBooleanPreference('hideCollapsedGroupsUntilHover', enabled);
     }
 
     async setAutoCompactSidebarEnabled(enabled) {
-      await this.updateState((draft) => {
-        const prefs = draft.preferences || (draft.preferences = {});
-        prefs.autoCompactSidebarEnabled = Boolean(enabled);
-      });
+      await this.setBooleanPreference('autoCompactSidebarEnabled', enabled);
     }
 
     sanitizeCategoryColorOpacity(value) {
-      const parsed = Number(value);
-      return Number.isFinite(parsed) ? Math.max(0, Math.min(30, Math.round(parsed))) : 7;
+      return this.sanitizeBoundedInteger(value, 0, 30, 7);
     }
 
     sanitizeCategoryColorGradient(value) {
-      const parsed = Number(value);
-      return Number.isFinite(parsed) ? Math.max(0, Math.min(100, Math.round(parsed))) : 62;
+      return this.sanitizeBoundedInteger(value, 0, 100, 62);
     }
 
     sanitizeCategoryColorStyle(value) {
-      const allowed = new Set([
-        'gradient',
-        'solid',
-        'stripe',
-        'glow',
-        'glass',
-        'outline',
-        'minimal',
-        'dot',
-        'rail',
-        'double',
-        'soft-card',
-        'soft-neon',
-        'ribbon',
-        'count-badge',
-        'ink',
-        'compact',
-        'parent-accent'
-      ]);
-      return allowed.has(value) ? value : 'gradient';
+      return CATEGORY_COLOR_STYLES.has(value) ? value : 'gradient';
     }
 
     sanitizeStreamerItemStyle(value) {
@@ -1400,102 +1357,58 @@
     }
 
     async setCategoryColorOpacity(value) {
-      const sanitized = this.sanitizeCategoryColorOpacity(value);
-      if (this.sanitizeCategoryColorOpacity(this.state.preferences?.categoryColorOpacity) === sanitized) {
-        return;
-      }
-      await this.updateState((draft) => {
-        const prefs = draft.preferences || (draft.preferences = {});
-        prefs.categoryColorOpacity = sanitized;
-      });
+      return this.setSanitizedPreference(
+        'categoryColorOpacity', value, this.sanitizeCategoryColorOpacity, { normalizeCurrent: true }
+      );
     }
 
     async setCategoryColorGradient(value) {
-      const sanitized = this.sanitizeCategoryColorGradient(value);
-      if (this.sanitizeCategoryColorGradient(this.state.preferences?.categoryColorGradient) === sanitized) {
-        return;
-      }
-      await this.updateState((draft) => {
-        const prefs = draft.preferences || (draft.preferences = {});
-        prefs.categoryColorGradient = sanitized;
-      });
+      return this.setSanitizedPreference(
+        'categoryColorGradient', value, this.sanitizeCategoryColorGradient, { normalizeCurrent: true }
+      );
     }
 
     async setCategoryColorStyle(value) {
-      const sanitized = this.sanitizeCategoryColorStyle(value);
-      if (this.sanitizeCategoryColorStyle(this.state.preferences?.categoryColorStyle) === sanitized) {
-        return;
-      }
-      await this.updateState((draft) => {
-        const prefs = draft.preferences || (draft.preferences = {});
-        prefs.categoryColorStyle = sanitized;
-      });
+      return this.setSanitizedPreference(
+        'categoryColorStyle', value, this.sanitizeCategoryColorStyle, { normalizeCurrent: true }
+      );
     }
 
     async setStreamerItemStyle(value) {
-      const sanitized = this.sanitizeStreamerItemStyle(value);
-      if (this.sanitizeStreamerItemStyle(this.state.preferences?.streamerItemStyle) === sanitized) {
-        return;
-      }
-      await this.updateState((draft) => {
-        const prefs = draft.preferences || (draft.preferences = {});
-        prefs.streamerItemStyle = sanitized;
-      });
+      return this.setSanitizedPreference(
+        'streamerItemStyle', value, this.sanitizeStreamerItemStyle, { normalizeCurrent: true }
+      );
     }
 
     async setAutoCompactStreamerStyle(value) {
-      const sanitized = this.sanitizeStreamerItemStyle(value);
-      if (this.sanitizeStreamerItemStyle(this.state.preferences?.autoCompactStreamerStyle || 'compact') === sanitized) {
-        return;
-      }
-      await this.updateState((draft) => {
-        const prefs = draft.preferences || (draft.preferences = {});
-        prefs.autoCompactStreamerStyle = sanitized;
-      });
+      return this.setSanitizedPreference(
+        'autoCompactStreamerStyle', value, this.sanitizeStreamerItemStyle,
+        { normalizeCurrent: true, currentFallback: 'compact' }
+      );
     }
 
     async setAutoCompactGroupStyle(value) {
-      const sanitized = this.sanitizeAutoCompactGroupStyle(value);
-      if (this.sanitizeAutoCompactGroupStyle(this.state.preferences?.autoCompactGroupStyle) === sanitized) {
-        return;
-      }
-      await this.updateState((draft) => {
-        const prefs = draft.preferences || (draft.preferences = {});
-        prefs.autoCompactGroupStyle = sanitized;
-      });
+      return this.setSanitizedPreference(
+        'autoCompactGroupStyle', value, this.sanitizeAutoCompactGroupStyle, { normalizeCurrent: true }
+      );
     }
 
     async setSidebarAnimationStyle(value) {
-      const sanitized = this.sanitizeSidebarAnimationStyle(value);
-      if (this.sanitizeSidebarAnimationStyle(this.state.preferences?.sidebarAnimationStyle) === sanitized) {
-        return;
-      }
-      await this.updateState((draft) => {
-        const prefs = draft.preferences || (draft.preferences = {});
-        prefs.sidebarAnimationStyle = sanitized;
-      });
+      return this.setSanitizedPreference(
+        'sidebarAnimationStyle', value, this.sanitizeSidebarAnimationStyle, { normalizeCurrent: true }
+      );
     }
 
     async setSidebarSurfaceStyle(value) {
-      const sanitized = this.sanitizeSidebarSurfaceStyle(value);
-      if (this.sanitizeSidebarSurfaceStyle(this.state.preferences?.sidebarSurfaceStyle) === sanitized) {
-        return;
-      }
-      await this.updateState((draft) => {
-        const prefs = draft.preferences || (draft.preferences = {});
-        prefs.sidebarSurfaceStyle = sanitized;
-      });
+      return this.setSanitizedPreference(
+        'sidebarSurfaceStyle', value, this.sanitizeSidebarSurfaceStyle, { normalizeCurrent: true }
+      );
     }
 
     async setSidebarSurfaceColor(color) {
-      const sanitized = this.sanitizeCategoryColor(color);
-      if (this.sanitizeCategoryColor(this.state.preferences?.sidebarSurfaceColor) === sanitized) {
-        return;
-      }
-      await this.updateState((draft) => {
-        const prefs = draft.preferences || (draft.preferences = {});
-        prefs.sidebarSurfaceColor = sanitized;
-      });
+      return this.setSanitizedPreference(
+        'sidebarSurfaceColor', color, this.sanitizeCategoryColor, { normalizeCurrent: true }
+      );
     }
 
     async setSpecialCategoryColor(key, color) {
@@ -1529,40 +1442,26 @@
     }
 
     async setToastDuration(seconds) {
-      const numeric = Number(seconds);
-      if (!Number.isFinite(numeric)) {
-        return;
-      }
-      const sanitized = Math.max(2, Math.min(60, Math.round(numeric)));
-      if (Math.round(Number(this.state.preferences?.toastDurationSeconds)) === sanitized) {
-        return;
-      }
-      await this.updateState((draft) => {
-        const prefs = draft.preferences || (draft.preferences = {});
-        prefs.toastDurationSeconds = sanitized;
-      });
+      if (!Number.isFinite(Number(seconds))) return;
+      return this.setSanitizedPreference(
+        'toastDurationSeconds', seconds, this.sanitizeToastDuration, { normalizeCurrent: true }
+      );
+    }
+
+    sanitizeToastDuration(value) {
+      return this.sanitizeBoundedInteger(value, 2, 60, 6);
     }
 
     sanitizeToastPosition(position) {
-      const allowed = new Set([
-        'top-left',
-        'top-center',
-        'top-right',
-        'bottom-left',
-        'bottom-center',
-        'bottom-right'
-      ]);
-      return allowed.has(position) ? position : 'top-right';
+      return TOAST_POSITIONS.has(position) ? position : 'top-right';
     }
 
     sanitizeToastSoundId(soundId) {
-      const allowed = new Set(['soft', 'chime', 'arcade', 'pulse', 'alert', 'custom']);
-      return allowed.has(soundId) ? soundId : 'soft';
+      return TOAST_SOUND_IDS.has(soundId) ? soundId : 'soft';
     }
 
     sanitizeToastSoundVolume(volume) {
-      const numeric = Number(volume);
-      return Number.isFinite(numeric) ? Math.max(0, Math.min(100, Math.round(numeric))) : 35;
+      return this.sanitizeBoundedInteger(volume, 0, 100, 35);
     }
 
     sanitizeToastCustomSoundName(name) {
@@ -1581,58 +1480,31 @@
     }
 
     async setToastEnabled(enabled) {
-      const next = Boolean(enabled);
-      if (Boolean(this.state.preferences?.toastEnabled) === next) {
-        return;
-      }
-      await this.updateState((draft) => {
-        const prefs = draft.preferences || (draft.preferences = {});
-        prefs.toastEnabled = next;
-      });
+      await this.setBooleanPreference('toastEnabled', enabled);
     }
 
     async setToastPosition(position) {
-      const sanitized = this.sanitizeToastPosition(position);
-      if ((this.state.preferences?.toastPosition || 'top-right') === sanitized) {
-        return;
-      }
-      await this.updateState((draft) => {
-        const prefs = draft.preferences || (draft.preferences = {});
-        prefs.toastPosition = sanitized;
-      });
+      return this.setSanitizedPreference(
+        'toastPosition', position, this.sanitizeToastPosition,
+        { normalizeCurrent: true, currentFallback: 'top-right' }
+      );
     }
 
     async setToastSoundEnabled(enabled) {
-      const next = Boolean(enabled);
-      if (Boolean(this.state.preferences?.toastSoundEnabled) === next) {
-        return;
-      }
-      await this.updateState((draft) => {
-        const prefs = draft.preferences || (draft.preferences = {});
-        prefs.toastSoundEnabled = next;
-      });
+      await this.setBooleanPreference('toastSoundEnabled', enabled);
     }
 
     async setToastSound(soundId) {
-      const sanitized = this.sanitizeToastSoundId(soundId);
-      if ((this.state.preferences?.toastSoundId || 'soft') === sanitized) {
-        return;
-      }
-      await this.updateState((draft) => {
-        const prefs = draft.preferences || (draft.preferences = {});
-        prefs.toastSoundId = sanitized;
-      });
+      return this.setSanitizedPreference(
+        'toastSoundId', soundId, this.sanitizeToastSoundId,
+        { normalizeCurrent: true, currentFallback: 'soft' }
+      );
     }
 
     async setToastSoundVolume(volume) {
-      const sanitized = this.sanitizeToastSoundVolume(volume);
-      if (this.sanitizeToastSoundVolume(this.state.preferences?.toastSoundVolume) === sanitized) {
-        return;
-      }
-      await this.updateState((draft) => {
-        const prefs = draft.preferences || (draft.preferences = {});
-        prefs.toastSoundVolume = sanitized;
-      });
+      return this.setSanitizedPreference(
+        'toastSoundVolume', volume, this.sanitizeToastSoundVolume, { normalizeCurrent: true }
+      );
     }
 
     async setToastCustomSound({ name = '', dataUrl = '' } = {}) {

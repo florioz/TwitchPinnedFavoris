@@ -9,7 +9,7 @@ vm.runInContext(fs.readFileSync(
   path.join(__dirname, '../src/contentScripts/features/categoryTreeTools.js'),
   'utf8'
 ), context);
-const { build } = context.window.TFRCategoryTreeTools;
+const { build, flatten } = context.window.TFRCategoryTreeTools;
 
 test('category tree tools attach children and sort every level', () => {
   const tree = build([
@@ -30,4 +30,26 @@ test('category tree tools promote missing and self parents to roots', () => {
   ]);
   assert.equal(tree.length, 2);
   assert.ok(tree.every((item) => item.parentId === null));
+});
+
+test('category tree tools flatten nested nodes in display order with their depth', () => {
+  const tree = [
+    {
+      id: 'root',
+      name: 'Racine',
+      children: [
+        { id: 'child', name: 'Enfant', children: [] },
+        { id: 'branch', name: 'Branche', children: [{ id: 'leaf', name: 'Feuille' }] }
+      ]
+    },
+    { id: 'second', name: 'Seconde' }
+  ];
+
+  assert.deepEqual(JSON.parse(JSON.stringify(flatten(tree))), [
+    { id: 'root', name: 'Racine', depth: 0 },
+    { id: 'child', name: 'Enfant', depth: 1 },
+    { id: 'branch', name: 'Branche', depth: 1 },
+    { id: 'leaf', name: 'Feuille', depth: 2 },
+    { id: 'second', name: 'Seconde', depth: 0 }
+  ]);
 });
