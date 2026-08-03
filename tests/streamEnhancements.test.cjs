@@ -52,6 +52,10 @@ const loadFeatures = () => {
     clearTimeout: window.clearTimeout
   };
   vm.runInNewContext(
+    fs.readFileSync(path.join(__dirname, '../src/contentScripts/features/deletedMessageView.js'), 'utf8'),
+    context
+  );
+  vm.runInNewContext(
     fs.readFileSync(path.join(__dirname, '../src/contentScripts/features/streamEnhancements.js'), 'utf8'),
     context
   );
@@ -125,7 +129,7 @@ test('chat padding can be removed and restored independently', () => {
 test('chat padding CSS does not override Twitch scroll wrappers', () => {
   const css = fs.readFileSync(path.join(__dirname, '../styles/overlay.css'), 'utf8');
   const start = css.indexOf('.tfr-chat-no-padding');
-  const paddingRules = css.slice(start, css.indexOf('.tfr-deleted-message-content', start));
+  const paddingRules = css.slice(start, css.indexOf('.tfr-deleted-message-revealed', start));
   assert.match(paddingRules, /overflow-x:\s*clip\s*!important/);
   assert.match(paddingRules, /var\(--tfr-chat-padding,\s*0px\)/);
   assert.doesNotMatch(paddingRules, /simplebar-content-wrapper/);
@@ -169,6 +173,22 @@ test('chat observers share a single pending container retry', () => {
   viewer.configure(true);
   assert.equal(getTimeoutCalls(), 1);
   viewer.dispose();
+});
+
+test('deleted messages are restored inside their original body without a duplicate block', () => {
+  const source = fs.readFileSync(
+    path.join(__dirname, '../src/contentScripts/features/streamEnhancements.js'),
+    'utf8'
+  );
+  const start = source.indexOf('class DeletedMessageViewer');
+  const viewer = source.slice(start, source.indexOf('class RootClassToggle', start));
+  assert.match(viewer, /deletedMessageView\.reveal/);
+  assert.doesNotMatch(viewer, /message\.appendChild\(restored\)/);
+  assert.doesNotMatch(viewer, /tfr-deleted-message-content/);
+
+  const css = fs.readFileSync(path.join(__dirname, '../styles/overlay.css'), 'utf8');
+  assert.match(css, /\.tfr-deleted-message-revealed/);
+  assert.match(css, /\.tfr-deleted-message-restored/);
 });
 
 test('chat mutation traversal processes the same message only once', () => {

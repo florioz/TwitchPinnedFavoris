@@ -3,7 +3,7 @@
   "name": "__MSG_extensionName__",
   "description": "__MSG_extensionDescription__",
   "default_locale": "en",
-  "version": "0.6.9",
+  "version": "0.6.10",
   "icons": {
     "16": "assets/icon16.png",
     "48": "assets/icon48.png",
@@ -55,6 +55,7 @@
         "src/contentScripts/features/chatDomTools.js",
         "src/contentScripts/features/moderationDurationTools.js",
         "src/contentScripts/features/chatModeration.js",
+        "src/contentScripts/features/deletedMessageView.js",
         "src/contentScripts/features/streamEnhancements.js",
         "src/contentScripts/features/updateNotifier.js",
         "src/contentScripts/features/topNav.js",

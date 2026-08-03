@@ -3277,24 +3277,27 @@
   background: #26183a;
 }
 
-.tfr-deleted-message-content {
-  display: flex;
-  gap: 6px;
-  margin: 3px 0 2px;
-  padding: 5px 7px;
-  border-left: 2px solid rgba(255, 255, 255, 0.18);
-  color: rgba(239, 239, 241, 0.58);
-  background: rgba(20, 20, 23, 0.45);
-  font-size: 0.92em;
-  line-height: 1.35;
+.tfr-deleted-message-revealed {
+  opacity: 0.62;
+  filter: grayscale(0.72);
 }
 
-.tfr-deleted-message-content__badge {
-  flex: 0 0 auto;
-  color: rgba(239, 239, 241, 0.4);
-  font-size: 0.82em;
-  font-weight: 700;
-  text-transform: uppercase;
+.tfr-deleted-message-revealed :is(
+  [data-a-target="chat-message-text"],
+  [data-a-target="chat-line-message-body"],
+  [data-test-selector="chat-line-message-body"]
+) {
+  color: transparent !important;
+  font-size: 0 !important;
+  text-decoration: none !important;
+}
+
+.tfr-deleted-message-revealed .tfr-deleted-message-restored {
+  display: inline !important;
+  color: rgba(239, 239, 241, 0.7) !important;
+  font-size: 1.4rem !important;
+  line-height: 1.45;
+  text-decoration: none !important;
 }
 
 .tfr-custom-reply-context {

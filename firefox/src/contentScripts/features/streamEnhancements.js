@@ -1,5 +1,6 @@
 (() => {
   const createStreamEnhancements = ({ t }) => {
+    const deletedMessageView = window.TFRDeletedMessageView.create(document);
     const CHAT_CONTAINER_SELECTORS = [
       '[data-test-selector="chat-scrollable-area__message-container"]',
       '.chat-scrollable-area__message-container',
@@ -376,7 +377,7 @@
         this.observer?.disconnect();
         this.observer = null;
         clearChatRetry(this);
-        document.querySelectorAll('.tfr-deleted-message-content').forEach((node) => node.remove());
+        deletedMessageView.clearAll();
         this.snapshotsById.clear();
       }
 
@@ -406,7 +407,7 @@
       }
 
       scanNode(node) {
-        if (!(node instanceof Element) || node.classList.contains('tfr-deleted-message-content')) return;
+        if (!(node instanceof Element) || node.classList.contains(deletedMessageView.RESTORED_CLASS)) return;
         visitMatchingElements(node, MESSAGE_SELECTOR, (message) => this.processMessage(message));
       }
 
@@ -430,9 +431,9 @@
 
       processMessage(message) {
         if (!(message instanceof HTMLElement)) return;
-        const existing = message.querySelector('.tfr-deleted-message-content');
+        const existing = deletedMessageView.findRestored(message);
         if (!this.isDeleted(message)) {
-          if (existing) existing.remove();
+          deletedMessageView.clear(message);
           const body = message.querySelector(MESSAGE_BODY_SELECTOR);
           const text = body?.textContent?.trim();
           if (text) {
@@ -446,16 +447,14 @@
         if (existing) return;
         const snapshot = this.snapshots.get(message) || this.snapshotsById.get(this.getMessageId(message));
         if (!snapshot?.text) return;
-        const restored = document.createElement('div');
-        restored.className = 'tfr-deleted-message-content';
-        const badge = document.createElement('span');
-        badge.className = 'tfr-deleted-message-content__badge';
-        badge.textContent = t('settings.deletedMessages.badge');
-        const content = document.createElement('span');
-        content.textContent = snapshot.text;
-        restored.appendChild(badge);
-        restored.appendChild(content);
-        message.appendChild(restored);
+        const body = message.querySelector(MESSAGE_BODY_SELECTOR);
+        if (!body) return;
+        deletedMessageView.reveal({
+          message,
+          body,
+          text: snapshot.text,
+          label: t('settings.deletedMessages.badge')
+        });
       }
     }
 
