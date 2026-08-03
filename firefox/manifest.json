@@ -45,6 +45,7 @@
         "src/contentScripts/features/appearancePreferences.js",
         "src/contentScripts/features/profileStateTools.js",
         "src/contentScripts/features/categoryTreeTools.js",
+        "src/contentScripts/features/categoryMutationTools.js",
         "src/contentScripts/features/backupNormalizer.js",
         "src/contentScripts/features/backupPreferenceNormalizer.js",
         "src/contentScripts/features/preferenceSanitizers.js",

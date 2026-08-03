@@ -15,17 +15,11 @@
     inferCurrentPageLiveData,
     shouldDisplayFavorite
   }) => {
-  const CHAT_MENTION_SOUND_IDS = new Set(['soft', 'chime', 'arcade', 'pulse', 'alert']);
-  const CHAT_FONT_FAMILIES = new Set(['system', 'arial', 'verdana', 'georgia', 'monospace', 'custom']);
   const CATEGORY_COLOR_STYLES = new Set([
     'gradient', 'solid', 'stripe', 'glow', 'glass', 'outline', 'minimal', 'dot', 'rail',
     'double', 'soft-card', 'soft-neon', 'ribbon', 'count-badge', 'ink', 'compact', 'parent-accent'
   ]);
-  const TOAST_POSITIONS = new Set([
-    'top-left', 'top-center', 'top-right', 'bottom-left', 'bottom-center', 'bottom-right'
-  ]);
-  const TOAST_SOUND_IDS = new Set([...CHAT_MENTION_SOUND_IDS, 'custom']);
-
+  const categoryMutations = window.TFRCategoryMutationTools;
   class EventEmitter {
     constructor() {
       this.listeners = new Set();
@@ -827,39 +821,13 @@
 
     async moveCategoryUp(categoryId) {
       await this.updateState((draft) => {
-        const target = draft.categories.find((cat) => cat.id === categoryId);
-        if (!target) return;
-        const siblings = draft.categories
-          .filter((cat) => cat.parentId === target.parentId)
-          .sort((a, b) => {
-            if (a.sortOrder !== b.sortOrder) return a.sortOrder - b.sortOrder;
-            return a.name.localeCompare(b.name, 'fr');
-          });
-        const index = siblings.findIndex((cat) => cat.id === categoryId);
-        if (index <= 0) return;
-        const previous = siblings[index - 1];
-        const temp = target.sortOrder;
-        target.sortOrder = previous.sortOrder;
-        previous.sortOrder = temp;
+        categoryMutations.swapSibling(draft.categories, categoryId, -1);
       });
     }
 
     async moveCategoryDown(categoryId) {
       await this.updateState((draft) => {
-        const target = draft.categories.find((cat) => cat.id === categoryId);
-        if (!target) return;
-        const siblings = draft.categories
-          .filter((cat) => cat.parentId === target.parentId)
-          .sort((a, b) => {
-            if (a.sortOrder !== b.sortOrder) return a.sortOrder - b.sortOrder;
-            return a.name.localeCompare(b.name, 'fr');
-          });
-        const index = siblings.findIndex((cat) => cat.id === categoryId);
-        if (index < 0 || index === siblings.length - 1) return;
-        const next = siblings[index + 1];
-        const temp = target.sortOrder;
-        target.sortOrder = next.sortOrder;
-        next.sortOrder = temp;
+        categoryMutations.swapSibling(draft.categories, categoryId, 1);
       });
     }
 
@@ -929,16 +897,7 @@
         const target = draft.categories.find((cat) => cat.id === categoryId);
         if (!target) return;
         if (parentId === target.id) return;
-        const isDescendant = (candidateId, childId) => {
-          let current = candidateId;
-          while (current) {
-            if (current === childId) return true;
-            const next = draft.categories.find((cat) => cat.id === current);
-            current = next?.parentId || null;
-          }
-          return false;
-        };
-        if (parentId && isDescendant(parentId, target.id)) return;
+        if (parentId && categoryMutations.isDescendant(draft.categories, parentId, target.id)) return;
         target.parentId = parentId || null;
         target.sortOrder = Date.now();
       });
