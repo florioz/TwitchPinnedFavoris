@@ -50,6 +50,8 @@
         "src/contentScripts/features/favoritesStore.js",
         "src/contentScripts/features/locationWatcher.js",
         "src/contentScripts/features/chatEmoteResolver.js",
+        "src/contentScripts/features/chatDomTools.js",
+        "src/contentScripts/features/moderationDurationTools.js",
         "src/contentScripts/features/chatModeration.js",
         "src/contentScripts/features/streamEnhancements.js",
         "src/contentScripts/features/updateNotifier.js",

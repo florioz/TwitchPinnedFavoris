@@ -6,6 +6,10 @@
     MAX_TIMEOUT_SECONDS
   }) => {
   const thirdPartyEmotes = window.TFRChatEmoteResolver.create();
+  const chatDomTools = window.TFRChatDomTools;
+  const durationTools = window.TFRModerationDurationTools;
+  if (!chatDomTools) throw new Error('[TFR] chat DOM tools are missing');
+  if (!durationTools) throw new Error('[TFR] moderation duration tools are missing');
 
   class ChatHistoryTracker {
     constructor() {
@@ -100,24 +104,7 @@
     }
 
     findMessagesContainer() {
-      const selectors = [
-        '[data-a-target="chat-history-scrollable-area"]',
-        '[data-test-selector="chat-scrollable-area__message-container"]',
-        '.chat-scrollable-area__message-container',
-        '[data-a-target="chat-messages"]',
-        '[role="log"][aria-live="polite"]'
-      ];
-      for (const selector of selectors) {
-        try {
-          const container = document.querySelector(selector);
-          if (container) {
-            return container;
-          }
-        } catch (error) {
-          console.error('[TFR] chat container selector error', selector, error);
-        }
-      }
-      return null;
+      return chatDomTools.findMessagesContainer(document);
     }
 
     observeChat(force = false) {
@@ -1468,6 +1455,8 @@
     }
 
     parseDurationCandidates(values) {
+      return durationTools.first(values);
+      /* Legacy parser kept below for one release as a comparison reference. */
       if (!Array.isArray(values)) {
         return null;
       }
@@ -1491,6 +1480,8 @@
     }
 
     parseDurationValue(value, unitHint = null) {
+      return durationTools.parse(value, unitHint);
+      /* Legacy parser kept below for one release as a comparison reference. */
       if (value === undefined || value === null || value === '') {
         return null;
       }
@@ -1545,6 +1536,8 @@
     }
 
     normalizeDurationNumber(value, unitHint = null) {
+      return durationTools.normalizeNumber(value, unitHint);
+      /* Legacy parser kept below for one release as a comparison reference. */
       if (!Number.isFinite(value) || value <= 0) {
         return null;
       }
@@ -1741,6 +1734,8 @@
     }
 
     extractTimeoutDurationFromText(text) {
+      return durationTools.timeoutFromText(text);
+      /* Legacy parser kept below for one release as a comparison reference. */
       if (!text) {
         return null;
       }
@@ -1768,6 +1763,8 @@
     }
 
     extractDurationFromText(text) {
+      return durationTools.fromText(text);
+      /* Legacy parser kept below for one release as a comparison reference. */
       if (!text) {
         return null;
       }
@@ -1809,6 +1806,8 @@
     }
 
     convertDuration(value, unit) {
+      return durationTools.convert(value, unit);
+      /* Legacy parser kept below for one release as a comparison reference. */
       const numeric = Number(value);
       if (!Number.isFinite(numeric) || numeric <= 0) {
         return null;
@@ -2590,20 +2589,7 @@
     }
 
     querySelectors(roots, selectors) {
-      for (const root of roots) {
-        if (!root) continue;
-        for (const selector of selectors) {
-          try {
-            const found = root.querySelector?.(selector);
-            if (found) {
-              return found;
-            }
-          } catch {
-            // ignore selector issues
-          }
-        }
-      }
-      return null;
+      return chatDomTools.queryFirst(roots, selectors);
     }
 
     findViewerCard() {
