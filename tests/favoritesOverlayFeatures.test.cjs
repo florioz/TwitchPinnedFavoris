@@ -18,6 +18,10 @@ vm.runInContext(fs.readFileSync(
   'utf8'
 ), context);
 vm.runInContext(fs.readFileSync(
+  path.join(__dirname, '../src/contentScripts/features/featureSettingsConfig.js'),
+  'utf8'
+), context);
+vm.runInContext(fs.readFileSync(
   path.join(__dirname, '../src/contentScripts/features/favoritesOverlay.js'),
   'utf8'
 ), context);
@@ -35,6 +39,7 @@ const FavoriteCategoryFilterController = context.window.TFRFavoriteCategoryFilte
   tools: categoryFilterTools,
   view: categoryFilterView
 });
+const featureSettingsConfig = context.window.TFRFeatureSettingsConfig.create({ t: (key) => key });
 const FavoritesOverlay = context.window.TFRFavoritesOverlay.create({
   t: (key) => key,
   normalizeCategoryName
@@ -46,6 +51,23 @@ test('chat padding values are normalized consistently for the settings UI', () =
   assert.equal(overlay.normalizeChatPaddingPx(-1), 0);
   assert.equal(overlay.normalizeChatPaddingPx(40), 20);
   assert.equal(overlay.normalizeChatPaddingPx('invalid'), 0);
+});
+
+test('feature settings config assigns every toggle to one dashboard group', () => {
+  const assignedKeys = featureSettingsConfig.groups.flatMap((group) => group.keys);
+  assert.equal(new Set(assignedKeys).size, assignedKeys.length);
+  assert.deepEqual(
+    [...featureSettingsConfig.toggles.map((toggle) => toggle.key)].sort(),
+    [...assignedKeys].sort()
+  );
+  assert.equal(
+    featureSettingsConfig.toggles.find((toggle) => toggle.key === 'liveFavoritesEnabled').defaultEnabled,
+    undefined
+  );
+  assert.equal(
+    featureSettingsConfig.toggles.find((toggle) => toggle.key === 'chatFontEnabled').defaultEnabled,
+    false
+  );
 });
 
 test('optional overlay sections append only when they exist', () => {

@@ -25,6 +25,10 @@ const FavoriteCategoryFilterController = window.TFRFavoriteCategoryFilterControl
 if (!FavoriteCategoryFilterController) {
   throw new Error('[TFR] favorite category filter controller is missing');
 }
+const featureSettingsConfig = window.TFRFeatureSettingsConfig?.create?.({ t });
+if (!featureSettingsConfig) {
+  throw new Error('[TFR] feature settings config is missing');
+}
 class FavoritesOverlay {
   constructor(store) {
     this.store = store;
@@ -2002,130 +2006,7 @@ class FavoritesOverlay {
     heading.append(headingTitle, headingHint);
     wrapper.appendChild(heading);
 
-    const toggles = [
-      {
-        key: 'liveFavoritesEnabled',
-        label: t('settings.liveSidebar.toggle'),
-        description: t('settings.liveSidebar.description'),
-        setter: 'setLiveFavoritesEnabled'
-      },
-      {
-        key: 'chatHistoryEnabled',
-        label: t('settings.chatHistory.toggle'),
-        description: t('settings.chatHistory.description'),
-        setter: 'setChatHistoryEnabled'
-      },
-      {
-        key: 'moderationHistoryEnabled',
-        label: t('settings.moderation.toggle'),
-        description: t('settings.moderation.description'),
-        setter: 'setModerationHistoryEnabled'
-      },
-      {
-        key: 'sevenTvEmotesEnabled',
-        defaultEnabled: false,
-        label: t('settings.sevenTv.toggle'),
-        description: t('settings.sevenTv.description'),
-        setter: 'setSevenTvEmotesEnabled'
-      },
-      {
-        key: 'betterTtvEmotesEnabled',
-        defaultEnabled: false,
-        label: t('settings.betterTtv.toggle'),
-        description: t('settings.betterTtv.description'),
-        setter: 'setBetterTtvEmotesEnabled'
-      },
-      {
-        key: 'playerLatencyEnabled',
-        defaultEnabled: false,
-        label: t('settings.playerLatency.toggle'),
-        description: t('settings.playerLatency.description'),
-        setter: 'setPlayerLatencyEnabled'
-      },
-      {
-        key: 'chatFontEnabled',
-        defaultEnabled: false,
-        label: t('settings.chatFont.toggle'),
-        description: t('settings.chatFont.description'),
-        setter: 'setChatFontEnabled'
-      },
-      {
-        key: 'chatNoPaddingEnabled',
-        defaultEnabled: false,
-        label: t('settings.chatPadding.toggle'),
-        description: t('settings.chatPadding.description'),
-        setter: 'setChatNoPaddingEnabled'
-      },
-      {
-        key: 'chatMentionHighlightEnabled',
-        defaultEnabled: false,
-        label: t('settings.chatMentions.toggle'),
-        description: t('settings.chatMentions.description'),
-        setter: 'setChatMentionHighlightEnabled'
-      },
-      {
-        key: 'showDeletedMessagesEnabled',
-        defaultEnabled: false,
-        label: t('settings.deletedMessages.toggle'),
-        description: t('settings.deletedMessages.description'),
-        setter: 'setShowDeletedMessagesEnabled'
-      },
-      {
-        key: 'showFullRepliesEnabled',
-        defaultEnabled: false,
-        label: t('settings.fullReplies.toggle'),
-        description: t('settings.fullReplies.description'),
-        setter: 'setShowFullRepliesEnabled'
-      },
-      {
-        key: 'hideCollapsedGroupsUntilHover',
-        defaultEnabled: false,
-        label: t('settings.collapsedGroups.toggle'),
-        description: t('settings.collapsedGroups.description'),
-        setter: 'setHideCollapsedGroupsUntilHover'
-      },
-      {
-        key: 'autoCompactSidebarEnabled',
-        defaultEnabled: false,
-        label: t('settings.autoCompactSidebar.toggle'),
-        description: t('settings.autoCompactSidebar.description'),
-        setter: 'setAutoCompactSidebarEnabled'
-      },
-      {
-        key: 'liveHoverPreviewEnabled',
-        defaultEnabled: false,
-        label: t('settings.livePreview.toggle'),
-        description: t('settings.livePreview.description'),
-        setter: 'setLiveHoverPreviewEnabled'
-      }
-    ];
-
-    const groups = [
-      {
-        id: 'chat',
-        title: t('settings.enhancements.chat'),
-        description: t('settings.enhancements.chatDescription'),
-        keys: ['chatHistoryEnabled', 'moderationHistoryEnabled', 'chatFontEnabled', 'chatNoPaddingEnabled', 'showDeletedMessagesEnabled', 'showFullRepliesEnabled']
-      },
-      {
-        id: 'mentions',
-        title: t('settings.enhancements.mentions'),
-        description: t('settings.enhancements.mentionsDescription'),
-        keys: ['chatMentionHighlightEnabled']
-      },
-      {
-        id: 'emotes',
-        title: t('settings.enhancements.emotes'),
-        description: t('settings.enhancements.emotesDescription'),
-        keys: ['sevenTvEmotesEnabled', 'betterTtvEmotesEnabled']
-      },
-      {
-        id: 'player',
-        title: t('settings.enhancements.player'),
-        description: t('settings.enhancements.playerDescription'),
-        keys: ['liveFavoritesEnabled', 'playerLatencyEnabled', 'hideCollapsedGroupsUntilHover', 'autoCompactSidebarEnabled', 'liveHoverPreviewEnabled']
-      }
-    ];
+    const { toggles, groups } = featureSettingsConfig;
     const cards = new Map();
     const grid = document.createElement('div');
     grid.className = 'tfr-feature-dashboard';
