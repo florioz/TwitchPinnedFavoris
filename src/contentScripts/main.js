@@ -1548,37 +1548,12 @@
   if (!FeatureController) {
     throw new Error('[TFR] feature controller module is missing');
   }
-const bootstrap = async () => {
-    const store = new FavoritesStore();
-    await store.init();
-
-    const featureController = new FeatureController(store);
-    featureController.init();
-
-    const sidebar = new SidebarRenderer(store);
-    sidebar.init();
-
-    const funnelButton = new ChannelFavoriteButton(store);
-    funnelButton.init();
-
-    const favoritesOverlay = new FavoritesOverlay(store);
-    const topNav = new TopNavManager(favoritesOverlay);
-    topNav.init();
-
-    const updateNotifier = new UpdateNotifier();
-    updateNotifier.init();
-
-    window.addEventListener('focus', () => store.refreshLiveData());
-    window.addEventListener('beforeunload', () => {
-      [sidebar, funnelButton, favoritesOverlay, topNav, featureController, updateNotifier].forEach((instance) => {
-        try {
-          instance?.dispose?.();
-        } catch (error) {
-          console.warn('[TFR] dispose error', error);
-        }
-      });
-    });
-  };
+  const app = window.TFRAppBootstrap?.create?.({
+    FavoritesStore, FeatureController, SidebarRenderer, ChannelFavoriteButton,
+    FavoritesOverlay, TopNavManager, UpdateNotifier
+  });
+  if (!app) throw new Error('[TFR] application bootstrap module is missing');
+  const bootstrap = () => app.start();
 
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', bootstrap);

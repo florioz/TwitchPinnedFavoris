@@ -59,6 +59,10 @@
   class FavoritesStore {
     constructor() {
       this.state = deepCopy(DEFAULT_STATE);
+      this.preferenceSanitizers = window.TFRPreferenceSanitizers.create({
+        sanitizeColor: (value) => this.sanitizeCategoryColor(value),
+        appearance: window.TFRAppearancePreferences
+      });
       this.profileTools = window.TFRProfileStateTools.create({
         deepCopy,
         defaultPreferences: DEFAULT_STATE.preferences,
@@ -1179,14 +1183,11 @@
     }
 
     sanitizeBoundedInteger(value, minimum, maximum, fallback) {
-      const parsed = Number(value);
-      return Number.isFinite(parsed)
-        ? Math.max(minimum, Math.min(maximum, Math.round(parsed)))
-        : fallback;
+      return this.preferenceSanitizers.boundedInteger(value, minimum, maximum, fallback);
     }
 
     sanitizeRecentLiveThreshold(value) {
-      return this.sanitizeBoundedInteger(value, 1, 120, 10);
+      return this.preferenceSanitizers.recentLiveThreshold(value);
     }
 
     async setRecentLiveThreshold(minutes) {
@@ -1255,7 +1256,7 @@
     }
 
     sanitizeChatPaddingPx(value) {
-      return this.sanitizeBoundedInteger(value, 0, 20, 0);
+      return this.preferenceSanitizers.chatPadding(value);
     }
 
     async setChatPaddingPx(value) {
@@ -1263,11 +1264,11 @@
     }
 
     sanitizeChatMentionColor(color) {
-      return this.sanitizeCategoryColor(color) || '#9147ff';
+      return this.preferenceSanitizers.chatMentionColor(color);
     }
 
     sanitizeChatMentionSoundId(soundId) {
-      return CHAT_MENTION_SOUND_IDS.has(soundId) ? soundId : 'soft';
+      return this.preferenceSanitizers.chatMentionSound(soundId);
     }
 
     async setChatMentionHighlightEnabled(enabled) {
@@ -1295,7 +1296,7 @@
     }
 
     sanitizeLiveHoverPreviewMode(mode) {
-      return mode === 'video' ? 'video' : 'image';
+      return this.preferenceSanitizers.liveHoverPreviewMode(mode);
     }
 
     async setLiveHoverPreviewMode(mode) {
@@ -1303,13 +1304,11 @@
     }
 
     sanitizeChatFontFamily(font) {
-      return CHAT_FONT_FAMILIES.has(font) ? font : 'system';
+      return this.preferenceSanitizers.chatFontFamily(font);
     }
 
     sanitizeChatCustomFontDataUrl(dataUrl) {
-      const value = typeof dataUrl === 'string' ? dataUrl.trim() : '';
-      if (!/^data:(font\/|application\/(?:font|octet-stream))/.test(value)) return '';
-      return value.length <= 4_200_000 ? value : '';
+      return this.preferenceSanitizers.chatFontDataUrl(dataUrl);
     }
 
     async setHideCollapsedGroupsUntilHover(enabled) {
@@ -1321,11 +1320,11 @@
     }
 
     sanitizeCategoryColorOpacity(value) {
-      return this.sanitizeBoundedInteger(value, 0, 30, 7);
+      return this.preferenceSanitizers.categoryOpacity(value);
     }
 
     sanitizeCategoryColorGradient(value) {
-      return this.sanitizeBoundedInteger(value, 0, 100, 62);
+      return this.preferenceSanitizers.categoryGradient(value);
     }
 
     sanitizeCategoryColorStyle(value) {
@@ -1333,19 +1332,19 @@
     }
 
     sanitizeStreamerItemStyle(value) {
-      return window.TFRAppearancePreferences.sanitizeStreamerItemStyle(value);
+      return this.preferenceSanitizers.streamerStyle(value);
     }
 
     sanitizeSidebarSurfaceStyle(value) {
-      return window.TFRAppearancePreferences.sanitizeSidebarSurfaceStyle(value);
+      return this.preferenceSanitizers.surfaceStyle(value);
     }
 
     sanitizeAutoCompactGroupStyle(value) {
-      return window.TFRAppearancePreferences.sanitizeAutoCompactGroupStyle(value);
+      return this.preferenceSanitizers.compactGroupStyle(value);
     }
 
     sanitizeSidebarAnimationStyle(value) {
-      return window.TFRAppearancePreferences.sanitizeSidebarAnimationStyle(value);
+      return this.preferenceSanitizers.animationStyle(value);
     }
 
     sanitizeSpecialCategoryColors(colors = {}) {
@@ -1449,19 +1448,19 @@
     }
 
     sanitizeToastDuration(value) {
-      return this.sanitizeBoundedInteger(value, 2, 60, 6);
+      return this.preferenceSanitizers.toastDuration(value);
     }
 
     sanitizeToastPosition(position) {
-      return TOAST_POSITIONS.has(position) ? position : 'top-right';
+      return this.preferenceSanitizers.toastPosition(position);
     }
 
     sanitizeToastSoundId(soundId) {
-      return TOAST_SOUND_IDS.has(soundId) ? soundId : 'soft';
+      return this.preferenceSanitizers.toastSound(soundId);
     }
 
     sanitizeToastSoundVolume(volume) {
-      return this.sanitizeBoundedInteger(volume, 0, 100, 35);
+      return this.preferenceSanitizers.toastVolume(volume);
     }
 
     sanitizeToastCustomSoundName(name) {

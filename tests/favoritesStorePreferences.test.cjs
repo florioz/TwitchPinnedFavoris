@@ -10,6 +10,10 @@ vm.runInContext(fs.readFileSync(
   'utf8'
 ), context);
 vm.runInContext(fs.readFileSync(
+  path.join(__dirname, '../src/contentScripts/features/preferenceSanitizers.js'),
+  'utf8'
+), context);
+vm.runInContext(fs.readFileSync(
   path.join(__dirname, '../src/contentScripts/features/favoritesStore.js'),
   'utf8'
 ), context);
@@ -19,6 +23,10 @@ const FavoritesStore = context.window.TFRFavoritesStore.create({});
 const createStore = (preferences = {}) => {
   const store = Object.create(FavoritesStore.prototype);
   store.state = { preferences: { ...preferences } };
+  store.preferenceSanitizers = context.window.TFRPreferenceSanitizers.create({
+    sanitizeColor: (value) => store.sanitizeCategoryColor(value),
+    appearance: context.window.TFRAppearancePreferences
+  });
   let writes = 0;
   store.updateState = async (mutator) => {
     writes += 1;
@@ -136,6 +144,10 @@ test('state integrity obtains missing preferences from DEFAULT_STATE', () => {
     sanitizeCategoryList: (value) => value
   });
   const store = Object.create(StoreWithDefaults.prototype);
+  store.preferenceSanitizers = context.window.TFRPreferenceSanitizers.create({
+    sanitizeColor: (value) => store.sanitizeCategoryColor(value),
+    appearance: context.window.TFRAppearancePreferences
+  });
   store.state = {
     profiles: {},
     activeProfileId: 'default',

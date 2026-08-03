@@ -1456,98 +1456,14 @@
 
     parseDurationCandidates(values) {
       return durationTools.first(values);
-      /* Legacy parser kept below for one release as a comparison reference. */
-      if (!Array.isArray(values)) {
-        return null;
-      }
-      for (const entry of values) {
-        if (entry === null || entry === undefined || entry === '') {
-          continue;
-        }
-        if (typeof entry === 'object' && entry !== null && !Array.isArray(entry)) {
-          const parsed = this.parseDurationValue(entry.value, entry.unit);
-          if (Number.isFinite(parsed) && parsed > 0) {
-            return parsed;
-          }
-          continue;
-        }
-        const parsed = this.parseDurationValue(entry);
-        if (Number.isFinite(parsed) && parsed > 0) {
-          return parsed;
-        }
-      }
-      return null;
     }
 
     parseDurationValue(value, unitHint = null) {
       return durationTools.parse(value, unitHint);
-      /* Legacy parser kept below for one release as a comparison reference. */
-      if (value === undefined || value === null || value === '') {
-        return null;
-      }
-      if (typeof value === 'number') {
-        return this.normalizeDurationNumber(value, unitHint);
-      }
-      if (typeof value === 'string') {
-        const trimmed = value.trim();
-        if (!trimmed) {
-          return null;
-        }
-        if (unitHint === 'ms') {
-          const numeric = Number(trimmed);
-          if (Number.isFinite(numeric)) {
-            return this.normalizeDurationNumber(numeric, 'ms');
-          }
-        }
-        if (/^\d+$/.test(trimmed)) {
-          return this.normalizeDurationNumber(Number(trimmed), unitHint);
-        }
-        const colonMatch = trimmed.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
-        if (colonMatch) {
-          const hours = colonMatch[3] ? Number(colonMatch[1]) : 0;
-          const minutes = colonMatch[3] ? Number(colonMatch[2]) : Number(colonMatch[1]);
-          const seconds = colonMatch[3] ? Number(colonMatch[3]) : Number(colonMatch[2]);
-          if (Number.isFinite(hours) && Number.isFinite(minutes) && Number.isFinite(seconds)) {
-            return hours * 3600 + minutes * 60 + seconds;
-          }
-        }
-        const isoMatch = trimmed.match(/^PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$/i);
-        if (isoMatch) {
-          const hours = Number(isoMatch[1] || 0);
-          const minutes = Number(isoMatch[2] || 0);
-          const seconds = Number(isoMatch[3] || 0);
-          if (Number.isFinite(hours) && Number.isFinite(minutes) && Number.isFinite(seconds)) {
-            return hours * 3600 + minutes * 60 + seconds;
-          }
-        }
-        const numeric = Number(trimmed.replace(',', '.'));
-        if (Number.isFinite(numeric)) {
-          const normalized = this.normalizeDurationNumber(numeric, unitHint);
-          if (Number.isFinite(normalized)) {
-            return normalized;
-          }
-        }
-        const extracted = this.extractDurationFromText(trimmed);
-        if (Number.isFinite(extracted)) {
-          return extracted;
-        }
-      }
-      return null;
     }
 
     normalizeDurationNumber(value, unitHint = null) {
       return durationTools.normalizeNumber(value, unitHint);
-      /* Legacy parser kept below for one release as a comparison reference. */
-      if (!Number.isFinite(value) || value <= 0) {
-        return null;
-      }
-      if (unitHint === 'ms') {
-        return Math.round(value / 1000);
-      }
-      if (value > 0 && value < 1) {
-        return null;
-      }
-      return Math.round(value);
     }
 
     shouldTreatAsPermanentBan(dataset, simplified, durationSeconds, actionHint) {
