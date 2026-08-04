@@ -112,6 +112,7 @@ test('auto compact also reduces groups containing a single streamer', () => {
     }
   };
   const container = {
+    scrollTop: 3,
     dataset: {},
     clientHeight: 80,
     parentElement: { clientHeight: 80 },
@@ -144,6 +145,7 @@ test('auto compact also reduces groups containing a single streamer', () => {
 
   assert.equal(renderer.autoCompactLevel, 3);
   assert.equal(block.dataset.compactLevel, '3');
+  assert.equal(container.scrollTop, 0);
 });
 
 test('collapsed groups restore normal cards when the available sidebar height is sufficient', () => {

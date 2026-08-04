@@ -35,6 +35,10 @@
   });
 
   const measure = ({ container, parent, windowHeight, viewportHeight, activationHeight = 0 }) => {
+    const preserveTop = Number(container?.scrollTop || 0) <= 4;
+    const restoreTop = () => {
+      if (preserveTop && container.scrollTop !== 0) container.scrollTop = 0;
+    };
     const normalizedWindowHeight = Math.max(1, Number(windowHeight) || 1);
     const measuredHeights = [parent?.clientHeight || 0, viewportHeight]
       .filter((height) => Number.isFinite(height) && height > 0);
@@ -55,6 +59,7 @@
     const isOverflowing = (ratio = 1) => container.scrollHeight > visibleHeight * ratio;
     if (!isOverflowing(1.08)) {
       applyContainerState(container, false, 0);
+      restoreTop();
       return createIdleResult();
     }
 
@@ -81,6 +86,7 @@
     const active = level > 0;
     if (active && !nextActivationHeight) nextActivationHeight = normalizedWindowHeight;
     applyContainerState(container, active, level);
+    restoreTop();
 
     return {
       active,
