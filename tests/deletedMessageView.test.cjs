@@ -6,7 +6,14 @@ const assert = require('node:assert/strict');
 
 const createClassList = () => {
   const values = new Set();
-  return { add: (value) => values.add(value), remove: (value) => values.delete(value), has: (value) => values.has(value) };
+  let removeCalls = 0;
+  return {
+    add: (value) => values.add(value),
+    remove: (value) => { removeCalls += 1; values.delete(value); },
+    contains: (value) => values.has(value),
+    has: (value) => values.has(value),
+    getRemoveCalls: () => removeCalls
+  };
 };
 
 test('deleted message view reveals content once in the original body and clears it', () => {
@@ -25,4 +32,7 @@ test('deleted message view reveals content once in the original body and clears 
   view.clear(message);
   assert.equal(restored, null);
   assert.equal(classes.has(view.REVEALED_CLASS), false);
+  assert.equal(classes.getRemoveCalls(), 1);
+  view.clear(message);
+  assert.equal(classes.getRemoveCalls(), 1);
 });

@@ -2435,14 +2435,34 @@
       }
     }
 
+    isViewerHistoryNode(node) {
+      const element = node?.nodeType === 3 ? node.parentElement : node;
+      return Boolean(
+        element
+        && (element.id === 'tfr-viewer-history' || element.closest?.('#tfr-viewer-history'))
+      );
+    }
+
+    isOwnHistoryMutation(mutation) {
+      if (this.isViewerHistoryNode(mutation?.target)) return true;
+      const changedNodes = [
+        ...Array.from(mutation?.addedNodes || []),
+        ...Array.from(mutation?.removedNodes || [])
+      ];
+      return changedNodes.length > 0 && changedNodes.every((node) => this.isViewerHistoryNode(node));
+    }
+
     observeCard(card) {
       if (this.cardObserverTarget === card) {
         return;
       }
       this.disposeCardObserver();
       this.cardObserverTarget = card;
-      this.cardObserver = new MutationObserver(() => {
+      this.cardObserver = new MutationObserver((mutations) => {
         if (this.rendering) {
+          return;
+        }
+        if (mutations.length && mutations.every((mutation) => this.isOwnHistoryMutation(mutation))) {
           return;
         }
         if (!card.isConnected) {

@@ -25,7 +25,7 @@ vm.runInContext(fs.readFileSync(
   'utf8'
 ), context);
 
-const { ModerationHistoryUI } = context.window.TFRChatModeration.create({ t: (key) => key });
+const { ModerationHistoryUI, ViewerCardHistoryRenderer } = context.window.TFRChatModeration.create({ t: (key) => key });
 
 test('moderation history button stays immediately before chat settings', () => {
   const toolbar = new HTMLElementMock();
@@ -81,4 +81,16 @@ test('moderation history anchors immediately before chat settings', () => {
 
   assert.match(anchorMethod, /chat-settings/);
   assert.doesNotMatch(anchorMethod, /emote-picker-button/);
+});
+
+test('viewer card observer ignores mutations created by its own history renderer', () => {
+  const renderer = new ViewerCardHistoryRenderer({});
+  const history = { id: 'tfr-viewer-history', closest: () => null };
+  const child = { id: '', closest: (selector) => selector === '#tfr-viewer-history' ? history : null };
+  const native = { id: '', closest: () => null };
+
+  assert.equal(renderer.isOwnHistoryMutation({ target: child, addedNodes: [], removedNodes: [] }), true);
+  assert.equal(renderer.isOwnHistoryMutation({ target: native, addedNodes: [history], removedNodes: [] }), true);
+  assert.equal(renderer.isOwnHistoryMutation({ target: native, addedNodes: [native], removedNodes: [] }), false);
+  assert.equal(renderer.isOwnHistoryMutation({ target: native, addedNodes: [history, native], removedNodes: [] }), false);
 });

@@ -6,8 +6,11 @@
   const create = (documentRef = document) => {
     const findRestored = (message) => message?.querySelector?.(`.${RESTORED_CLASS}`) || null;
     const clear = (message) => {
-      findRestored(message)?.remove();
-      message?.classList?.remove(REVEALED_CLASS);
+      const restored = findRestored(message);
+      if (restored) restored.remove();
+      if (message?.classList?.contains?.(REVEALED_CLASS)) {
+        message.classList.remove(REVEALED_CLASS);
+      }
     };
     const reveal = ({ message, body, text, label = '' }) => {
       if (!message || !body || !text || findRestored(message)) return false;
