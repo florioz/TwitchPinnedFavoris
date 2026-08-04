@@ -24,6 +24,10 @@
       this.pendingFrame = null;
       this.pendingNodeSet = new Set();
       this.processedPerFrame = 80;
+      this.messageSnapshots = new WeakMap();
+      this.messageSnapshotsById = new Map();
+      this.maxMessageSnapshots = 2000;
+      this.recentMessages = [];
       this.visibilityHandler = () => this.handleVisibilityChange();
     }
 
@@ -64,6 +68,8 @@
       }
       this.pendingNodes = [];
       this.pendingNodeSet.clear();
+      this.messageSnapshotsById.clear();
+      this.recentMessages = [];
       this.history.clear();
       this.listeners.clear();
     }
@@ -125,7 +131,12 @@
       }
       this.chatContainer = container;
       this.chatObserver = new MutationObserver((mutations) => this.handleMutations(mutations));
-      this.chatObserver.observe(container, { childList: true, subtree: true });
+      this.chatObserver.observe(container, {
+        childList: true,
+        subtree: true,
+        attributes: true,
+        attributeFilter: ['class', 'data-user', 'data-a-user', 'data-message-id', 'data-id', 'data-uuid']
+      });
       this.captureExistingMessages(container);
     }
 
@@ -136,17 +147,20 @@
 
     handleMutations(mutations) {
       mutations.forEach((mutation) => {
+        if (mutation.type === 'attributes') {
+          this.queuePendingNode(mutation.target);
+        }
         mutation.addedNodes.forEach((node) => {
-          if (node.nodeType !== Node.ELEMENT_NODE) {
-            return;
-          }
-          if (!this.pendingNodeSet.has(node)) {
-            this.pendingNodeSet.add(node);
-            this.pendingNodes.push(node);
-          }
+          this.queuePendingNode(node);
         });
       });
       this.schedulePendingScan();
+    }
+
+    queuePendingNode(node) {
+      if (node?.nodeType !== Node.ELEMENT_NODE || this.pendingNodeSet.has(node)) return;
+      this.pendingNodeSet.add(node);
+      this.pendingNodes.push(node);
     }
 
     schedulePendingScan() {
@@ -216,6 +230,8 @@
         color: this.extractUserColor(rootElement),
         timestamp
       };
+      this.rememberMessageSnapshot(rootElement, entry);
+      this.rememberRecentMessage(entry);
       const existing = this.history.get(normalized) || [];
       const duplicate = existing.some((candidate) => (
         Math.abs(Number(candidate.timestamp || 0) - timestamp) < 1000 && candidate.text === text
@@ -245,6 +261,53 @@
           }
         })
         .catch(() => {});
+    }
+
+    getMessageId(messageElement) {
+      const holder = messageElement?.matches?.('[data-message-id],[data-id],[data-uuid]')
+        ? messageElement
+        : messageElement?.querySelector?.('[data-message-id],[data-id],[data-uuid]');
+      return String(
+        holder?.dataset?.messageId || holder?.dataset?.id || holder?.dataset?.uuid
+        || holder?.getAttribute?.('data-message-id') || holder?.getAttribute?.('data-id') || holder?.getAttribute?.('data-uuid') || ''
+      ).trim();
+    }
+
+    rememberMessageSnapshot(messageElement, entry) {
+      if (!messageElement || !entry) return;
+      const snapshot = { ...entry };
+      this.messageSnapshots.set(messageElement, snapshot);
+      const messageId = this.getMessageId(messageElement);
+      if (!messageId) return;
+      this.messageSnapshotsById.delete(messageId);
+      this.messageSnapshotsById.set(messageId, snapshot);
+      while (this.messageSnapshotsById.size > this.maxMessageSnapshots) {
+        this.messageSnapshotsById.delete(this.messageSnapshotsById.keys().next().value);
+      }
+    }
+
+    getMessageSnapshot(messageElement) {
+      const root = this.getMessageRoot(messageElement);
+      return this.messageSnapshots.get(root)
+        || this.messageSnapshotsById.get(this.getMessageId(root))
+        || null;
+    }
+
+    rememberRecentMessage(entry) {
+      this.recentMessages.push(entry);
+      if (this.recentMessages.length > 100) {
+        this.recentMessages.splice(0, this.recentMessages.length - 100);
+      }
+    }
+
+    getLatestMessage(maxAgeMs = 15000) {
+      const now = Date.now();
+      for (let index = this.recentMessages.length - 1; index >= 0; index -= 1) {
+        const entry = this.recentMessages[index];
+        const timestamp = Number(entry?.timestamp) || 0;
+        if (!timestamp || Math.abs(now - timestamp) <= maxAgeMs) return entry || null;
+      }
+      return null;
     }
 
     getMessageRoot(messageElement) {
@@ -656,6 +719,9 @@
 
   const CHAT_MESSAGE_SELECTOR =
     '[data-a-target="chat-line-message"], [data-test-selector="chat-line-message"], [data-a-target="chat-line-user-notice"], [data-test-selector="chat-line-user-notice"], [data-a-target="chat-line-message-body"], .chat-line__message, .chat-line__status, .seventv-message';
+  const STATUS_LINK_WINDOW_MS = 15000;
+  const DELETION_BURST_WINDOW_MS = 1500;
+  const DELETION_PROMOTION_WINDOW_MS = 2000;
 
   class ModerationActionTracker {
     constructor(historyTracker) {
@@ -671,7 +737,10 @@
       this.messageSelector = CHAT_MESSAGE_SELECTOR;
       this.actionKeys = new Set();
       this.recentActionCache = new Map();
+      this.deletionEvidence = new Map();
+      this.pendingStatuses = new Map();
       this.pendingMutations = [];
+      this.observerRoot = null;
       this.visibilityHandler = () => this.handleVisibilityChange();
     }
 
@@ -706,8 +775,11 @@
       }
       this.pendingMutations = [];
       this.container = null;
+      this.observerRoot = null;
       this.actions = [];
       this.actionKeys.clear();
+      this.deletionEvidence.clear();
+      this.pendingStatuses.clear();
       this.listeners.clear();
     }
 
@@ -762,6 +834,11 @@
         }
       }
       if (!container) {
+        container = document.querySelector?.(
+          '[data-test-selector="chat-room-component-layout"], [data-a-target="chat-room-component-layout"], .chat-room, .stream-chat'
+        ) || null;
+      }
+      if (!container) {
         if (!this.retryTimer) {
           this.retryTimer = setTimeout(() => {
             this.retryTimer = null;
@@ -771,12 +848,37 @@
         return;
       }
       this.container = container;
+      this.observerRoot = this.findModerationRoot(container);
       this.observer = new MutationObserver((mutations) => this.handleMutations(mutations));
-      this.observer.observe(container, {
+      this.observer.observe(this.observerRoot, {
         childList: true,
-        subtree: true
+        subtree: true,
+        characterData: true,
+        attributeOldValue: true,
+        attributes: true,
+        attributeFilter: [
+          'class', 'aria-label', 'title', 'data-deleted', 'data-deleted-message',
+          'data-mod-action', 'data-moderation-action-type', 'data-action', 'data-duration',
+          'data-timeout-duration', 'data-timeout-seconds'
+        ]
       });
-      this.captureExisting(container);
+      this.captureExisting(this.observerRoot);
+      this.scanModerationStatus(this.observerRoot);
+    }
+
+    findModerationRoot(container) {
+      const explicit = container.closest?.(
+        '[data-a-target="chat-room-component-layout"], [data-test-selector="chat-room-component-layout"], .chat-room, .stream-chat'
+      );
+      if (explicit) return explicit;
+      let current = container;
+      for (let depth = 0; current?.parentElement && depth < 8; depth += 1) {
+        current = current.parentElement;
+        if (current.querySelector?.('[data-a-target="chat-input"], textarea[data-a-target*="chat"], [contenteditable="true"]')) {
+          return current;
+        }
+      }
+      return container;
     }
 
     captureExisting(container) {
@@ -798,7 +900,16 @@
         const pending = this.pendingMutations.splice(0, this.pendingMutations.length);
         pending.forEach((mutation) => {
           if (mutation.type === 'childList') {
-            mutation.addedNodes.forEach((node) => this.scanNode(node));
+            mutation.addedNodes.forEach((node) => {
+              this.scanNode(node);
+              this.scanModerationStatus(node);
+            });
+            this.scanClosestMessage(mutation.target);
+          } else if (this.shouldScanMutation(mutation)) {
+            this.scanClosestMessage(mutation.target);
+            this.scanModerationStatus(
+              mutation.target?.nodeType === Node.TEXT_NODE ? mutation.target.parentElement : mutation.target
+            );
           }
         });
         if (startedAt !== undefined) {
@@ -842,20 +953,207 @@
       this.collectMessageElements(node).forEach((element) => this.captureAction(element));
     }
 
+    scanClosestMessage(node) {
+      const element = node?.nodeType === Node.TEXT_NODE ? node.parentElement : node;
+      if (!(element instanceof HTMLElement)) return;
+      const message = element.matches?.(this.messageSelector)
+        ? element
+        : element.closest?.(this.messageSelector);
+      if (message) this.captureAction(message);
+    }
+
+    scanModerationStatus(node) {
+      if (node?.nodeType !== Node.ELEMENT_NODE) return;
+      const candidates = [node];
+      node.querySelectorAll?.('[role="status"], [role="alert"], [data-a-target], [data-test-selector]')
+        ?.forEach((element) => candidates.push(element));
+      candidates.forEach((element) => this.captureModerationStatus(element));
+    }
+
+    captureModerationStatus(element) {
+      if (!(element instanceof HTMLElement) || element.closest?.(this.messageSelector)) return false;
+      const text = String(element.innerText || element.textContent || '').replace(/\s+/g, ' ').trim();
+      if (!text || text.length > 700) return false;
+      const normalized = this.normalizeText(text);
+      const isPermanentBan = Boolean(
+        element.matches?.('[data-test-selector="banned-user-message"], [data-a-target="banned-user-message"]')
+        || element.closest?.('.banned-chat-overlay__halt')
+        || /vous\s+avez\s+ete\s+banni\s+du\s+chat|tant\s+qu.un\s+moderateur\s+n.a\s+pas\s+annule\s+votre\s+bannissement|permanently\s+banned/.test(normalized)
+      );
+      const isTimeout = /(?:bannissement|ban)\s+temporaire|temporarily\s+banned|timed\s*out/.test(normalized);
+      if (!isPermanentBan && !isTimeout) return false;
+      const type = isPermanentBan ? 'ban' : 'timeout';
+      const duration = isTimeout
+        ? this.extractRoundedCountdownDuration(text) || this.extractDurationFromText(text)
+        : null;
+      const now = Date.now();
+      const pendingStatus = {
+        duration: Number.isFinite(duration) ? duration : null,
+        rawMessage: text,
+        detectedAt: now
+      };
+      this.pendingStatuses.set(type, pendingStatus);
+      const signature = `${type}-status|${Number.isFinite(duration) ? duration : ''}|${normalized}`;
+      if (element.dataset?.tfrModerationSignature === signature) return false;
+      if (element.dataset) element.dataset.tfrModerationSignature = signature;
+      const recentDeletion = [...this.actions].reverse().find((entry) => (
+        entry?.type === 'deletion'
+        && now - Number(entry.detectedAt || 0) <= STATUS_LINK_WINDOW_MS
+      ));
+      if (recentDeletion) {
+        if (type === 'ban') {
+          this.pendingStatuses.delete(type);
+          return this.promoteDeletionToPermanentBan(recentDeletion, text);
+        }
+        this.pendingStatuses.delete(type);
+        return this.promoteDeletionToTimeout(recentDeletion, duration, text);
+      }
+      const latest = this.historyTracker?.getLatestMessage?.(STATUS_LINK_WINDOW_MS);
+      const login = this.historyTracker?.normalizeLogin?.(latest?.login) || '';
+      if (!login) return false;
+      this.addAction({
+        id: `${type}-${login}-${now}`,
+        login,
+        displayName: latest?.displayName || login,
+        type,
+        duration: Number.isFinite(duration) ? duration : null,
+        isPermanent: type === 'ban',
+        moderator: null,
+        timestamp: now,
+        detectedAt: now,
+        rawMessage: text,
+        lastMessage: latest?.text || null,
+        offenseMessage: latest?.text || null,
+        lastMessageTimestamp: latest?.timestamp || null
+      });
+      this.pendingStatuses.delete(type);
+      return true;
+    }
+
+    applyPendingPermanentBan(login) {
+      return this.applyPendingStatus(login, 'ban');
+    }
+
+    applyPendingTimeout(login) {
+      return this.applyPendingStatus(login, 'timeout');
+    }
+
+    applyPendingStatus(login, type) {
+      const pending = this.pendingStatuses.get(type);
+      if (!pending || Date.now() - Number(pending.detectedAt || 0) > STATUS_LINK_WINDOW_MS) {
+        this.pendingStatuses.delete(type);
+        return false;
+      }
+      const deletion = [...this.actions].reverse().find((entry) => (
+        entry?.type === 'deletion'
+        && entry.login === login
+        && Math.abs(Number(entry.detectedAt || 0) - Number(pending.detectedAt || 0)) <= STATUS_LINK_WINDOW_MS
+      ));
+      if (!deletion) return false;
+      this.pendingStatuses.delete(type);
+      return this.promoteDeletion(deletion, {
+        type,
+        duration: pending.duration,
+        rawMessage: pending.rawMessage
+      });
+    }
+
+    extractRoundedCountdownDuration(text) {
+      const normalized = String(text || '').replace(/[,]+/g, '.').replace(/\s+/g, ' ').trim();
+      const countdown = normalized.match(
+        /(?:dans|in)\s+((?:\d+(?:\.\d+)?\s*(?:secondes?|seconds?|secs?|minutes?|mins?|heures?|hours?|hrs?|jours?|days?)\s*){1,4})/i
+      );
+      if (!countdown?.[1]) return null;
+      let totalSeconds = 0;
+      const parts = countdown[1].matchAll(
+        /(\d+(?:\.\d+)?)\s*(secondes?|seconds?|secs?|minutes?|mins?|heures?|hours?|hrs?|jours?|days?)/gi
+      );
+      for (const part of parts) {
+        const seconds = this.convertDuration(part[1], part[2]);
+        if (Number.isFinite(seconds)) totalSeconds += seconds;
+      }
+      return totalSeconds > 0 ? Math.ceil(totalSeconds / 60) * 60 : null;
+    }
+
+    recordDeletionEvidence(entry) {
+      const login = entry?.login || '';
+      if (!login) return false;
+      const now = Number(entry.detectedAt) || Date.now();
+      const fingerprint = `${entry.offenseMessage || entry.lastMessage || ''}|${entry.lastMessageTimestamp || entry.timestamp || ''}`;
+      const evidence = (this.deletionEvidence.get(login) || [])
+        .filter((item) => now - item.detectedAt <= DELETION_BURST_WINDOW_MS);
+      if (!evidence.some((item) => item.fingerprint === fingerprint)) {
+        evidence.push({ fingerprint, detectedAt: now });
+      }
+      this.deletionEvidence.set(login, evidence);
+      if (evidence.length < 2) return false;
+      const deletion = [...this.actions].reverse().find((action) => (
+        action?.login === login
+        && action.type === 'deletion'
+        && now - Number(action.detectedAt || 0) <= DELETION_PROMOTION_WINDOW_MS
+      ));
+      if (!deletion) return false;
+      return this.promoteDeletionToTimeout(deletion, null, deletion.rawMessage);
+    }
+
+    promoteDeletionToTimeout(entry, duration, rawMessage) {
+      return this.promoteDeletion(entry, { type: 'timeout', duration, rawMessage });
+    }
+
+    promoteDeletionToPermanentBan(entry, rawMessage) {
+      return this.promoteDeletion(entry, { type: 'ban', duration: null, rawMessage });
+    }
+
+    promoteDeletion(entry, { type, duration = null, rawMessage = '' } = {}) {
+      if (!entry || !['timeout', 'ban'].includes(type)) return false;
+      const previousKey = this.getActionCacheKey(entry);
+      this.recentActionCache.delete(previousKey);
+      if (entry.id) this.actionKeys.delete(entry.id);
+      entry.type = type;
+      entry.duration = type === 'timeout' && Number.isFinite(duration) ? duration : null;
+      entry.isPermanent = type === 'ban';
+      entry.rawMessage = rawMessage || entry.rawMessage;
+      entry.detectedAt = Date.now();
+      entry.id = `${type}-${entry.login}-${entry.detectedAt}`;
+      this.actionKeys.add(entry.id);
+      this.recentActionCache.set(this.getActionCacheKey(entry), { detectedAt: entry.detectedAt, entry });
+      this.emit();
+      return true;
+    }
+
+    shouldScanMutation(mutation) {
+      if (!mutation) return false;
+      if (mutation.type === 'characterData') {
+        const parent = mutation.target?.parentElement;
+        const context = `${parent?.textContent || ''} ${parent?.getAttribute?.('aria-label') || ''}`;
+        return /(supprim|deleted|timeout|timed\s*out|tempo|bann|moderat|silence|mute)/i.test(context)
+          || Boolean(parent?.closest?.('[data-a-target="deleted-message"], [data-test-selector*="deleted"]'));
+      }
+      if (mutation.type !== 'attributes') return false;
+      if (mutation.attributeName === 'class') {
+        const current = mutation.target?.getAttribute?.('class') || '';
+        return /(deleted|warning|moderation|timeout|bann|ban-|is-deleted)/i.test(`${mutation.oldValue || ''} ${current}`);
+      }
+      if (mutation.attributeName === 'aria-label' || mutation.attributeName === 'title') {
+        const current = mutation.target?.getAttribute?.(mutation.attributeName) || '';
+        return /(supprim|deleted|timeout|timed\s*out|tempo|bann|moderat|silence|mute)/i.test(current);
+      }
+      return mutation.attributeName?.startsWith('data-') || false;
+    }
+
     captureAction(element) {
       if (!(element instanceof HTMLElement)) {
         return;
       }
       const textContent = this.extractText(element);
       const dataset = element.dataset || {};
-      if (dataset.tfrModerationTracked === 'true') {
-        return;
-      }
       const action = this.extractAction(element, textContent);
       if (!action || !action.login) {
         return;
       }
-      dataset.tfrModerationTracked = 'true';
+      const signature = [action.type, action.login, action.duration || '', action.isPermanent ? '1' : '0', action.message || ''].join('|');
+      if (dataset.tfrModerationSignature === signature) return;
+      dataset.tfrModerationSignature = signature;
       const normalized = this.historyTracker?.normalizeLogin?.(action.login) || '';
       if (!normalized) {
         return;
@@ -883,6 +1181,11 @@
         lastMessageTimestamp: lastMessage?.timestamp || null
       };
       this.addAction(entry);
+      if (entry.type === 'deletion') {
+        if (!this.applyPendingPermanentBan(entry.login) && !this.applyPendingTimeout(entry.login)) {
+          this.recordDeletionEvidence(entry);
+        }
+      }
     }
 
     addAction(entry) {
@@ -981,6 +1284,7 @@
 
     extractAction(element, rawText) {
       const dataset = element.dataset || {};
+      const messageSnapshot = this.historyTracker?.getMessageSnapshot?.(element) || null;
       const timestamp =
         (typeof this.historyTracker?.extractTimestamp === 'function' && this.historyTracker.extractTimestamp(element)) ||
         Date.now();
@@ -1088,8 +1392,15 @@
         (typeof this.historyTracker?.extractLogin === 'function'
           ? this.historyTracker.extractLogin(element)
           : '') ||
+        messageSnapshot?.login ||
         this.extractLoginFromText(analysisText);
       let login = this.sanitizeLogin(loginCandidate);
+      if (!login && messageSnapshot?.login) {
+        login = this.sanitizeLogin(messageSnapshot.login);
+      }
+      if (!login) {
+        login = this.extractLoginFromText(analysisText);
+      }
       if (!login) {
         return null;
       }
@@ -1110,7 +1421,7 @@
           dataset.displayName,
           dataset.userDisplayName,
           dataset.targetUserDisplayName
-        ]) || null;
+        ]) || messageSnapshot?.displayName || null;
       let type = null;
       let durationSeconds =
         this.parseDurationCandidates([
@@ -1156,13 +1467,11 @@
         dataset.category,
         element.getAttribute?.('data-a-target'),
         element.getAttribute?.('data-test-selector'),
-        element.getAttribute?.('class'),
-        element.getAttribute?.('aria-label'),
-        element.getAttribute?.('role')
+        element.getAttribute?.('class')
       ];
       const childHintNodes = Array.from(
         element.querySelectorAll('[data-mod-action],[data-moderation-action-type],[data-test-selector],[data-a-target]')
-      );
+      ).filter((node) => !this.isInteractiveModerationControl(node));
       childHintNodes.forEach((node) => {
         const nodeDataset = node.dataset || {};
         Object.entries(nodeDataset).forEach(([datasetKey, datasetValue]) => {
@@ -1192,8 +1501,6 @@
         });
         attributeHints.push(node.getAttribute?.('data-a-target'));
         attributeHints.push(node.getAttribute?.('data-test-selector'));
-        attributeHints.push(node.getAttribute?.('aria-label'));
-        attributeHints.push(node.getAttribute?.('title'));
         attributeHints.push(node.className);
       });
       element.querySelectorAll('[aria-label], [title], [data-duration], [data-timeout], [data-a-target], [data-test-selector]').forEach((node) => {
@@ -1223,7 +1530,7 @@
           type = 'ban';
         } else if (/(timeout|temporaire|tempo|silence|mute|timed out|masque)/.test(actionHint)) {
           type = 'timeout';
-        } else if (/ban/.test(actionHint)) {
+        } else if (this.hasBanIndicator(actionHint)) {
           type = 'ban';
         }
       }
@@ -1322,7 +1629,10 @@
       if (Number.isFinite(durationSeconds) && durationSeconds > MAX_TIMEOUT_SECONDS) {
         durationSeconds = null;
       }
-      const message = this.extractOriginalMessage(element, rawText);
+      const extractedMessage = this.extractOriginalMessage(element, rawText);
+      const message = messageSnapshot?.text && this.isModerationPlaceholder(extractedMessage)
+        ? messageSnapshot.text
+        : extractedMessage || messageSnapshot?.text || '';
       const isPermanent =
         type === 'ban'
           ? this.shouldTreatAsPermanentBan(
@@ -1390,9 +1700,10 @@
         ? /\((?:banni|ban|permaban|perma|ban\s*def|ban\s*d[eé]finitif)\)/.test(simplifiedText)
         : false;
       const appendedTextTimeout = simplifiedText
-        ? /\((?:tempo|timeout|timed\s*out|silence|mute|masque|efface|deleted)\)/.test(simplifiedText)
+        ? /\((?:tempo|timeout|timed\s*out|silence|mute|masque)\)/.test(simplifiedText)
         : false;
       const appendedTextIndicator = appendedTextBan || appendedTextTimeout;
+      const explicitDeletionText = /(?:message\s+)?(?:supprime|efface|deleted|removed)\s+(?:par\s+un\s+moderateur|by\s+a\s+moderator)/.test(simplifiedText || '');
       const deletionText = this.normalizeText(deletionNode?.textContent || '');
       const actionValue = typeof dataset.action === 'string' ? dataset.action.toLowerCase() : '';
       const modActionValue = typeof dataset.modAction === 'string' ? dataset.modAction.toLowerCase() : '';
@@ -1413,7 +1724,9 @@
       const indicatorText = indicatorParts.join(' ').trim();
       const BAN_PATTERN = /\b(banni?|perma|permaban|ban\s*def|ban\s*permanent|ban\s*perma|ban\s*d[eé]finitif|definitif|permanent|ban)\b/;
       const TIMEOUT_PATTERN = /\b(timeout|temps?o|tempo|timed\s*out|silence|mute|masque|suspendu)\b/;
-      const indicatesBan = indicatorText ? BAN_PATTERN.test(indicatorText) || /ban/.test(actionValue) : /ban/.test(actionValue);
+      const indicatesBan = indicatorText
+        ? BAN_PATTERN.test(indicatorText) || this.hasBanIndicator(actionValue)
+        : this.hasBanIndicator(actionValue);
       const indicatesTimeout = indicatorText ? TIMEOUT_PATTERN.test(indicatorText) || /timeout|tempo/.test(actionValue) : /timeout|tempo/.test(actionValue);
       const hasDeletedFlag =
         this.isTruthy(dataset.deleted) ||
@@ -1429,7 +1742,8 @@
         element.classList?.contains('chat-line__message--warning');
       const appendedIndicator = /\((?:banni|ban|timeout|tempo|supprime|deleted|masque|mute)\)/.test(this.normalizeText(deletionNode?.textContent || ''));
       const hasStrongIndicator =
-        hasDeletedFlag || classIndicator || Boolean(deletionNode) || appendedIndicator || appendedTextIndicator || indicatesBan || indicatesTimeout;
+        hasDeletedFlag || classIndicator || Boolean(deletionNode) || appendedIndicator || appendedTextIndicator
+        || explicitDeletionText || indicatesBan || indicatesTimeout;
       if (!hasStrongIndicator) {
         return null;
       }
@@ -1438,6 +1752,8 @@
         type = 'ban';
       } else if (indicatesTimeout || appendedTextTimeout) {
         type = 'timeout';
+      } else {
+        type = 'deletion';
       }
       const durationSource = [indicatorText, this.normalizeText(actionValue), this.normalizeText(modActionValue), simplifiedText]
         .filter(Boolean)
@@ -1446,12 +1762,10 @@
       if (!type && Number.isFinite(duration)) {
         type = 'timeout';
       }
-      return type
-        ? {
-            type,
-            duration: Number.isFinite(duration) ? duration : null
-          }
-        : null;
+      return {
+        type,
+        duration: type === 'timeout' && Number.isFinite(duration) ? duration : null
+      };
     }
 
     parseDurationCandidates(values) {
@@ -1565,6 +1879,13 @@
       return cleaned;
     }
 
+    isModerationPlaceholder(value) {
+      const normalized = this.normalizeText(value);
+      if (!normalized) return true;
+      return /^(?:ce\s+)?message\s+(?:a\s+ete\s+)?(?:supprime|deleted|efface|masque|modere)(?:\s+(?:par|by)\b.*)?[.!]?$/i.test(normalized)
+        || /^(?:message\s+)?(?:deleted|removed)\s+(?:by\s+)?(?:a\s+)?moderator[.!]?$/i.test(normalized);
+    }
+
     extractText(element) {
       if (!element) return '';
       const text = element.textContent || '';
@@ -1587,6 +1908,21 @@
       }
       normalized = normalized.replace(/[\u0300-\u036f]/g, '');
       return normalized.trim();
+    }
+
+    hasBanIndicator(value) {
+      const normalized = this.normalizeText(value);
+      if (!normalized || /\b(?:banner|banners)\b/.test(normalized)) return false;
+      return /(?:^|[^a-z0-9])(?:ban|banned|banni|bannie|bannissement|permaban|perma-ban)(?:$|[^a-z0-9])/i.test(normalized);
+    }
+
+    isInteractiveModerationControl(element) {
+      if (!element) return false;
+      const tagName = String(element.tagName || '').toLowerCase();
+      const role = String(element.getAttribute?.('role') || '').toLowerCase();
+      return ['button', 'a', 'input', 'select', 'textarea'].includes(tagName)
+        || ['button', 'menuitem', 'option', 'link'].includes(role)
+        || Boolean(element.closest?.('button, a, [role="button"], [role="menuitem"]'));
     }
 
     pickFirst(values) {
