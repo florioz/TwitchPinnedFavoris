@@ -25,11 +25,10 @@
   border-bottom: 1px solid var(--tfr-sidebar-surface-border);
   background: var(--tfr-sidebar-surface-bg);
   box-shadow: var(--tfr-sidebar-surface-shadow);
-  max-height: calc(100vh - 60px);
-  overflow-y: auto;
-  overflow-x: hidden;
+  max-height: none;
+  overflow: visible;
   box-sizing: border-box;
-  scrollbar-gutter: stable both-edges;
+  scrollbar-gutter: auto;
   display: flex;
   flex-direction: column;
   align-items: stretch;
@@ -1273,6 +1272,11 @@
 }
 
 #tfr-favorites-root .tfr-category-block[data-compact-level="3"] {
+  position: relative;
+  z-index: 0;
+  isolation: isolate;
+  flex: 0 0 auto;
+  min-height: 30px;
   display: grid;
   grid-template-columns: minmax(62px, 38%) minmax(0, 1fr);
   align-items: center;

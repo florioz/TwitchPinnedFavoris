@@ -453,7 +453,6 @@
       'moderation.history.action.timeout': 'Ban temporaire de {duration}',
       'moderation.history.action.timeoutShort': 'Ban temporaire',
       'moderation.history.action.timeoutUnknown': 'Ban temporaire (dur\u00e9e inconnue)',
-        'moderation.history.action.deletion': 'Message supprimé',
       'moderation.history.action.deletion': 'Message supprim\u00e9',
       'moderation.history.meta.by': 'par {moderator}',
       'moderation.history.meta.at': '\u00e0 {time}',

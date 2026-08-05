@@ -10,6 +10,7 @@
     constructor(store) {
       this.store = store;
       this.signatures = window.TFRSidebarSignatures.create({ getLiveDataEntry });
+      this.domAdapter = window.TFRSidebarDomAdapter;
       this.liveHoverPreview = window.TFRLiveHoverPreview.create({ formatViewers, t });
       this.container = null;
       this.sideNavObserver = null;
@@ -181,9 +182,12 @@
         return;
       }
       if (!document.body.contains(this.container) || !engine) return;
-      const parent = this.container.parentElement;
+      const nativeScrollViewport = this.domAdapter.findScrollViewport(this.container);
+      const parent = nativeScrollViewport || this.container.parentElement;
       const windowHeight = Math.max(1, Number(window.innerHeight) || 1);
-      const viewportHeight = Math.max(1, window.innerHeight - this.container.getBoundingClientRect().top - 8);
+      const viewportHeight = nativeScrollViewport
+        ? Math.max(1, nativeScrollViewport.clientHeight)
+        : Math.max(1, window.innerHeight - this.container.getBoundingClientRect().top - 8);
       const result = engine.measure({
         container: this.container,
         parent,
@@ -510,127 +514,14 @@
       });
     }
 
-    getNav() {
-      return (
-        document.querySelector('nav[data-a-target="side-nav"]') ||
-        document.querySelector('nav[data-test-selector="side-nav"]') ||
-        document.querySelector('div.side-nav') ||
-        document.querySelector('[data-test-selector="side-nav"]')
-      );
-    }
-
-    getSection(nav) {
-      if (!nav) return null;
-      const selectors = [
-        'section[data-test-selector="followed-side-nav-section"]',
-        'section[data-a-target="side-nav-section"]',
-        'section[aria-label="Followed Channels"]',
-        'section[aria-label="Chaines suivies"]',
-        'section[data-test-selector="side-nav-section"]'
-      ];
-      for (const selector of selectors) {
-        const candidate = nav.querySelector(selector);
-        if (candidate) return candidate;
-      }
-      return nav.querySelector('section') || nav;
-    }
-
-    getList(section) {
-      if (!section) return null;
-      const selectors = [
-        '[data-test-selector="followed-side-nav-section__items"]',
-        '[data-test-selector="side-nav-section__items"]',
-        '.side-nav-section__items',
-        '[role="list"]',
-        'ul',
-        '.simplebar-content > div',
-        '[data-simplebar] > div'
-      ];
-      for (const selector of selectors) {
-        const candidate = section.querySelector(selector);
-        if (candidate) return candidate;
-      }
-      return section;
-    }
-
-    getModernPinnedHost() {
-      const candidates = Array.from(document.querySelectorAll('div.Layout-sc-1xcs6mc-0.gDDWxy'));
-      for (const candidate of candidates) {
-        if (!(candidate instanceof HTMLElement)) continue;
-        const sideNav = candidate.closest(
-          '.side-nav, [data-test-selector="side-nav"], nav[data-a-target="side-nav"], nav[data-test-selector="side-nav"]'
-        );
-        if (!sideNav) continue;
-        return candidate;
-      }
-      return null;
-    }
-
-    getModernInsertionTarget(wrapper) {
-      if (!(wrapper instanceof HTMLElement)) {
-        return null;
-      }
-      const selectors = [
-        '[data-test-selector="side-nav"] [data-test-selector="followed-side-nav-section__items"]',
-        '[data-test-selector="side-nav"] [data-test-selector="side-nav-section__items"]',
-        '[data-test-selector="side-nav"] [role="list"]',
-        '[data-test-selector="side-nav"] nav',
-        '[data-test-selector="side-nav"]',
-        '.side-nav__new [data-test-selector="side-nav-section__items"]',
-        '.side-nav__new [role="list"]',
-        '.side-nav__new',
-        '.scrollable-area__content',
-        '.simplebar-content > div',
-        '[role="list"]'
-      ];
-      for (const selector of selectors) {
-        try {
-          const candidate = wrapper.querySelector(selector);
-          if (candidate instanceof HTMLElement && !candidate.closest('#tfr-favorites-root')) {
-            return candidate;
-          }
-        } catch (error) {
-          // ignore invalid selectors on dynamic DOM
-        }
-      }
-      return wrapper;
-    }
-
     ensureContainer() {
-      const modernWrapper = this.getModernPinnedHost();
-      let targetParent = null;
-      let needsListItem = false;
+      const mount = this.domAdapter.resolveMount(document);
+      const targetParent = mount?.target || null;
+      let needsListItem = Boolean(mount?.needsListItem);
 
-      if (modernWrapper) {
-        targetParent = this.getModernInsertionTarget(modernWrapper);
-        if (!targetParent) {
-          this.container = null;
-          return;
-        }
-        if (modernWrapper instanceof HTMLElement) {
-          modernWrapper.style.pointerEvents = 'auto';
-        }
-        if (targetParent instanceof HTMLElement && targetParent !== modernWrapper) {
-          targetParent.style.pointerEvents = 'auto';
-        }
-      } else {
-        const nav = this.getNav();
-        if (!nav) {
-          this.container = null;
-          return;
-        }
-        const section = this.getSection(nav);
-        const list = this.getList(section);
-        if (!list) {
-          this.container = null;
-          return;
-        }
-        nav.style.pointerEvents = 'auto';
-        if (section && section !== nav) section.style.pointerEvents = 'auto';
-        if (list && list !== nav && list !== section) list.style.pointerEvents = 'auto';
-        targetParent = list;
-        needsListItem = list.tagName === 'UL' || list.getAttribute('role') === 'list';
-      }
+      (mount?.pointerTargets || []).forEach((element) => {
+        if (element?.style) element.style.pointerEvents = 'auto';
+      });
 
       if (!(targetParent instanceof HTMLElement)) {
         this.container = null;
@@ -682,7 +573,7 @@
         container.classList.remove('tfr-favorites-root--list-item', 'side-nav-card');
       }
 
-      if (modernWrapper) {
+      if (mount.modern) {
         container.classList.add('tfr-favorites-root--modern');
       } else {
         container.classList.remove('tfr-favorites-root--modern');
