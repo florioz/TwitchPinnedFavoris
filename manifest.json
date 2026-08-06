@@ -49,6 +49,7 @@
         "src/contentScripts/features/backupNormalizer.js",
         "src/contentScripts/features/backupPreferenceNormalizer.js",
         "src/contentScripts/features/preferenceSanitizers.js",
+        "src/contentScripts/features/favoritesStorageGateway.js",
         "src/contentScripts/features/favoritesStore.js",
         "src/contentScripts/features/locationWatcher.js",
         "src/contentScripts/features/chatEmoteResolver.js",

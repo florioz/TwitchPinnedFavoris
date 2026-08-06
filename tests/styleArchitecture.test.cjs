@@ -16,6 +16,7 @@ test('manifest loads helper modules before their consumers', () => {
   const scripts = JSON.parse(read('manifest.json')).content_scripts[0].js;
   const before = (dependency, consumer) => assert.ok(scripts.indexOf(dependency) < scripts.indexOf(consumer));
   before('src/contentScripts/features/preferenceSanitizers.js', 'src/contentScripts/features/favoritesStore.js');
+  before('src/contentScripts/features/favoritesStorageGateway.js', 'src/contentScripts/features/favoritesStore.js');
   before('src/contentScripts/features/categoryMutationTools.js', 'src/contentScripts/features/favoritesStore.js');
   before('src/contentScripts/features/moderationDurationTools.js', 'src/contentScripts/features/chatModeration.js');
   before('src/contentScripts/features/deletedMessageView.js', 'src/contentScripts/features/streamEnhancements.js');

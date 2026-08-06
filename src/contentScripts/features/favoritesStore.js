@@ -96,33 +96,30 @@
       this.lastLiveStorageAt = 0;
       this.stateMutationQueue = Promise.resolve();
       this.liveRefreshCooldownMs = Math.max(15_000, Math.min(60_000, Math.floor(POLL_INTERVAL_MS / 2)));
+      this.storageGateway = window.TFRFavoritesStorageGateway.create({
+        storageKey: STORAGE_KEY,
+        liveCacheKey: LIVE_CACHE_KEY
+      });
 
-      chrome.storage.onChanged.addListener((changes, area) => {
-        if (area !== 'local') return;
-        if (Object.prototype.hasOwnProperty.call(changes, STORAGE_KEY)) {
-          const nextValue = changes[STORAGE_KEY]?.newValue;
-          if (nextValue) {
-            const incomingRevision = Number(nextValue.revision || 0);
-            const currentRevision = Number(this.state.revision || 0);
-            if (incomingRevision < currentRevision) return;
-            this.state = deepCopy({ ...DEFAULT_STATE, ...nextValue });
-            this.ensureStateIntegrity();
-            this.emitter.emit({ kind: CHANGE_KIND.STATE, state: this.getSnapshot() });
-          }
+      this.unsubscribeStorage = this.storageGateway.subscribe(({ state: nextValue, liveData: nextLive }) => {
+        if (nextValue) {
+          const incomingRevision = Number(nextValue.revision || 0);
+          const currentRevision = Number(this.state.revision || 0);
+          if (incomingRevision < currentRevision) return;
+          this.state = deepCopy({ ...DEFAULT_STATE, ...nextValue });
+          this.ensureStateIntegrity();
+          this.emitter.emit({ kind: CHANGE_KIND.STATE, state: this.getSnapshot() });
         }
-        if (LIVE_CACHE_KEY && Object.prototype.hasOwnProperty.call(changes, LIVE_CACHE_KEY)) {
-          const nextLive = changes[LIVE_CACHE_KEY]?.newValue;
-          if (nextLive && typeof nextLive === 'object') {
-            this.liveData = { ...nextLive };
-            this.lastLiveStorageAt = Date.now();
-            this.emitter.emit({ kind: CHANGE_KIND.LIVE, liveData: this.getLiveData() });
-          }
+        if (LIVE_CACHE_KEY && nextLive && typeof nextLive === 'object') {
+          this.liveData = { ...nextLive };
+          this.lastLiveStorageAt = Date.now();
+          this.emitter.emit({ kind: CHANGE_KIND.LIVE, liveData: this.getLiveData() });
         }
       });
     }
 
     async init() {
-      const stored = await chrome.storage.local.get(LIVE_CACHE_KEY ? [STORAGE_KEY, LIVE_CACHE_KEY] : STORAGE_KEY);
+      const stored = await this.storageGateway.read();
       if (stored && stored[STORAGE_KEY]) {
         this.state = deepCopy({ ...DEFAULT_STATE, ...stored[STORAGE_KEY] });
       } else {
@@ -448,7 +445,7 @@
     async persistState() {
       try {
         this.syncActiveProfile(this.state);
-        await chrome.storage.local.set({ [STORAGE_KEY]: this.state });
+        await this.storageGateway.writeState(this.state);
       } catch (error) {
         const message = String(error?.message || '').toLowerCase();
         if (message.includes('extension context invalidated') || message.includes('context invalidated')) {
@@ -460,8 +457,7 @@
 
     async updateState(mutator, emit = true) {
       const operation = this.stateMutationQueue.then(async () => {
-        const stored = await chrome.storage.local.get(STORAGE_KEY);
-        const persisted = stored?.[STORAGE_KEY];
+        const persisted = await this.storageGateway.readState();
         if (persisted) {
           this.state = deepCopy({ ...DEFAULT_STATE, ...persisted });
           this.ensureStateIntegrity();
