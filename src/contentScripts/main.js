@@ -941,76 +941,11 @@
     }
   };
 
-  const detectLocale = () => {
-    const languages = Array.isArray(navigator.languages) && navigator.languages.length ? navigator.languages : [navigator.language || 'en'];
-    for (const lang of languages) {
-      if (!lang || typeof lang !== 'string') continue;
-      const normalized = lang.toLowerCase();
-      if (normalized.startsWith('fr')) return 'fr';
-      if (normalized.startsWith('en')) return 'en';
-    }
-    return 'en';
-  };
-
-  const CURRENT_LOCALE = detectLocale();
-  const FALLBACK_LOCALE = 'en';
-  const PLURAL_RULES = new Intl.PluralRules(CURRENT_LOCALE === 'fr' ? 'fr' : 'en');
-
-  const formatTemplate = (template, params = {}) => {
-    if (typeof template !== 'string') return '';
-    return template.replace(/\{(\w+)\}/g, (_, token) => {
-      if (Object.prototype.hasOwnProperty.call(params, token)) {
-        return params[token];
-      }
-      return '';
-    });
-  };
-
-  const getMessage = (key) => {
-    const localeMessages = I18N_MESSAGES[CURRENT_LOCALE] || {};
-    if (Object.prototype.hasOwnProperty.call(localeMessages, key)) {
-      return localeMessages[key];
-    }
-    const fallbackMessages = I18N_MESSAGES[FALLBACK_LOCALE] || {};
-    if (Object.prototype.hasOwnProperty.call(fallbackMessages, key)) {
-      return fallbackMessages[key];
-    }
-    return null;
-  };
-
-  const getPluralMessage = (key, count) => {
-    const localeMessages = I18N_PLURAL_MESSAGES[CURRENT_LOCALE] || {};
-    const fallbackMessages = I18N_PLURAL_MESSAGES[FALLBACK_LOCALE] || {};
-    const selectTemplate = (messages) => {
-      if (!messages || !Object.prototype.hasOwnProperty.call(messages, key)) return null;
-      const entry = messages[key];
-      if (!entry || typeof entry !== 'object') return null;
-      const rule = PLURAL_RULES.select(count);
-      return entry[rule] || entry.other || entry.one || null;
-    };
-    return selectTemplate(localeMessages) || selectTemplate(fallbackMessages);
-  };
-
-  const t = (key, params = {}) => {
-    const message = getMessage(key);
-    if (message !== null) {
-      if (typeof message === 'object') {
-        const count = Number(params.count ?? 0);
-        const template = getPluralMessage(key, count);
-        if (template) {
-          return formatTemplate(template, params);
-        }
-        return formatTemplate('', params);
-      }
-      return formatTemplate(message, params);
-    }
-    const count = Number(params.count ?? 0);
-    const fallbackPlural = getPluralMessage(key, count);
-    if (fallbackPlural) {
-      return formatTemplate(fallbackPlural, params);
-    }
-    return formatTemplate(key, params);
-  };
+  const { t } = globalThis.__TFR_I18N__.createTranslator({
+    messages: I18N_MESSAGES,
+    pluralMessages: I18N_PLURAL_MESSAGES,
+    navigator
+  });
 
   const RESERVED_PATHS = new Set([
     '', 'directory', 'p', 'jobs', 'downloads', 'friends', 'messages', 'settings',

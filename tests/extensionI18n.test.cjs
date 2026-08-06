@@ -12,6 +12,21 @@ test('extension i18n selects a supported locale and interpolates values', () => 
   assert.equal(i18n.t('missing.key'), 'missing.key');
 });
 
+test('shared translator selects locale, fallback and plural forms', () => {
+  const translator = i18n.createTranslator({
+    navigator: { languages: ['fr-FR'] },
+    messages: { fr: { hello: 'Bonjour {name}' }, en: { fallback: 'Fallback' } },
+    pluralMessages: {
+      fr: { items: { one: '{count} élément', other: '{count} éléments' } }
+    }
+  });
+  assert.equal(translator.locale, 'fr');
+  assert.equal(translator.t('hello', { name: 'Twitch' }), 'Bonjour Twitch');
+  assert.equal(translator.t('fallback'), 'Fallback');
+  assert.equal(translator.t('items', { count: 2 }), '2 éléments');
+  assert.equal(translator.t('missing'), 'missing');
+});
+
 test('document translations update text, placeholders and labels', () => {
   const textElement = { dataset: { i18n: 'vods.title' }, textContent: '' };
   const inputElement = { dataset: { i18nPlaceholder: 'vods.search' }, placeholder: '' };

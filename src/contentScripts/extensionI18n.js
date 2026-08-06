@@ -3,6 +3,32 @@
   root.__TFR_I18N__ = api;
   if (typeof module === 'object' && module.exports) module.exports = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this, function (navigatorRef) {
+  const createTranslator = ({ messages, pluralMessages = {}, navigator: localeNavigator = navigatorRef, fallbackLocale = 'en' }) => {
+    const languages = localeNavigator?.languages?.length
+      ? localeNavigator.languages
+      : [localeNavigator?.language || fallbackLocale];
+    const supportedLocales = Object.keys(messages || {});
+    const locale = languages.map((language) => String(language).toLowerCase()).map((language) => (
+      supportedLocales.find((candidate) => language.startsWith(candidate.toLowerCase()))
+    )).find(Boolean) || (supportedLocales.includes(fallbackLocale) ? fallbackLocale : supportedLocales[0]);
+    const rules = new Intl.PluralRules(locale || fallbackLocale);
+    const formatTemplate = (template, params = {}) => typeof template === 'string'
+      ? template.replace(/\{(\w+)\}/g, (_, name) => String(params[name] ?? ''))
+      : '';
+    const selectPlural = (key, count) => {
+      const entry = pluralMessages?.[locale]?.[key] || pluralMessages?.[fallbackLocale]?.[key];
+      if (!entry || typeof entry !== 'object') return null;
+      return entry[rules.select(count)] || entry.other || entry.one || null;
+    };
+    const t = (key, params = {}) => {
+      const message = messages?.[locale]?.[key] ?? messages?.[fallbackLocale]?.[key];
+      if (typeof message === 'string') return formatTemplate(message, params);
+      const plural = selectPlural(key, Number(params.count ?? 0));
+      return formatTemplate(plural ?? key, params);
+    };
+    return { locale, t, formatTemplate };
+  };
+
   const messages = {
     fr: {
       'panel.eyebrow': 'Twitch Favoris',
@@ -147,16 +173,7 @@
       'vods.allClips': 'All VOD clips'
     }
   };
-  const languages = navigatorRef?.languages?.length
-    ? navigatorRef.languages
-    : [navigatorRef?.language || 'en'];
-  const locale = languages.some((language) => String(language).toLowerCase().startsWith('fr'))
-    ? 'fr'
-    : 'en';
-  const t = (key, params = {}) => {
-    const template = messages[locale][key] ?? messages.en[key] ?? key;
-    return template.replace(/\{(\w+)\}/g, (_, name) => String(params[name] ?? ''));
-  };
+  const { locale, t } = createTranslator({ messages, navigator: navigatorRef });
   const formatNumber = (value) => (Number(value) || 0).toLocaleString(locale === 'fr' ? 'fr-FR' : 'en-US');
   const formatDate = (value, options) => new Intl.DateTimeFormat(
     locale === 'fr' ? 'fr-FR' : 'en-US',
@@ -175,5 +192,5 @@
     });
     documentRef.title = t(documentRef.documentElement.dataset.i18nTitle || 'vods.pageTitle');
   };
-  return { applyDocument, formatDate, formatNumber, locale, t };
+  return { applyDocument, createTranslator, formatDate, formatNumber, locale, t };
 });
