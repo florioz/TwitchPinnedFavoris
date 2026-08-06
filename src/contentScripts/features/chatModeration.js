@@ -13,6 +13,7 @@
     formatDuration: formatModerationDurationLabel,
     formatTimestamp: formatModerationTimestamp
   });
+  const actionCollection = window.TFRModerationActionCollection;
   if (!chatDomTools) throw new Error('[TFR] chat DOM tools are missing');
   if (!durationTools) throw new Error('[TFR] moderation duration tools are missing');
 
@@ -1194,97 +1195,22 @@
     }
 
     addAction(entry) {
-      if (!entry || !entry.id) {
-        return;
-      }
-      const key = this.getActionCacheKey(entry);
-      const cached = this.recentActionCache.get(key);
-      const nowTs = Number(entry.detectedAt) || Date.now();
-      if (cached) {
-        const age = Math.abs(nowTs - cached.detectedAt);
-        if (age < 60000) {
-          const updated = this.mergeModerationEntries(cached.entry, entry);
-          cached.detectedAt = nowTs;
-          if (updated) {
-            this.emit();
-          }
-          return;
-        }
-        if (age > 10 * 60 * 1000) {
-          this.recentActionCache.delete(key);
-        }
-      }
-      if (this.actionKeys.has(entry.id)) {
-        return;
-      }
-      this.actionKeys.add(entry.id);
-      this.actions.push(entry);
-      this.recentActionCache.set(key, { detectedAt: nowTs, entry });
-      if (this.actions.length > this.maxActions) {
-        const removed = this.actions.splice(0, this.actions.length - this.maxActions);
-        removed.forEach((item) => {
-          if (item?.id) {
-            this.actionKeys.delete(item.id);
-          }
-        });
-      }
-      this.emit();
+      actionCollection.add({
+        entry,
+        actions: this.actions,
+        actionKeys: this.actionKeys,
+        recentCache: this.recentActionCache,
+        maxActions: this.maxActions,
+        emit: () => this.emit()
+      });
     }
 
     getActionCacheKey(entry) {
-      const type = entry?.type || 'unknown';
-      const login = entry?.login || '';
-      if (type === 'timeout') {
-        const duration = Number.isFinite(entry.duration) ? Math.round(entry.duration) : 'unknown';
-        return `${type}:${login}:${duration}`;
-      }
-      if (type === 'ban') {
-        return `${type}:${login}:${entry?.isPermanent ? 'permanent' : 'temporary'}`;
-      }
-      return `${type}:${login}`;
+      return actionCollection.getCacheKey(entry);
     }
 
     mergeModerationEntries(target, source) {
-      if (!target || !source) {
-        return false;
-      }
-      let updated = false;
-      if (
-        Number.isFinite(source.duration) &&
-        (!Number.isFinite(target.duration) || source.duration > target.duration)
-      ) {
-        target.duration = source.duration;
-        updated = true;
-      }
-      if (source.isPermanent && !target.isPermanent) {
-        target.isPermanent = true;
-        updated = true;
-      }
-      const sourceMessageTime = Number(source.timestamp) || 0;
-      const targetMessageTime = Number(target.timestamp) || 0;
-      const sourceHasNewerMessage = sourceMessageTime >= targetMessageTime;
-      if (sourceHasNewerMessage) {
-        const fields = ['timestamp', 'rawMessage', 'lastMessage', 'offenseMessage', 'lastMessageTimestamp'];
-        fields.forEach((field) => {
-          if (source[field] && target[field] !== source[field]) {
-            target[field] = source[field];
-            updated = true;
-          }
-        });
-      } else if (!target.offenseMessage && source.offenseMessage) {
-        target.offenseMessage = source.offenseMessage;
-        updated = true;
-      }
-      if (source.displayName && target.displayName !== source.displayName) {
-        target.displayName = source.displayName;
-        updated = true;
-      }
-      if (source.moderator && target.moderator !== source.moderator) {
-        target.moderator = source.moderator;
-        updated = true;
-      }
-      target.detectedAt = Number(source.detectedAt) || Date.now();
-      return updated;
+      return actionCollection.merge(target, source);
     }
 
     extractAction(element, rawText) {
