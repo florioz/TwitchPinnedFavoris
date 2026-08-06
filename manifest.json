@@ -82,6 +82,7 @@
         "src/contentScripts/features/favoritesDragDropModel.js",
         "src/contentScripts/features/favoritesOverlay.js",
         "src/contentScripts/features/featureController.js",
+        "src/contentScripts/contentI18nMessages.js",
         "src/contentScripts/extensionI18n.js",
         "src/contentScripts/appBootstrap.js",
         "src/contentScripts/main.js",
