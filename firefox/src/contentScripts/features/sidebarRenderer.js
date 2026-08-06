@@ -10,6 +10,12 @@
     constructor(store) {
       this.store = store;
       this.signatures = window.TFRSidebarSignatures.create({ getLiveDataEntry });
+      this.groupModel = window.TFRSidebarGroupModel.create({
+        t,
+        getLiveDataEntry,
+        shouldDisplayFavorite,
+        isValidColor: (color) => Boolean(window.TFRColorTools.hexToRgb(color))
+      });
       this.domAdapter = window.TFRSidebarDomAdapter;
       this.liveHoverPreview = window.TFRLiveHoverPreview.create({ formatViewers, t });
       this.container = null;
@@ -588,121 +594,11 @@
     }
 
     collectGroups(state, liveData) {
-      const sortMode = state.preferences?.sortMode || 'viewersDesc';
-      const categoryTree = this.store.getCategoriesTree();
-      const validCategoryIds = new Set();
-      const collectIds = (nodes) => {
-        nodes.forEach((node) => {
-          validCategoryIds.add(node.id);
-          if (node.children && node.children.length) {
-            collectIds(node.children);
-          }
-        });
-      };
-      collectIds(categoryTree);
-      const favorites = Object.values(state.favorites);
-      const assignments = new Map();
-      const uncategorized = [];
-      favorites.forEach((fav) => {
-        const categoryId = Array.isArray(fav.categories) && fav.categories.length ? fav.categories[0] : null;
-        if (!categoryId || !validCategoryIds.has(categoryId)) {
-          uncategorized.push(fav);
-          return;
-        }
-        if (!assignments.has(categoryId)) {
-          assignments.set(categoryId, []);
-        }
-        assignments.get(categoryId).push(fav);
+      return this.groupModel.collect({
+        state,
+        liveData,
+        categoryTree: this.store.getCategoriesTree()
       });
-      const comparator = (a, b) => {
-        if (sortMode === 'alphabetical') return a.displayName.localeCompare(b.displayName, 'fr');
-        if (sortMode === 'recent') return (b.addedAt || 0) - (a.addedAt || 0);
-        const viewersA = getLiveDataEntry(liveData, a)?.viewers || 0;
-        const viewersB = getLiveDataEntry(liveData, b)?.viewers || 0;
-        if (viewersB !== viewersA) return viewersB - viewersA;
-        return a.displayName.localeCompare(b.displayName, 'fr');
-      };
-      const buildNode = (node) => {
-        const children = node.children.map((child) => buildNode(child)).filter(Boolean);
-        const rawEntries = assignments.get(node.id) || [];
-        const entries = rawEntries
-          .filter((fav) => shouldDisplayFavorite(fav, getLiveDataEntry(liveData, fav)))
-          .sort(comparator);
-        const totalEntries = entries.length + children.reduce((sum, child) => sum + child.totalEntries, 0);
-        if (!totalEntries) {
-          return null;
-        }
-        return {
-          id: node.id,
-          name: node.name,
-          collapsed: node.collapsed,
-          parentId: node.parentId,
-          color: node.color || '',
-          entries,
-          children,
-          totalEntries
-        };
-      };
-      const groups = [];
-      categoryTree.forEach((root) => {
-        const built = buildNode(root);
-        if (built) {
-          groups.push(built);
-        }
-      });
-      const preferences = state.preferences || {};
-      const specialColors = preferences.specialCategoryColors || {};
-      if (preferences.recentLiveEnabled) {
-        const thresholdMinutes = Number(preferences.recentLiveThresholdMinutes);
-        const sanitizedMinutes = Number.isFinite(thresholdMinutes) ? Math.max(1, Math.min(120, Math.round(thresholdMinutes))) : 10;
-        const thresholdMs = sanitizedMinutes * 60000;
-        const now = Date.now();
-        const recentEntries = favorites
-          .filter((fav) => fav.recentHighlightEnabled !== false)
-          .filter((fav) => shouldDisplayFavorite(fav, getLiveDataEntry(liveData, fav)))
-          .filter((fav) => {
-            const live = getLiveDataEntry(liveData, fav);
-            if (!live?.isLive) {
-              return false;
-            }
-            const startedAt = live.startedAt ? Date.parse(live.startedAt) : NaN;
-            if (!Number.isFinite(startedAt)) {
-              return false;
-            }
-            const diff = now - startedAt;
-            return diff >= 0 && diff <= thresholdMs;
-          })
-          .sort(comparator);
-        if (recentEntries.length) {
-          groups.unshift({
-            id: 'recentLive',
-            name: t('recent.sectionTitle'),
-            collapsed: Boolean(preferences.recentLiveCollapsed),
-            parentId: null,
-            entries: recentEntries,
-            children: [],
-            totalEntries: recentEntries.length,
-            color: this.hexToRgb(specialColors.recentLive) ? specialColors.recentLive : '',
-            isRecentLive: true
-          });
-        }
-      }
-      const uncategorizedEntries = uncategorized
-        .filter((fav) => shouldDisplayFavorite(fav, getLiveDataEntry(liveData, fav)))
-        .sort(comparator);
-      if (uncategorizedEntries.length) {
-        groups.push({
-          id: 'uncategorized',
-          name: 'Sans cat\u00e9gorie',
-          collapsed: Boolean(state.preferences?.uncategorizedCollapsed),
-          entries: uncategorizedEntries,
-          children: [],
-          totalEntries: uncategorizedEntries.length,
-          color: this.hexToRgb(specialColors.uncategorized) ? specialColors.uncategorized : '',
-          isUncategorized: true
-        });
-      }
-      return groups;
     }
 
     applyPreviewMetadata(entry, favorite, live = {}) {

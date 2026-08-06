@@ -66,6 +66,7 @@
         "src/contentScripts/features/topNav.js",
         "src/contentScripts/features/autoCompactEngine.js",
         "src/contentScripts/features/sidebarSignatures.js",
+        "src/contentScripts/features/sidebarGroupModel.js",
         "src/contentScripts/features/sidebarDomAdapter.js",
         "src/contentScripts/features/liveHoverPreview.js",
         "src/contentScripts/features/sidebarRenderer.js",

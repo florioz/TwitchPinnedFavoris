@@ -32,6 +32,11 @@ const loadSidebarRenderer = (windowRef, documentRef) => {
     'utf8'
   );
   vm.runInContext(signatureSource, context);
+  const groupModelSource = fs.readFileSync(
+    path.join(__dirname, '../src/contentScripts/features/sidebarGroupModel.js'),
+    'utf8'
+  );
+  vm.runInContext(groupModelSource, context);
   const domAdapterSource = fs.readFileSync(
     path.join(__dirname, '../src/contentScripts/features/sidebarDomAdapter.js'),
     'utf8'

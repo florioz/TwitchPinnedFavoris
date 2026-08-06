@@ -18,6 +18,7 @@ test('manifest loads helper modules before their consumers', () => {
   before('src/contentScripts/features/preferenceSanitizers.js', 'src/contentScripts/features/favoritesStore.js');
   before('src/contentScripts/features/favoritesStorageGateway.js', 'src/contentScripts/features/favoritesStore.js');
   before('src/contentScripts/features/categoryMutationTools.js', 'src/contentScripts/features/favoritesStore.js');
+  before('src/contentScripts/features/sidebarGroupModel.js', 'src/contentScripts/features/sidebarRenderer.js');
   before('src/contentScripts/features/moderationDurationTools.js', 'src/contentScripts/features/chatModeration.js');
   before('src/contentScripts/features/deletedMessageView.js', 'src/contentScripts/features/streamEnhancements.js');
   before('src/contentScripts/appBootstrap.js', 'src/contentScripts/main.js');
