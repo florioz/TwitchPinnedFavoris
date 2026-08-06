@@ -29,6 +29,10 @@ const featureSettingsConfig = window.TFRFeatureSettingsConfig?.create?.({ t });
 if (!featureSettingsConfig) {
   throw new Error('[TFR] feature settings config is missing');
 }
+const favoritesDragDropModel = window.TFRFavoritesDragDropModel;
+if (!favoritesDragDropModel) {
+  throw new Error('[TFR] favorites drag and drop model is missing');
+}
 class FavoritesOverlay {
   constructor(store) {
     this.store = store;
@@ -2605,93 +2609,31 @@ class FavoritesOverlay {
   }
 
   parseDraggedLogins(event) {
-    const data = [];
-    const rawJson = event.dataTransfer?.getData('application/json');
-    if (rawJson) {
-      try {
-        const parsed = JSON.parse(rawJson);
-        if (parsed && Array.isArray(parsed.logins)) {
-          parsed.logins.forEach((login) => {
-            if (typeof login === 'string' && login.trim()) {
-              data.push(login.toLowerCase());
-            }
-          });
-        }
-      } catch {
-        // ignore
-      }
-    }
-    if (!data.length) {
-      const rawText = event.dataTransfer?.getData('text/plain') || '';
-      rawText.split(',').forEach((login) => {
-        const trimmed = String(login).trim();
-        if (trimmed) {
-          data.push(trimmed.toLowerCase());
-        }
-      });
-    }
-    if (!data.length && Array.isArray(this.draggedLogin)) {
-      this.draggedLogin.forEach((login) => {
-        if (typeof login === 'string' && login.trim()) {
-          data.push(login.toLowerCase());
-        }
-      });
-    }
-    return Array.from(new Set(data));
+    return favoritesDragDropModel.parseLogins(event.dataTransfer, this.draggedLogin);
   }
 
   parseDraggedCategoryId(event) {
-    const rawJson = event.dataTransfer?.getData('application/json');
-    if (rawJson) {
-      try {
-        const parsed = JSON.parse(rawJson);
-        if (parsed && typeof parsed.categoryId === 'string' && parsed.categoryId.trim()) {
-          return parsed.categoryId;
-        }
-        if (parsed && Array.isArray(parsed.logins)) {
-          return null;
-        }
-      } catch {
-        // ignore
-      }
-    }
-    if (typeof this.draggedCategoryId === 'string' && this.draggedCategoryId.trim()) {
-      return this.draggedCategoryId;
-    }
-    return null;
+    return favoritesDragDropModel.parseCategoryId(event.dataTransfer, this.draggedCategoryId);
   }
 
   getCategoryDropPlacement(event, element) {
     const isCategoryTarget =
       element?.classList?.contains('tfr-category-item') || element?.classList?.contains('tfr-category-card');
-    if (!isCategoryTarget) {
-      return 'inside';
-    }
     const depth = Number(element.dataset?.depth || 0);
     const elementRect = element.getBoundingClientRect();
-    if (depth > 0 && this.draggedCategoryStartX && event.clientX <= this.draggedCategoryStartX - 24) {
-      return 'out';
-    }
-    if (depth > 0 && event.clientX <= elementRect.left + 32) {
-      return 'root';
-    }
     const header =
       element.querySelector?.('.tfr-category-item-header') || element.querySelector?.('.tfr-category-card__header');
     const rect = (header || element).getBoundingClientRect();
-    if (!rect.height) {
-      return 'inside';
-    }
-    const offsetY = event.clientY - rect.top;
-    if (offsetY < 0 || offsetY > rect.height) {
-      return 'inside';
-    }
-    if (offsetY < rect.height * 0.3) {
-      return 'before';
-    }
-    if (offsetY > rect.height * 0.7) {
-      return 'after';
-    }
-    return 'inside';
+    return favoritesDragDropModel.getCategoryPlacement({
+      isCategoryTarget,
+      depth,
+      clientX: event.clientX,
+      clientY: event.clientY,
+      dragStartX: this.draggedCategoryStartX,
+      elementLeft: elementRect.left,
+      headerTop: rect.top,
+      headerHeight: rect.height
+    });
   }
 
   setCategoryDropIndicator(element, placement) {

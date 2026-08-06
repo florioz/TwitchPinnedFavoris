@@ -26,6 +26,10 @@ vm.runInContext(fs.readFileSync(
   'utf8'
 ), context);
 vm.runInContext(fs.readFileSync(
+  path.join(__dirname, '../src/contentScripts/features/favoritesDragDropModel.js'),
+  'utf8'
+), context);
+vm.runInContext(fs.readFileSync(
   path.join(__dirname, '../src/contentScripts/features/favoritesOverlay.js'),
   'utf8'
 ), context);

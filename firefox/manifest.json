@@ -76,6 +76,7 @@
         "src/contentScripts/features/favoriteCategoryFilterController.js",
         "src/contentScripts/features/featureSettingsConfig.js",
         "src/contentScripts/features/appearanceWizardModel.js",
+        "src/contentScripts/features/favoritesDragDropModel.js",
         "src/contentScripts/features/favoritesOverlay.js",
         "src/contentScripts/features/featureController.js",
         "src/contentScripts/appBootstrap.js",
