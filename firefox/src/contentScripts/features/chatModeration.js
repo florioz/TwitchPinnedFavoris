@@ -14,6 +14,7 @@
     formatTimestamp: formatModerationTimestamp
   });
   const actionCollection = window.TFRModerationActionCollection;
+  const moderationTextTools = window.TFRModerationTextTools;
   if (!chatDomTools) throw new Error('[TFR] chat DOM tools are missing');
   if (!durationTools) throw new Error('[TFR] moderation duration tools are missing');
 
@@ -1824,27 +1825,11 @@
     }
 
     normalizeText(value) {
-      if (!value) return '';
-      let normalized = value;
-      try {
-        normalized = value.normalize('NFKC');
-      } catch {
-        normalized = value;
-      }
-      normalized = normalized.toLowerCase().replace(/\s+/g, ' ');
-      try {
-        normalized = normalized.normalize('NFD');
-      } catch {
-        // ignore normalization issues
-      }
-      normalized = normalized.replace(/[\u0300-\u036f]/g, '');
-      return normalized.trim();
+      return moderationTextTools.normalize(value);
     }
 
     hasBanIndicator(value) {
-      const normalized = this.normalizeText(value);
-      if (!normalized || /\b(?:banner|banners)\b/.test(normalized)) return false;
-      return /(?:^|[^a-z0-9])(?:ban|banned|banni|bannie|bannissement|permaban|perma-ban)(?:$|[^a-z0-9])/i.test(normalized);
+      return moderationTextTools.hasBanIndicator(value);
     }
 
     isInteractiveModerationControl(element) {
@@ -1857,63 +1842,19 @@
     }
 
     pickFirst(values) {
-      if (!Array.isArray(values)) return null;
-      for (const value of values) {
-        if (typeof value === 'string' && value.trim()) {
-          return value.trim();
-        }
-      }
-      return null;
+      return moderationTextTools.pickFirst(values);
     }
 
     sanitizeLogin(value) {
-      if (!value || typeof value !== 'string') {
-        return '';
-      }
-      let cleaned = value.trim().replace(/^@/, '');
-      cleaned = cleaned.replace(/^[^a-z0-9_]+/i, '');
-      cleaned = cleaned.replace(/[^a-z0-9_]+$/i, '');
-      cleaned = cleaned.toLowerCase();
-      if (!cleaned) {
-        return '';
-      }
-      if (!/^[a-z0-9_]+$/.test(cleaned)) {
-        return '';
-      }
-      if (!/[a-z_]/.test(cleaned)) {
-        return '';
-      }
-      return cleaned;
+      return moderationTextTools.sanitizeLogin(value);
     }
 
     extractLoginFromText(text) {
-      if (!text || typeof text !== 'string') return '';
-      const tokens = text.split(/\s+/);
-      for (const rawToken of tokens) {
-        if (!rawToken) continue;
-        const trimmed = rawToken.replace(/^[^a-z0-9@_]+/i, '').replace(/[^a-z0-9@_]+$/i, '');
-        const candidate = this.sanitizeLogin(trimmed);
-        if (candidate) {
-          return candidate;
-        }
-      }
-      return '';
+      return moderationTextTools.extractLogin(text);
     }
 
     extractModeratorFromText(text) {
-      if (!text) return null;
-      const modMatch = text.match(/\b(?:by|par)\s+(@?[^\s\.\)]+)/i);
-      if (modMatch && modMatch[1]) {
-        const sanitized = this.sanitizeLogin(modMatch[1]);
-        if (!sanitized) {
-          return null;
-        }
-        if (['un', 'une', 'le', 'la', 'an', 'a', 'moderateur', 'moderator'].includes(sanitized)) {
-          return null;
-        }
-        return sanitized;
-      }
-      return null;
+      return moderationTextTools.extractModerator(text);
     }
 
     extractTimeoutDurationFromText(text) {
@@ -1978,14 +1919,7 @@
     }
 
     isTruthy(value) {
-      if (value === undefined || value === null) {
-        return false;
-      }
-      const normalized = String(value).trim().toLowerCase();
-      if (!normalized) {
-        return false;
-      }
-      return !['0', 'false', 'no', 'non', 'off', 'null', 'undefined'].includes(normalized);
+      return moderationTextTools.isTruthy(value);
     }
 
     convertDuration(value, unit) {
