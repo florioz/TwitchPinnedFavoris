@@ -32,6 +32,10 @@ if (!featureSettingsConfig) {
 class FavoritesOverlay {
   constructor(store) {
     this.store = store;
+    this.appearanceWizardModel = window.TFRAppearanceWizardModel?.create?.({ t, store });
+    if (!this.appearanceWizardModel) {
+      throw new Error('[TFR] appearance wizard model is missing');
+    }
     this.root = null;
     this.isOpen = false;
     this.openListeners = new Set();
@@ -613,62 +617,8 @@ class FavoritesOverlay {
 
   renderSidebarAppearanceWizard(state) {
     const prefs = state.preferences || {};
-    const categoryValues = [
-      'gradient', 'solid', 'stripe', 'glow', 'glass', 'outline', 'minimal', 'dot',
-      'rail', 'double', 'soft-card', 'soft-neon', 'ribbon', 'count-badge', 'ink',
-      'compact', 'parent-accent'
-    ];
-    const streamerValues = [
-      'default', 'compact', 'card', 'soft-card', 'outline', 'left-line',
-      'avatar-ring', 'avatar-square', 'neon', 'viewer-badge', 'game-focus',
-      'title-focus', 'glass', 'minimal', 'avatar-grid'
-    ];
-    const surfaceValues = [
-      'default', 'full', 'panel', 'glow', 'rail', 'connected', 'layers', 'canvas',
-      'edge', 'spectrum', 'pulse', 'poster', 'arcade'
-    ];
-    const steps = [
-      {
-        kind: 'category',
-        label: t('appearance.wizard.groups'),
-        value: this.store.sanitizeCategoryColorStyle?.(prefs.categoryColorStyle) || 'gradient',
-        values: categoryValues,
-        labelFor: (style) => t(`categoryAppearance.style.${style}`),
-        descriptionFor: (style) => t(
-          ['gradient', 'rail', 'soft-card', 'outline', 'minimal', 'parent-accent'].includes(style)
-            ? `appearance.description.category.${style}`
-            : 'appearance.description.category.other'
-        ),
-        apply: (style) => this.store.setCategoryColorStyle(style)
-      },
-      {
-        kind: 'streamer',
-        label: t('appearance.wizard.streamers'),
-        value: this.store.sanitizeStreamerItemStyle?.(prefs.streamerItemStyle) || 'default',
-        values: streamerValues,
-        labelFor: (style) => t(`streamerAppearance.style.${style}`),
-        descriptionFor: (style) => t(
-          ['default', 'soft-card', 'compact', 'minimal', 'avatar-ring', 'avatar-grid'].includes(style)
-            ? `appearance.description.streamer.${style}`
-            : 'appearance.description.streamer.other'
-        ),
-        apply: (style) => this.store.setStreamerItemStyle(style)
-      },
-      {
-        kind: 'surface',
-        label: t('appearance.wizard.surface'),
-        value: this.store.sanitizeSidebarSurfaceStyle?.(prefs.sidebarSurfaceStyle) || 'default',
-        values: surfaceValues,
-        labelFor: (style) => t(`sidebarSurface.style.${style}`),
-        descriptionFor: (style) => t(
-          ['default', 'panel', 'rail', 'full', 'glow', 'canvas'].includes(style)
-            ? `appearance.description.surface.${style}`
-            : 'appearance.description.surface.other'
-        ),
-        apply: (style) => this.store.setSidebarSurfaceStyle(style)
-      }
-    ];
-    this.appearanceWizardStep = Math.max(0, Math.min(steps.length - 1, this.appearanceWizardStep));
+    const steps = this.appearanceWizardModel.createSteps(prefs);
+    this.appearanceWizardStep = this.appearanceWizardModel.clampStep(this.appearanceWizardStep, steps.length);
     const activeStep = steps[this.appearanceWizardStep];
 
     const wrapper = document.createElement('section');
@@ -764,9 +714,7 @@ class FavoritesOverlay {
       ? t('appearance.wizard.finish')
       : t('appearance.wizard.next');
     next.addEventListener('click', () => {
-      this.appearanceWizardStep = this.appearanceWizardStep === steps.length - 1
-        ? 0
-        : this.appearanceWizardStep + 1;
+      this.appearanceWizardStep = this.appearanceWizardModel.nextStep(this.appearanceWizardStep, steps.length);
       this.render();
     });
     navigation.append(previous, next);
@@ -891,37 +839,15 @@ class FavoritesOverlay {
     styleTitle.textContent = t('categoryAppearance.style');
     styleHeader.appendChild(styleTitle);
     styleField.appendChild(styleHeader);
-    const categoryStyleValues = [
-      'gradient',
-      'solid',
-      'stripe',
-      'glow',
-      'glass',
-      'outline',
-      'minimal',
-      'dot',
-      'rail',
-      'double',
-      'soft-card',
-      'soft-neon',
-      'ribbon',
-      'count-badge',
-      'ink',
-      'compact',
-      'parent-accent'
-    ];
+    const categoryStyleValues = this.appearanceWizardModel.getValues('category');
     styleField.classList.add('tfr-category-appearance-settings__field--visual');
     styleField.appendChild(this.renderVisualStylePicker({
       kind: 'category',
       value: colorStyle,
       values: categoryStyleValues,
       families: this.createAppearanceFamilies('category', categoryStyleValues),
-      labelFor: (style) => t(`categoryAppearance.style.${style}`),
-      descriptionFor: (style) => t(
-        ['gradient', 'rail', 'soft-card', 'outline', 'minimal', 'parent-accent'].includes(style)
-          ? `appearance.description.category.${style}`
-          : 'appearance.description.category.other'
-      ),
+      labelFor: (style) => this.appearanceWizardModel.labelFor('category', style),
+      descriptionFor: (style) => this.appearanceWizardModel.descriptionFor('category', style),
       onChange: (nextValue) => this.store.setCategoryColorStyle(nextValue)
     }));
     controls.appendChild(styleField);
@@ -1176,33 +1102,7 @@ class FavoritesOverlay {
   }
 
   createAppearanceFamilies(kind, values) {
-    const definitions = {
-      category: [
-        ['classic', ['gradient', 'solid', 'soft-card', 'glass']],
-        ['lines', ['stripe', 'outline', 'rail', 'double']],
-        ['light', ['minimal', 'dot', 'compact', 'count-badge']],
-        ['effects', ['glow', 'soft-neon', 'ribbon', 'ink', 'parent-accent']]
-      ],
-      streamer: [
-        ['classic', ['default', 'card', 'soft-card', 'glass']],
-        ['compact', ['compact', 'minimal', 'viewer-badge']],
-        ['avatar', ['avatar-ring', 'avatar-square', 'avatar-grid']],
-        ['focus', ['game-focus', 'title-focus', 'left-line', 'outline']],
-        ['effects', ['neon']]
-      ],
-      surface: [
-        ['classic', ['default', 'full', 'panel', 'connected']],
-        ['lines', ['rail', 'edge']],
-        ['depth', ['layers', 'canvas', 'poster']],
-        ['effects', ['glow', 'spectrum', 'pulse', 'arcade']]
-      ]
-    };
-    return (definitions[kind] || []).map(([id, familyValues]) => ({
-      id,
-      label: t(`appearance.family.${id}`),
-      description: t(`appearance.family.${id}.description`),
-      values: familyValues.filter((style) => values.includes(style))
-    })).filter((family) => family.values.length);
+    return this.appearanceWizardModel.createFamilies(kind, values);
   }
 
   renderSpecialCategoryColorControl({ key, label, color }) {
@@ -1242,35 +1142,15 @@ class FavoritesOverlay {
     label.appendChild(labelText);
     field.appendChild(label);
 
-    const streamerStyleValues = [
-      'default',
-      'compact',
-      'card',
-      'soft-card',
-      'outline',
-      'left-line',
-      'avatar-ring',
-      'avatar-square',
-      'neon',
-      'viewer-badge',
-      'game-focus',
-      'title-focus',
-      'glass',
-      'minimal',
-      'avatar-grid'
-    ];
+    const streamerStyleValues = this.appearanceWizardModel.getValues('streamer');
     field.classList.add('tfr-streamer-appearance-settings__field--visual');
     field.appendChild(this.renderVisualStylePicker({
       kind: 'streamer',
       value: streamerStyle,
       values: streamerStyleValues,
       families: this.createAppearanceFamilies('streamer', streamerStyleValues),
-      labelFor: (style) => t(`streamerAppearance.style.${style}`),
-      descriptionFor: (style) => t(
-        ['default', 'soft-card', 'compact', 'minimal', 'avatar-ring', 'avatar-grid'].includes(style)
-          ? `appearance.description.streamer.${style}`
-          : 'appearance.description.streamer.other'
-      ),
+      labelFor: (style) => this.appearanceWizardModel.labelFor('streamer', style),
+      descriptionFor: (style) => this.appearanceWizardModel.descriptionFor('streamer', style),
       onChange: (nextValue) => this.store.setStreamerItemStyle(nextValue)
     }));
     wrapper.appendChild(field);
@@ -1440,33 +1320,15 @@ class FavoritesOverlay {
     label.appendChild(labelText);
     field.appendChild(label);
 
-    const surfaceStyleValues = [
-      'default',
-      'full',
-      'panel',
-      'glow',
-      'rail',
-      'connected',
-      'layers',
-      'canvas',
-      'edge',
-      'spectrum',
-      'pulse',
-      'poster',
-      'arcade'
-    ];
+    const surfaceStyleValues = this.appearanceWizardModel.getValues('surface');
     field.classList.add('tfr-streamer-appearance-settings__field--visual');
     field.appendChild(this.renderVisualStylePicker({
       kind: 'surface',
       value: surfaceStyle,
       values: surfaceStyleValues,
       families: this.createAppearanceFamilies('surface', surfaceStyleValues),
-      labelFor: (style) => t(`sidebarSurface.style.${style}`),
-      descriptionFor: (style) => t(
-        ['default', 'panel', 'rail', 'full', 'glow', 'canvas'].includes(style)
-          ? `appearance.description.surface.${style}`
-          : 'appearance.description.surface.other'
-      ),
+      labelFor: (style) => this.appearanceWizardModel.labelFor('surface', style),
+      descriptionFor: (style) => this.appearanceWizardModel.descriptionFor('surface', style),
       onChange: (nextValue) => this.store.setSidebarSurfaceStyle(nextValue)
     }));
     wrapper.appendChild(field);
