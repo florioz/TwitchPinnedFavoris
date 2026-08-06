@@ -6,6 +6,8 @@
   "scripts": {
     "build:chrome": "node scripts/build-chrome.js",
     "build:firefox": "node scripts/build-firefox.js",
+    "build:android": "node scripts/build-android.js",
+    "package:all": "node scripts/package-all.js",
     "check": "node scripts/check.js",
     "check:firefox-sync": "node scripts/check-firefox-sync.js",
     "test": "node --test tests/*.test.mjs tests/*.test.cjs",

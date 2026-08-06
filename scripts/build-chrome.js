@@ -5,7 +5,8 @@ const { join } = require('node:path');
 const root = join(__dirname, '..');
 const distDir = join(root, 'dist');
 const buildDir = join(distDir, 'chrome-store');
-const zipPath = join(distDir, 'TwitchFavoritesSidebar-chrome-store.zip');
+const sourceManifest = JSON.parse(readFileSync(join(root, 'manifest.json'), 'utf8'));
+const zipPath = join(distDir, `TwitchFavoritesSidebar-v${sourceManifest.version}-chrome-store.zip`);
 
 const include = [
   'manifest.json',
