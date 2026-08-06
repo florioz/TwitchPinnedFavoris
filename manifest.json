@@ -57,6 +57,7 @@
         "src/contentScripts/features/moderationHistoryPresenter.js",
         "src/contentScripts/features/moderationActionCollection.js",
         "src/contentScripts/features/moderationTextTools.js",
+        "src/contentScripts/features/moderationPanelGeometry.js",
         "src/contentScripts/features/chatModeration.js",
         "src/contentScripts/features/deletedMessageView.js",
         "src/contentScripts/features/streamEnhancements.js",

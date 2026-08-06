@@ -15,6 +15,7 @@
   });
   const actionCollection = window.TFRModerationActionCollection;
   const moderationTextTools = window.TFRModerationTextTools;
+  const panelGeometry = window.TFRModerationPanelGeometry;
   if (!chatDomTools) throw new Error('[TFR] chat DOM tools are missing');
   if (!durationTools) throw new Error('[TFR] moderation duration tools are missing');
 
@@ -2455,8 +2456,7 @@
       }
       const rect = this.button.getBoundingClientRect();
       const panel = this.panel;
-      const maxHeight = Math.min(620, Math.floor(window.innerHeight * 0.82), window.innerHeight - 24);
-      panel.style.maxHeight = `${Math.max(220, maxHeight)}px`;
+      panel.style.maxHeight = `${panelGeometry.maxHeight(window.innerHeight)}px`;
       if (this.userPosition) {
         this.clampUserPosition();
         panel.style.top = `${Math.round(this.userPosition.top)}px`;
@@ -2466,23 +2466,12 @@
       }
       panel.style.visibility = 'hidden';
       const panelRect = panel.getBoundingClientRect();
-      let top = rect.top - panelRect.height - 8;
-      if (top < 12) {
-        top = rect.bottom + 8;
-      }
-      let left = rect.right - panelRect.width;
-      if (left < 12) {
-        left = 12;
-      }
-      const overflowRight = left + panelRect.width - window.innerWidth + 12;
-      if (overflowRight > 0) {
-        left -= overflowRight;
-      }
-      if (left < 12) {
-        left = 12;
-      }
-      panel.style.top = `${Math.round(top)}px`;
-      panel.style.left = `${Math.round(left)}px`;
+      const position = panelGeometry.anchored(rect, panelRect, {
+        width: window.innerWidth,
+        height: window.innerHeight
+      });
+      panel.style.top = `${Math.round(position.top)}px`;
+      panel.style.left = `${Math.round(position.left)}px`;
       panel.style.visibility = '';
     }
 
@@ -2507,9 +2496,7 @@
 
     handlePanelDragMove(event) {
       if (!this.dragState || !this.panel) return;
-      const nextLeft = this.dragState.left + event.clientX - this.dragState.startX;
-      const nextTop = this.dragState.top + event.clientY - this.dragState.startY;
-      this.userPosition = { left: nextLeft, top: nextTop };
+      this.userPosition = panelGeometry.dragged(this.dragState, { x: event.clientX, y: event.clientY });
       this.clampUserPosition();
       this.panel.style.left = `${Math.round(this.userPosition.left)}px`;
       this.panel.style.top = `${Math.round(this.userPosition.top)}px`;
@@ -2527,10 +2514,11 @@
     clampUserPosition() {
       if (!this.userPosition || !this.panel) return;
       const rect = this.panel.getBoundingClientRect();
-      const width = rect.width || 390;
-      const height = rect.height || 220;
-      this.userPosition.left = Math.min(Math.max(8, this.userPosition.left), Math.max(8, window.innerWidth - width - 8));
-      this.userPosition.top = Math.min(Math.max(8, this.userPosition.top), Math.max(8, window.innerHeight - height - 8));
+      this.userPosition = panelGeometry.clamp(
+        this.userPosition,
+        { width: rect.width || 390, height: rect.height || 220 },
+        { width: window.innerWidth, height: window.innerHeight }
+      );
     }
   }
 
