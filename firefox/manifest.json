@@ -54,6 +54,7 @@
         "src/contentScripts/features/chatEmoteResolver.js",
         "src/contentScripts/features/chatDomTools.js",
         "src/contentScripts/features/moderationDurationTools.js",
+        "src/contentScripts/features/moderationHistoryPresenter.js",
         "src/contentScripts/features/chatModeration.js",
         "src/contentScripts/features/deletedMessageView.js",
         "src/contentScripts/features/streamEnhancements.js",

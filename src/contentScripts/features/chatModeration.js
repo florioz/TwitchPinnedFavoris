@@ -8,6 +8,11 @@
   const thirdPartyEmotes = window.TFRChatEmoteResolver.create();
   const chatDomTools = window.TFRChatDomTools;
   const durationTools = window.TFRModerationDurationTools;
+  const historyPresenter = window.TFRModerationHistoryPresenter.create({
+    t,
+    formatDuration: formatModerationDurationLabel,
+    formatTimestamp: formatModerationTimestamp
+  });
   if (!chatDomTools) throw new Error('[TFR] chat DOM tools are missing');
   if (!durationTools) throw new Error('[TFR] moderation duration tools are missing');
 
@@ -2537,36 +2542,7 @@
       });
     }
     getEntryInfo(entry) {
-      const durationValue = Number(entry?.duration);
-      const hasDuration = Number.isFinite(durationValue) && durationValue > 0;
-      const durationLabel = hasDuration ? formatModerationDurationLabel(durationValue) : '';
-      let actionLabel = '';
-      if (entry.type === 'ban') {
-        if (entry.isPermanent) {
-          actionLabel = t('moderation.history.action.banPermanent');
-        } else if (durationLabel) {
-          actionLabel = t('moderation.history.action.timeout', { duration: durationLabel });
-        } else {
-          actionLabel = t('moderation.history.action.timeoutUnknown');
-        }
-      } else if (entry.type === 'timeout') {
-        actionLabel = durationLabel
-          ? t('moderation.history.action.timeout', { duration: durationLabel })
-          : t('moderation.history.action.timeoutUnknown');
-      } else {
-        actionLabel = t('moderation.history.action.deletion');
-      }
-      const moderatorLabel = entry.moderator ? t('moderation.history.meta.by', { moderator: entry.moderator }) : '';
-      const timeLabel = formatModerationTimestamp(entry.timestamp) || '';
-      const metaParts = [];
-      if (actionLabel) {
-        metaParts.push(actionLabel);
-      }
-      if (moderatorLabel) {
-        metaParts.push(moderatorLabel);
-      }
-      const metaLabel = metaParts.filter((part) => part !== actionLabel).join(' - ');
-      return { actionLabel, moderatorLabel, timeLabel, metaLabel };
+      return historyPresenter.formatEntry(entry);
     }
 
     markAllSeen() {
@@ -2589,13 +2565,7 @@
     }
 
     truncate(value, maxLength) {
-      if (!value) {
-        return '';
-      }
-      if (!Number.isFinite(maxLength) || maxLength <= 0 || value.length <= maxLength) {
-        return value;
-      }
-      return `${value.slice(0, maxLength - 3)}...`;
+      return historyPresenter.truncate(value, maxLength);
     }
 
     handleDocumentClick(event) {

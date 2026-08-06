@@ -21,6 +21,10 @@ vm.runInContext(fs.readFileSync(
   'utf8'
 ), context);
 vm.runInContext(fs.readFileSync(
+  path.join(__dirname, '../src/contentScripts/features/moderationHistoryPresenter.js'),
+  'utf8'
+), context);
+vm.runInContext(fs.readFileSync(
   path.join(__dirname, '../src/contentScripts/features/chatModeration.js'),
   'utf8'
 ), context);
