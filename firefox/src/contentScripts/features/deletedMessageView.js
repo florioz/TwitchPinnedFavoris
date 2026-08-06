@@ -12,11 +12,15 @@
         message.classList.remove(REVEALED_CLASS);
       }
     };
-    const reveal = ({ message, body, text, label = '' }) => {
-      if (!message || !body || !text || findRestored(message)) return false;
+    const reveal = ({ message, body, text, nodes = [], label = '' }) => {
+      if (!message || !body || (!text && !nodes.length) || findRestored(message)) return false;
       const restored = documentRef.createElement('span');
       restored.className = RESTORED_CLASS;
-      restored.textContent = text;
+      if (nodes.length) {
+        nodes.forEach((node) => restored.appendChild(node.cloneNode(true)));
+      } else {
+        restored.textContent = text;
+      }
       if (label) restored.setAttribute('aria-label', label);
       body.appendChild(restored);
       message.classList.add(REVEALED_CLASS);

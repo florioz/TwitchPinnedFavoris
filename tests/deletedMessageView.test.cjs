@@ -36,3 +36,23 @@ test('deleted message view reveals content once in the original body and clears 
   view.clear(message);
   assert.equal(classes.getRemoveCalls(), 1);
 });
+
+test('deleted message view restores cloned message nodes when available', () => {
+  let restored;
+  const appended = [];
+  const document = {
+    createElement: () => ({
+      appendChild: (node) => appended.push(node),
+      setAttribute() {}
+    })
+  };
+  const window = {};
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../src/contentScripts/features/deletedMessageView.js'), 'utf8'), { window, document });
+  const message = { classList: createClassList(), querySelector: () => restored };
+  const body = { appendChild: (node) => { restored = node; } };
+  const sourceNode = { cloneNode: (deep) => ({ cloned: deep }) };
+  const view = window.TFRDeletedMessageView.create(document);
+  assert.equal(view.reveal({ message, body, text: 'fallback', nodes: [sourceNode] }), true);
+  assert.deepEqual(appended, [{ cloned: true }]);
+  assert.equal(restored.textContent, undefined);
+});

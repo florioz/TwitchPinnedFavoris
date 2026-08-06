@@ -7,6 +7,7 @@
     ModerationHistoryUI,
     ThirdPartyChatEmotes,
     PlayerLatencyIndicator,
+    PlayerAudioCompressor,
     ChatFontManager,
     ChatPaddingManager,
     ChatMentionHighlighter,
@@ -32,6 +33,13 @@ class FeatureController {
       {
         property: 'playerLatencyIndicator', Type: PlayerLatencyIndicator, label: 'player indicator',
         selectPreferences: (prefs) => prefs.playerLatencyEnabled === true
+      },
+      {
+        property: 'playerAudioCompressor', Type: PlayerAudioCompressor, label: 'player audio compressor',
+        selectPreferences: (prefs) => ({
+          enabled: prefs.playerAudioCompressorEnabled === true,
+          preset: prefs.playerAudioCompressorPreset || 'balanced'
+        })
       },
       {
         property: 'chatFontManager', Type: ChatFontManager, label: 'chat font',
@@ -98,6 +106,10 @@ class FeatureController {
   initializeEnhancement({ property, Type, label }) {
     try {
       const instance = new Type();
+      instance.setPreferenceUpdater?.(async ({ enabled, preset }) => {
+        await this.store.setPlayerAudioCompressorPreset(preset);
+        await this.store.setPlayerAudioCompressorEnabled(enabled);
+      });
       instance.init();
       this[property] = instance;
     } catch (error) {

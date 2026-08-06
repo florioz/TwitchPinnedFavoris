@@ -53,6 +53,7 @@ class FavoritesOverlay {
     this.driveMessage = '';
     this.driveDebugVisible = false;
     this.toastSoundMessage = '';
+    this.mentionTestTimer = null;
     this.draggedLogin = null;
     this.draggedCategoryStartX = 0;
     this.selectedFavorites = new Set();
@@ -217,6 +218,10 @@ class FavoritesOverlay {
 
   dispose() {
     this.close();
+    if (this.mentionTestTimer) {
+      window.clearTimeout(this.mentionTestTimer);
+      this.mentionTestTimer = null;
+    }
     this.unsubscribe?.();
     this.unsubscribe = null;
     document.removeEventListener('keydown', this.handleEscapeKeydown);
@@ -1753,6 +1758,28 @@ class FavoritesOverlay {
     audio?.play({ soundId, volume: 35 });
   }
 
+  testMentionNotification({ preview, button, soundEnabled, soundId }) {
+    if (!preview || !button) return false;
+    if (this.mentionTestTimer) window.clearTimeout(this.mentionTestTimer);
+    preview.classList.remove('is-testing');
+    void preview.offsetWidth;
+    preview.classList.add('is-testing');
+    button.textContent = t('settings.chatMentions.testActive');
+    button.setAttribute('aria-pressed', 'true');
+    if (soundEnabled) {
+      window.dispatchEvent(new CustomEvent('tfr:testChatMentionSound', {
+        detail: { soundId }
+      }));
+    }
+    this.mentionTestTimer = window.setTimeout(() => {
+      preview.classList.remove('is-testing');
+      button.textContent = t('settings.chatMentions.testMention');
+      button.setAttribute('aria-pressed', 'false');
+      this.mentionTestTimer = null;
+    }, 1400);
+    return true;
+  }
+
   createMentionSettings(preferences) {
     const enabled = preferences.chatMentionHighlightEnabled === true;
     const soundEnabled = preferences.chatMentionSoundEnabled === true;
@@ -1801,9 +1828,9 @@ class FavoritesOverlay {
     const testButton = document.createElement('button');
     testButton.type = 'button';
     testButton.className = 'tfr-chat-mention-settings__test';
-    testButton.textContent = t('settings.chatMentions.testSound');
-    testButton.disabled = !enabled || !soundEnabled;
-    testButton.addEventListener('click', () => this.playFeatureTestSound(soundSelect.value));
+    testButton.textContent = t('settings.chatMentions.testMention');
+    testButton.disabled = !enabled;
+    testButton.setAttribute('aria-pressed', 'false');
 
     const preview = document.createElement('div');
     preview.className = 'tfr-chat-mention-settings__preview';
@@ -1813,7 +1840,18 @@ class FavoritesOverlay {
       preview.style.setProperty('--tfr-chat-mention-preview-color', event.target.value);
     });
 
-    controls.append(colorLabel, soundLabel, soundSelect, testButton, preview);
+    testButton.addEventListener('click', () => this.testMentionNotification({
+      preview,
+      button: testButton,
+      soundEnabled: soundInput.checked,
+      soundId: soundSelect.value
+    }));
+
+    const testHint = document.createElement('small');
+    testHint.className = 'tfr-chat-mention-settings__test-hint';
+    testHint.textContent = t('settings.chatMentions.testHint');
+
+    controls.append(colorLabel, soundLabel, soundSelect, testButton, preview, testHint);
     return controls;
   }
 
@@ -1916,6 +1954,26 @@ class FavoritesOverlay {
     });
     previewChoice.append(previewLabel, previewSelect);
     cards.get('player').body.appendChild(previewChoice);
+
+    const compressorChoice = document.createElement('label');
+    compressorChoice.className = 'tfr-live-preview-choice';
+    compressorChoice.classList.toggle('is-disabled', prefs.playerAudioCompressorEnabled !== true);
+    const compressorLabel = document.createElement('strong');
+    compressorLabel.textContent = t('settings.audioCompressor.intensity');
+    const compressorSelect = document.createElement('select');
+    compressorSelect.disabled = prefs.playerAudioCompressorEnabled !== true;
+    ['soft', 'balanced', 'strong'].forEach((preset) => {
+      const option = document.createElement('option');
+      option.value = preset;
+      option.textContent = t(`settings.audioCompressor.preset.${preset}`);
+      option.selected = (prefs.playerAudioCompressorPreset || 'balanced') === preset;
+      compressorSelect.appendChild(option);
+    });
+    compressorSelect.addEventListener('change', (event) => {
+      this.store.setPlayerAudioCompressorPreset(event.target.value);
+    });
+    compressorChoice.append(compressorLabel, compressorSelect);
+    cards.get('player').body.appendChild(compressorChoice);
 
     const fontChoice = document.createElement('label');
     fontChoice.className = 'tfr-chat-font-choice';

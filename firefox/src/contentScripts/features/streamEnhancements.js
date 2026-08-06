@@ -9,6 +9,10 @@
     ];
     const MESSAGE_SELECTOR = '[data-a-target="chat-line-message"], [data-test-selector="chat-line-message"], .chat-line__message';
     const MESSAGE_BODY_SELECTOR = '[data-a-target="chat-message-text"], [data-a-target="chat-line-message-body"], [data-test-selector="chat-line-message-body"]';
+    const CURRENT_USER_MENTION_SELECTOR = '[data-a-target="chat-message-mention"].mention-fragment--recipient';
+    const CHAT_MENTION_SOUND_IDS = new Set(['soft', 'chime', 'arcade', 'pulse', 'alert']);
+    const CHAT_MENTION_FALLBACK_IDENTITY = 'twitch-current-user';
+    const CHAT_SNAPSHOT_CACHE_LIMIT = 500;
     const TWITCH_GQL_ENDPOINT = 'https://gql.twitch.tv/gql';
     const TWITCH_CLIENT_ID = 'kimne78kx3ncx6brgo4mv6wki5h1ko';
     const CHAT_RETRY_DELAY_MS = 1500;
@@ -32,6 +36,10 @@
     const clearChatRetry = (owner) => {
       clearTimeout(owner.retryTimer);
       owner.retryTimer = null;
+    };
+
+    const trimMap = (map, maximumSize) => {
+      while (map.size > maximumSize) map.delete(map.keys().next().value);
     };
 
     const visitMatchingElements = (node, selector, callback) => {
@@ -305,6 +313,178 @@
       }
     }
 
+    class PlayerAudioCompressor {
+      constructor() {
+        this.enabled = false;
+        this.preset = 'balanced';
+        this.timer = null;
+        this.video = null;
+        this.graph = null;
+        this.button = null;
+        this.panel = null;
+        this.updatePreference = null;
+      }
+
+      init() {
+        this.timer = window.setInterval(() => this.refresh(), 1000);
+      }
+
+      setPreferenceUpdater(updatePreference) {
+        this.updatePreference = updatePreference;
+      }
+
+      configure({ enabled, preset }) {
+        const panelWasOpen = Boolean(this.panel?.isConnected);
+        this.enabled = Boolean(enabled);
+        this.preset = this.normalizePreset(preset);
+        this.panel?.remove();
+        this.refresh();
+        if (panelWasOpen) this.togglePanel();
+      }
+
+      normalizePreset(preset) {
+        return new Set(['soft', 'balanced', 'strong']).has(preset) ? preset : 'balanced';
+      }
+
+      getPresetValues() {
+        return {
+          soft: { threshold: -12, knee: 18, ratio: 2, attack: 0.008, release: 0.3 },
+          balanced: { threshold: -20, knee: 24, ratio: 4, attack: 0.006, release: 0.28 },
+          strong: { threshold: -30, knee: 30, ratio: 8, attack: 0.003, release: 0.35 }
+        }[this.preset];
+      }
+
+      applyCompressorState() {
+        const compressor = this.graph?.compressor;
+        if (!compressor) return;
+        const values = this.enabled
+          ? this.getPresetValues()
+          : { threshold: 0, knee: 0, ratio: 1, attack: 0, release: 0.25 };
+        Object.entries(values).forEach(([property, value]) => {
+          if (compressor[property]) compressor[property].value = value;
+        });
+        this.button?.classList.toggle('is-active', this.enabled);
+        this.button?.setAttribute('aria-pressed', String(this.enabled));
+      }
+
+      attachAudio(video) {
+        if (!video || this.video === video && this.graph) return;
+        const AudioContextConstructor = window.AudioContext || window.webkitAudioContext;
+        if (!AudioContextConstructor) return;
+        let context = null;
+        let source = null;
+        try {
+          this.graph?.source?.disconnect?.();
+          this.graph?.compressor?.disconnect?.();
+          this.graph?.context?.close?.();
+          this.graph = null;
+          this.video = null;
+          context = new AudioContextConstructor();
+          source = context.createMediaElementSource(video);
+          const compressor = context.createDynamicsCompressor();
+          source.connect(compressor);
+          compressor.connect(context.destination);
+          this.video = video;
+          this.graph = { context, source, compressor };
+          this.applyCompressorState();
+        } catch (error) {
+          try {
+            source?.connect?.(context.destination);
+          } catch {}
+          console.debug('[TFR] audio compressor unavailable for this player', error);
+        }
+      }
+
+      ensureButton() {
+        const volumeButton = document.querySelector(
+          '[data-a-target="player-mute-unmute-button"], [data-a-target="player-volume-button"]'
+        );
+        const controls = volumeButton?.parentElement;
+        if (!controls) {
+          this.button?.remove();
+          this.button = null;
+          return;
+        }
+        if (!this.button) {
+          this.button = document.createElement('button');
+          this.button.type = 'button';
+          this.button.className = 'tfr-audio-compressor-button';
+          this.button.textContent = '≋';
+          this.button.title = t('settings.audioCompressor.button');
+          this.button.setAttribute('aria-label', t('settings.audioCompressor.button'));
+          this.button.addEventListener('click', () => this.togglePanel());
+        }
+        if (this.button.parentElement !== controls) controls.appendChild(this.button);
+        this.applyCompressorState();
+      }
+
+      togglePanel() {
+        if (this.panel?.isConnected) {
+          this.panel.remove();
+          return;
+        }
+        this.graph?.context?.resume?.();
+        const panel = document.createElement('div');
+        panel.className = 'tfr-audio-compressor-panel';
+        panel.classList.toggle('is-enabled', this.enabled);
+        const heading = document.createElement('div');
+        heading.className = 'tfr-audio-compressor-panel__heading';
+        const title = document.createElement('strong');
+        title.textContent = t('settings.audioCompressor.title');
+        const status = document.createElement('span');
+        status.className = 'tfr-audio-compressor-panel__status';
+        status.textContent = this.enabled
+          ? t('settings.audioCompressor.statusEnabled') : t('settings.audioCompressor.statusDisabled');
+        heading.append(title, status);
+        const description = document.createElement('small');
+        description.textContent = t('settings.audioCompressor.panelDescription');
+        const toggle = document.createElement('button');
+        toggle.type = 'button';
+        toggle.className = `tfr-audio-compressor-panel__toggle ${this.enabled ? 'is-disable' : 'is-enable'}`;
+        toggle.textContent = this.enabled
+          ? t('settings.audioCompressor.disable') : t('settings.audioCompressor.enable');
+        toggle.addEventListener('click', async () => {
+          await this.updatePreference?.({ enabled: !this.enabled, preset: this.preset });
+        });
+        const presets = document.createElement('div');
+        presets.className = 'tfr-audio-compressor-panel__presets';
+        ['soft', 'balanced', 'strong'].forEach((preset) => {
+          const button = document.createElement('button');
+          button.type = 'button';
+          button.textContent = t(`settings.audioCompressor.preset.${preset}`);
+          button.disabled = !this.enabled;
+          button.classList.toggle('is-active', this.enabled && preset === this.preset);
+          button.addEventListener('click', async () => {
+            await this.updatePreference?.({ enabled: true, preset });
+          });
+          presets.appendChild(button);
+        });
+        panel.append(heading, description, toggle, presets);
+        document.body.appendChild(panel);
+        const rect = this.button.getBoundingClientRect();
+        panel.style.left = `${Math.max(8, Math.min(window.innerWidth - 288, rect.left))}px`;
+        panel.style.bottom = `${Math.max(8, window.innerHeight - rect.top + 8)}px`;
+        this.panel = panel;
+      }
+
+      refresh() {
+        if (document.visibilityState === 'hidden') return;
+        this.ensureButton();
+        const video = document.querySelector('.video-player__container video, [data-a-target="video-player"] video, video');
+        if (this.enabled && video && video !== this.video) this.attachAudio(video);
+        this.applyCompressorState();
+      }
+
+      dispose() {
+        clearInterval(this.timer);
+        this.timer = null;
+        this.panel?.remove();
+        this.button?.remove();
+        this.panel = null;
+        this.button = null;
+      }
+    }
+
     class ChatFontManager {
       constructor() {
         this.enabled = false;
@@ -365,6 +545,7 @@
         this.container = null;
         this.snapshots = new WeakMap();
         this.snapshotsById = new Map();
+        this.snapshotsByKey = new Map();
         this.retryTimer = null;
       }
 
@@ -384,6 +565,7 @@
         clearChatRetry(this);
         deletedMessageView.clearAll();
         this.snapshotsById.clear();
+        this.snapshotsByKey.clear();
       }
 
       observe() {
@@ -434,6 +616,38 @@
         );
       }
 
+      getMessageSnapshotKey(message) {
+        const user = String(
+          message.dataset?.aUser
+          || message.getAttribute?.('data-a-user')
+          || message.querySelector?.('[data-a-user]')?.getAttribute?.('data-a-user')
+          || message.querySelector?.('[data-a-target="chat-message-username"]')?.textContent
+          || ''
+        ).trim().toLowerCase();
+        const timestamp = String(
+          message.querySelector?.('[data-a-target="chat-timestamp"], [data-test-selector="chat-timestamp"]')?.textContent
+          || message.getAttribute?.('aria-label')?.match(/(?:envoyé|sent) (?:à|at) ([0-9:]+)/i)?.[1]
+          || ''
+        ).trim();
+        return user && timestamp ? `${user}|${timestamp}` : '';
+      }
+
+      rememberSnapshot(message, snapshot) {
+        this.snapshots.set(message, snapshot);
+        const messageId = this.getMessageId(message);
+        if (messageId) this.snapshotsById.set(messageId, snapshot);
+        const snapshotKey = this.getMessageSnapshotKey(message);
+        if (snapshotKey) this.snapshotsByKey.set(snapshotKey, snapshot);
+        trimMap(this.snapshotsById, CHAT_SNAPSHOT_CACHE_LIMIT);
+        trimMap(this.snapshotsByKey, CHAT_SNAPSHOT_CACHE_LIMIT);
+      }
+
+      findSnapshot(message) {
+        return this.snapshots.get(message)
+          || this.snapshotsById.get(this.getMessageId(message))
+          || this.snapshotsByKey.get(this.getMessageSnapshotKey(message));
+      }
+
       processMessage(message) {
         if (!(message instanceof HTMLElement)) return;
         const existing = deletedMessageView.findRestored(message);
@@ -442,15 +656,15 @@
           const body = message.querySelector(MESSAGE_BODY_SELECTOR);
           const text = body?.textContent?.trim();
           if (text) {
-            const snapshot = { text };
-            this.snapshots.set(message, snapshot);
-            const messageId = this.getMessageId(message);
-            if (messageId) this.snapshotsById.set(messageId, snapshot);
+            this.rememberSnapshot(message, {
+              text,
+              nodes: Array.from(body.childNodes || []).map((node) => node.cloneNode(true))
+            });
           }
           return;
         }
         if (existing) return;
-        const snapshot = this.snapshots.get(message) || this.snapshotsById.get(this.getMessageId(message));
+        const snapshot = this.findSnapshot(message);
         if (!snapshot?.text) return;
         const body = message.querySelector(MESSAGE_BODY_SELECTOR);
         if (!body) return;
@@ -458,6 +672,7 @@
           message,
           body,
           text: snapshot.text,
+          nodes: snapshot.nodes,
           label: t('settings.deletedMessages.badge')
         });
       }
@@ -512,10 +727,14 @@
         this.observer = null;
         this.retryTimer = null;
         this.audio = null;
+        this.boundTestSound = (event) => {
+          this.playSound(this.normalizeSoundId(event?.detail?.soundId));
+        };
       }
 
       init() {
         this.ensureAudio();
+        window.addEventListener('tfr:testChatMentionSound', this.boundTestSound);
       }
 
       ensureAudio() {
@@ -533,7 +752,7 @@
       configure({ enabled, color, soundEnabled, soundId }) {
         this.enabled = Boolean(enabled);
         this.soundEnabled = Boolean(soundEnabled);
-        this.soundId = new Set(['soft', 'chime', 'arcade', 'pulse', 'alert']).has(soundId) ? soundId : 'soft';
+        this.soundId = this.normalizeSoundId(soundId);
         document.documentElement.style.setProperty('--tfr-chat-mention-color', this.sanitizeColor(color));
         if (this.enabled) this.observe();
         else this.stop();
@@ -543,25 +762,42 @@
         return /^#[0-9a-f]{6}$/i.test(String(color || '')) ? color : '#9147ff';
       }
 
+      normalizeSoundId(soundId) {
+        return CHAT_MENTION_SOUND_IDS.has(soundId) ? soundId : 'soft';
+      }
+
+      normalizeLogin(login) {
+        const normalized = String(login || '').replace(/^@/, '').trim().toLowerCase();
+        return /^[a-z0-9_]{2,25}$/.test(normalized) ? normalized : '';
+      }
+
+      playSound(soundId = this.soundId) {
+        this.ensureAudio()?.play({ soundId, volume: 35 });
+      }
+
       resolveLogin() {
-        for (const key of ['twilight-user', 'current-user']) {
+        for (const key of ['twilight-user', 'twilight_user', 'current-user', 'currentUser']) {
           try {
             const user = JSON.parse(window.localStorage.getItem(key) || 'null');
-            const login = user?.login || user?.name || user?.username;
-            if (login) return String(login).toLowerCase();
+            const login = typeof user === 'string'
+              ? user
+              : user?.login || user?.name || user?.username || user?.user?.login;
+            const normalizedLogin = this.normalizeLogin(login);
+            if (normalizedLogin) return normalizedLogin;
           } catch {}
         }
         const menu = document.querySelector('[data-a-target="user-menu-toggle"]');
         const candidate = menu?.querySelector('img[alt]')?.alt
           || menu?.dataset?.aUser
-          || menu?.getAttribute('data-user-login');
-        return String(candidate || '').replace(/^@/, '').trim().toLowerCase();
+          || menu?.getAttribute('data-user-login')
+          || menu?.getAttribute('data-a-user');
+        return this.normalizeLogin(candidate);
       }
 
       observe() {
         this.login = this.resolveLogin();
         const container = findChatContainer();
-        if (!container || !this.login) {
+        if (!container) {
           scheduleChatRetry(this, () => {
             if (this.enabled) this.observe();
           });
@@ -581,17 +817,37 @@
         visitMatchingElements(node, MESSAGE_SELECTOR, (message) => this.processMessage(message, true));
       }
 
-      processMessage(message, allowSound) {
-        if (!this.enabled || !this.login || message.dataset.tfrMentionChecked === this.login) return;
+      inspectMessage(message) {
         const body = message.querySelector(MESSAGE_BODY_SELECTOR);
-        if (!body) return;
+        if (!body) return null;
         const normalizedText = String(body.textContent || '').toLowerCase();
+        const nativeMention = Boolean(message.querySelector(CURRENT_USER_MENTION_SELECTOR));
+        const identity = this.login || CHAT_MENTION_FALLBACK_IDENTITY;
         const escapedLogin = this.login.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        const mentioned = new RegExp(`(^|[^a-z0-9_])@${escapedLogin}(?=$|[^a-z0-9_])`, 'i').test(normalizedText);
-        message.dataset.tfrMentionChecked = this.login;
+        const textMentionsLogin = this.login
+          ? new RegExp(`(^|[^a-z0-9_])@${escapedLogin}(?=$|[^a-z0-9_])`, 'i').test(normalizedText)
+          : false;
+        return {
+          identity,
+          mentioned: nativeMention || textMentionsLogin,
+          signature: `${identity}:${nativeMention ? 'native:' : ''}${normalizedText}`
+        };
+      }
+
+      processMessage(message, allowSound) {
+        if (!this.enabled) return;
+        const inspection = this.inspectMessage(message);
+        if (!inspection || message.dataset.tfrMentionText === inspection.signature) return;
+        const { identity, mentioned, signature } = inspection;
+        message.dataset.tfrMentionChecked = identity;
+        message.dataset.tfrMentionText = signature;
         message.classList.toggle('tfr-chat-mention', mentioned);
-        if (mentioned && allowSound && this.soundEnabled) {
-          this.ensureAudio()?.play({ soundId: this.soundId, volume: 35 });
+        const alreadyNotified = message.dataset.tfrMentionNotified === identity;
+        if (mentioned && allowSound && this.soundEnabled && !alreadyNotified) {
+          message.dataset.tfrMentionNotified = identity;
+          this.playSound();
+        } else if (!mentioned) {
+          delete message.dataset.tfrMentionNotified;
         }
       }
 
@@ -603,11 +859,14 @@
         document.querySelectorAll('.tfr-chat-mention').forEach((message) => {
           message.classList.remove('tfr-chat-mention');
           delete message.dataset.tfrMentionChecked;
+          delete message.dataset.tfrMentionText;
+          delete message.dataset.tfrMentionNotified;
         });
       }
 
       dispose() {
         this.stop();
+        window.removeEventListener('tfr:testChatMentionSound', this.boundTestSound);
         document.documentElement.style.removeProperty('--tfr-chat-mention-color');
       }
     }
@@ -683,6 +942,7 @@
     return {
       ThirdPartyChatEmotes,
       PlayerLatencyIndicator,
+      PlayerAudioCompressor,
       ChatFontManager,
       ChatPaddingManager,
       ChatMentionHighlighter,

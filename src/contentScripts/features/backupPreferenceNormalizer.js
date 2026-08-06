@@ -4,7 +4,7 @@
     'recentLiveEnabled', 'recentLiveCollapsed', 'hideCollapsedGroupsUntilHover',
     'autoCompactSidebarEnabled', 'toastEnabled', 'toastSoundEnabled',
     'chatHistoryEnabled', 'moderationHistoryEnabled', 'sevenTvEmotesEnabled',
-    'betterTtvEmotesEnabled', 'playerLatencyEnabled', 'chatFontEnabled',
+    'betterTtvEmotesEnabled', 'playerLatencyEnabled', 'playerAudioCompressorEnabled', 'chatFontEnabled',
     'chatNoPaddingEnabled', 'showDeletedMessagesEnabled', 'showFullRepliesEnabled',
     'liveHoverPreviewEnabled', 'chatMentionHighlightEnabled', 'chatMentionSoundEnabled'
   ];
@@ -41,6 +41,7 @@
     sanitizeIfPresent('chatMentionHighlightColor', sanitizers.chatMentionHighlightColor, 'string');
     sanitizeIfPresent('chatMentionSoundId', sanitizers.chatMentionSoundId, 'string');
     sanitizeIfPresent('liveHoverPreviewMode', sanitizers.liveHoverPreviewMode, 'string');
+    sanitizeIfPresent('playerAudioCompressorPreset', sanitizers.playerAudioCompressorPreset, 'string');
 
     if (source.specialCategoryColors && typeof source.specialCategoryColors === 'object') {
       result.specialCategoryColors = sanitizers.specialCategoryColors(source.specialCategoryColors);

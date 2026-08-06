@@ -61,6 +61,46 @@ test('chat padding values are normalized consistently for the settings UI', () =
   assert.equal(overlay.normalizeChatPaddingPx('invalid'), 0);
 });
 
+test('mention test provides visual feedback and plays only an enabled sound', () => {
+  const overlay = Object.create(FavoritesOverlay.prototype);
+  overlay.mentionTestTimer = null;
+  let scheduled;
+  let dispatched;
+  context.window.setTimeout = (callback) => { scheduled = callback; return 1; };
+  context.window.clearTimeout = () => {};
+  context.CustomEvent = class CustomEvent {
+    constructor(type, options) { this.type = type; this.detail = options.detail; }
+  };
+  context.window.dispatchEvent = (event) => { dispatched = event; };
+  const classes = new Set();
+  const preview = {
+    offsetWidth: 100,
+    classList: {
+      add: (name) => classes.add(name),
+      remove: (name) => classes.delete(name)
+    }
+  };
+  const attributes = {};
+  const button = {
+    textContent: '',
+    setAttribute: (name, value) => { attributes[name] = value; }
+  };
+
+  assert.equal(overlay.testMentionNotification({
+    preview,
+    button,
+    soundEnabled: true,
+    soundId: 'chime'
+  }), true);
+  assert.equal(classes.has('is-testing'), true);
+  assert.equal(dispatched.type, 'tfr:testChatMentionSound');
+  assert.equal(dispatched.detail.soundId, 'chime');
+  assert.equal(attributes['aria-pressed'], 'true');
+  scheduled();
+  assert.equal(classes.has('is-testing'), false);
+  assert.equal(attributes['aria-pressed'], 'false');
+});
+
 test('feature settings config assigns every toggle to one dashboard group', () => {
   const assignedKeys = featureSettingsConfig.groups.flatMap((group) => group.keys);
   assert.equal(new Set(assignedKeys).size, assignedKeys.length);

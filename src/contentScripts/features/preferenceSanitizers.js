@@ -3,6 +3,7 @@
   const CHAT_SOUNDS = new Set(['soft', 'chime', 'arcade', 'pulse', 'alert']);
   const CHAT_FONTS = new Set(['system', 'arial', 'verdana', 'georgia', 'monospace', 'custom']);
   const TOAST_POSITIONS = new Set(['top-left', 'top-center', 'top-right', 'bottom-left', 'bottom-center', 'bottom-right']);
+  const AUDIO_COMPRESSOR_PRESETS = new Set(['soft', 'balanced', 'strong']);
 
   const boundedInteger = (value, minimum, maximum, fallback) => {
     const parsed = Number(value);
@@ -16,6 +17,7 @@
     chatMentionColor: (value) => sanitizeColor(value) || '#9147ff',
     chatMentionSound: (value) => CHAT_SOUNDS.has(value) ? value : 'soft',
     liveHoverPreviewMode: (value) => value === 'video' ? 'video' : 'image',
+    playerAudioCompressorPreset: (value) => AUDIO_COMPRESSOR_PRESETS.has(value) ? value : 'balanced',
     chatFontFamily: (value) => CHAT_FONTS.has(value) ? value : 'system',
     chatFontDataUrl: (value) => {
       const candidate = typeof value === 'string' ? value.trim() : '';

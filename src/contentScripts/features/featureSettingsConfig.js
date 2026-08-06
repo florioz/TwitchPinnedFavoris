@@ -7,6 +7,7 @@
       ['sevenTvEmotesEnabled', 'settings.sevenTv', 'setSevenTvEmotesEnabled', false],
       ['betterTtvEmotesEnabled', 'settings.betterTtv', 'setBetterTtvEmotesEnabled', false],
       ['playerLatencyEnabled', 'settings.playerLatency', 'setPlayerLatencyEnabled', false],
+      ['playerAudioCompressorEnabled', 'settings.audioCompressor', 'setPlayerAudioCompressorEnabled', false],
       ['chatFontEnabled', 'settings.chatFont', 'setChatFontEnabled', false],
       ['chatNoPaddingEnabled', 'settings.chatPadding', 'setChatNoPaddingEnabled', false],
       ['chatMentionHighlightEnabled', 'settings.chatMentions', 'setChatMentionHighlightEnabled', false],
@@ -32,7 +33,7 @@
       { id: 'emotes', keys: ['sevenTvEmotesEnabled', 'betterTtvEmotesEnabled'] },
       {
         id: 'player',
-        keys: ['liveFavoritesEnabled', 'playerLatencyEnabled', 'hideCollapsedGroupsUntilHover', 'autoCompactSidebarEnabled', 'liveHoverPreviewEnabled']
+        keys: ['liveFavoritesEnabled', 'playerLatencyEnabled', 'playerAudioCompressorEnabled', 'hideCollapsedGroupsUntilHover', 'autoCompactSidebarEnabled', 'liveHoverPreviewEnabled']
       }
     ].map((group) => ({
       ...group,

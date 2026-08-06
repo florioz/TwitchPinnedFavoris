@@ -86,7 +86,8 @@
         chatCustomFontDataUrl: (value) => this.sanitizeChatCustomFontDataUrl(value),
         chatMentionHighlightColor: (value) => this.sanitizeChatMentionColor(value),
         chatMentionSoundId: (value) => this.sanitizeChatMentionSoundId(value),
-        liveHoverPreviewMode: (value) => this.sanitizeLiveHoverPreviewMode(value)
+        liveHoverPreviewMode: (value) => this.sanitizeLiveHoverPreviewMode(value),
+        playerAudioCompressorPreset: (value) => this.sanitizePlayerAudioCompressorPreset(value)
       });
       this.liveData = {};
       this.emitter = new EventEmitter();
@@ -264,6 +265,7 @@
         sevenTvEmotesEnabled: false,
         betterTtvEmotesEnabled: false,
         playerLatencyEnabled: false,
+        playerAudioCompressorEnabled: false,
         chatFontEnabled: false,
         chatNoPaddingEnabled: false,
         chatMentionHighlightEnabled: false,
@@ -286,6 +288,9 @@
       );
       this.state.preferences.liveHoverPreviewMode = this.sanitizeLiveHoverPreviewMode(
         this.state.preferences.liveHoverPreviewMode
+      );
+      this.state.preferences.playerAudioCompressorPreset = this.sanitizePlayerAudioCompressorPreset(
+        this.state.preferences.playerAudioCompressorPreset
       );
       Object.entries(DEFAULT_STATE.preferences || {}).forEach(([key, defaultValue]) => {
         if (!Object.prototype.hasOwnProperty.call(this.state.preferences, key)) {
@@ -1176,6 +1181,20 @@
 
     async setPlayerLatencyEnabled(enabled) {
       await this.setBooleanPreference('playerLatencyEnabled', enabled);
+    }
+
+    async setPlayerAudioCompressorEnabled(enabled) {
+      await this.setBooleanPreference('playerAudioCompressorEnabled', enabled);
+    }
+
+    sanitizePlayerAudioCompressorPreset(preset) {
+      return this.preferenceSanitizers.playerAudioCompressorPreset(preset);
+    }
+
+    async setPlayerAudioCompressorPreset(preset) {
+      return this.setSanitizedPreference(
+        'playerAudioCompressorPreset', preset, this.sanitizePlayerAudioCompressorPreset
+      );
     }
 
     async setChatFontEnabled(enabled) {

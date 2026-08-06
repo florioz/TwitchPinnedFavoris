@@ -24,6 +24,7 @@ const FeatureController = context.window.TFRFeatureController.create({
   ModerationHistoryUI: Enhancement,
   ThirdPartyChatEmotes: Enhancement,
   PlayerLatencyIndicator: Enhancement,
+  PlayerAudioCompressor: Enhancement,
   ChatFontManager: Enhancement,
   ChatPaddingManager: Enhancement,
   ChatMentionHighlighter: Enhancement,
@@ -51,6 +52,8 @@ test('enhancement registry selects and propagates preferences', () => {
     chatMentionHighlightColor: '#123456',
     chatMentionSoundEnabled: true,
     chatMentionSoundId: 'chime',
+    playerAudioCompressorEnabled: true,
+    playerAudioCompressorPreset: 'strong',
     showFullRepliesEnabled: true
   });
 
@@ -67,6 +70,10 @@ test('enhancement registry selects and propagates preferences', () => {
     { enabled: true, color: '#123456', soundEnabled: true, soundId: 'chime' }
   );
   assert.equal(controller.replyExpansionTracker.value, true);
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(controller.playerAudioCompressor.value)),
+    { enabled: true, preset: 'strong' }
+  );
 });
 
 test('moderation feature initialization reuses its tracker and UI', () => {

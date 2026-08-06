@@ -22,7 +22,9 @@ const loadFeatures = () => {
       return timeoutCalls;
     },
     clearTimeout: () => {},
-    TFRPerformance: null
+    TFRPerformance: null,
+    addEventListener() {},
+    removeEventListener() {}
   };
   const classes = new Set();
   const styles = new Map();
@@ -82,11 +84,27 @@ test('stream enhancement module exposes independent emote and player features', 
   const { features } = loadFeatures();
   assert.equal(typeof features.ThirdPartyChatEmotes, 'function');
   assert.equal(typeof features.PlayerLatencyIndicator, 'function');
+  assert.equal(typeof features.PlayerAudioCompressor, 'function');
   assert.equal(typeof features.ChatFontManager, 'function');
   assert.equal(typeof features.ChatPaddingManager, 'function');
   assert.equal(typeof features.ChatMentionHighlighter, 'function');
   assert.equal(typeof features.DeletedMessageViewer, 'function');
   assert.equal(typeof features.ReplyExpansionTracker, 'function');
+});
+
+test('audio compressor presets remain bounded and disabled mode is transparent', () => {
+  const { features } = loadFeatures();
+  const compressor = new features.PlayerAudioCompressor();
+  const parameters = Object.fromEntries(
+    ['threshold', 'knee', 'ratio', 'attack', 'release'].map((key) => [key, { value: null }])
+  );
+  compressor.graph = { compressor: parameters };
+  compressor.configure({ enabled: false, preset: 'unknown' });
+  assert.equal(compressor.preset, 'balanced');
+  assert.equal(parameters.ratio.value, 1);
+  compressor.configure({ enabled: true, preset: 'strong' });
+  assert.equal(parameters.threshold.value, -30);
+  assert.equal(parameters.ratio.value, 8);
 });
 
 test('chat mention colors and sounds use safe fallbacks', () => {
@@ -99,24 +117,73 @@ test('chat mention colors and sounds use safe fallbacks', () => {
   assert.equal(manager.soundId, 'soft');
 });
 
-test('chat mentions match the full Twitch login only once', () => {
+test('chat mentions are rechecked when Twitch appends message fragments', () => {
   const { features } = loadFeatures();
   const manager = new features.ChatMentionHighlighter();
   manager.enabled = true;
   manager.login = 'florian_tv';
   let highlighted = false;
+  const body = { textContent: 'Salut' };
   const message = {
     dataset: {},
-    querySelector: () => ({ textContent: 'Salut @Florian_TV !' }),
+    querySelector: (selector) => selector.includes('chat-message-mention') ? null : body,
     classList: { toggle: (_name, enabled) => { highlighted = enabled; } }
   };
   manager.processMessage(message, false);
-  assert.equal(highlighted, true);
+  assert.equal(highlighted, false);
   assert.equal(message.dataset.tfrMentionChecked, 'florian_tv');
+
+  body.textContent = 'Salut @Florian_TV !';
+  manager.processMessage(message, false);
+  assert.equal(highlighted, true);
 
   highlighted = false;
   manager.processMessage(message, false);
-  assert.equal(highlighted, false);
+  assert.equal(highlighted, false, 'unchanged text is not processed twice');
+});
+
+test('chat mention sound is emitted only once for an incrementally built message', () => {
+  const { features } = loadFeatures();
+  const manager = new features.ChatMentionHighlighter();
+  manager.enabled = true;
+  manager.soundEnabled = true;
+  manager.login = 'nks_floriozz';
+  let plays = 0;
+  manager.audio = { play: () => { plays += 1; } };
+  const body = { textContent: 'test @nks_floriozz' };
+  const message = {
+    dataset: {},
+    querySelector: (selector) => selector.includes('chat-message-mention') ? null : body,
+    classList: { toggle() {} }
+  };
+  manager.processMessage(message, true);
+  body.textContent += ' suite';
+  manager.processMessage(message, true);
+  assert.equal(plays, 1);
+});
+
+test('chat mentions use Twitch recipient markup when the account login is unavailable', () => {
+  const { features } = loadFeatures();
+  const manager = new features.ChatMentionHighlighter();
+  manager.enabled = true;
+  manager.soundEnabled = true;
+  let highlighted = false;
+  let plays = 0;
+  manager.audio = { play: () => { plays += 1; } };
+  const body = { textContent: '@nks_floriozz test' };
+  const nativeMention = {};
+  const message = {
+    dataset: {},
+    querySelector: (selector) => selector.includes('chat-message-mention') ? nativeMention : body,
+    classList: { toggle: (_name, enabled) => { highlighted = enabled; } }
+  };
+
+  manager.processMessage(message, true);
+
+  assert.equal(highlighted, true);
+  assert.equal(plays, 1);
+  assert.equal(message.dataset.tfrMentionChecked, 'twitch-current-user');
+  assert.equal(message.dataset.tfrMentionNotified, 'twitch-current-user');
 });
 
 test('chat padding can be removed and restored independently', () => {

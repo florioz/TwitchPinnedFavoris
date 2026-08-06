@@ -3161,6 +3161,113 @@
   backdrop-filter: blur(5px);
 }
 
+.tfr-audio-compressor-button {
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  color: rgba(239, 239, 241, 0.78);
+  background: transparent;
+  font-size: 22px;
+  font-weight: 800;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.tfr-audio-compressor-button:hover {
+  color: #fff;
+  background: rgba(145, 71, 255, 0.72);
+}
+
+.tfr-audio-compressor-button.is-active {
+  color: #fff;
+  background: #9147ff;
+}
+
+.tfr-audio-compressor-panel {
+  position: fixed;
+  z-index: 100000;
+  display: grid;
+  width: 280px;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid rgba(145, 71, 255, 0.65);
+  border-radius: 10px;
+  color: #efeff1;
+  background: rgba(24, 16, 36, 0.97);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+}
+
+.tfr-audio-compressor-panel small {
+  color: rgba(239, 239, 241, 0.7);
+  line-height: 1.35;
+}
+
+.tfr-audio-compressor-panel__heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.tfr-audio-compressor-panel__status {
+  padding: 3px 8px;
+  border: 1px solid rgba(145, 71, 255, 0.72);
+  border-radius: 999px;
+  color: #bf94ff;
+  background: transparent;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.tfr-audio-compressor-panel.is-enabled .tfr-audio-compressor-panel__status {
+  border-color: #9147ff;
+  color: #fff;
+  background: #9147ff;
+}
+
+.tfr-audio-compressor-panel button {
+  min-height: 32px;
+  border: 1px solid rgba(145, 71, 255, 0.55);
+  border-radius: 7px;
+  color: #efeff1;
+  background: rgba(145, 71, 255, 0.12);
+  cursor: pointer;
+}
+
+.tfr-audio-compressor-panel__presets button.is-active {
+  background: #9147ff !important;
+}
+
+.tfr-audio-compressor-panel__toggle.is-enable {
+  border-color: #9147ff;
+  color: #bf94ff;
+  background: transparent;
+}
+
+.tfr-audio-compressor-panel__toggle.is-disable {
+  border-color: #9147ff;
+  color: #fff;
+  background: #9147ff;
+}
+
+.tfr-audio-compressor-panel__presets button:disabled {
+  border-color: rgba(239, 239, 241, 0.12);
+  color: rgba(239, 239, 241, 0.34);
+  background: rgba(239, 239, 241, 0.04);
+  cursor: not-allowed;
+}
+
+.tfr-audio-compressor-panel__presets {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+}
+
 .tfr-chat-custom-font [data-a-target="chat-line-message"],
 .tfr-chat-custom-font [data-test-selector="chat-line-message"],
 .tfr-chat-custom-font .chat-line__message,
@@ -3278,8 +3385,8 @@
 }
 
 .tfr-deleted-message-revealed {
-  opacity: 0.62;
-  filter: grayscale(0.72);
+  opacity: 0.72;
+  filter: grayscale(1);
 }
 
 .tfr-deleted-message-revealed :is(
@@ -3294,9 +3401,10 @@
 
 .tfr-deleted-message-revealed .tfr-deleted-message-restored {
   display: inline !important;
-  color: rgba(239, 239, 241, 0.7) !important;
+  color: rgba(190, 188, 198, 0.92) !important;
   font-size: 1.4rem !important;
   line-height: 1.45;
+  font-style: normal !important;
   text-decoration: none !important;
 }
 
@@ -3409,6 +3517,36 @@
   color: #efeff1;
   background: color-mix(in srgb, var(--tfr-chat-mention-preview-color, #9147ff) 22%, rgba(16, 16, 20, 0.92));
   font-size: 13px;
+}
+
+.tfr-chat-mention-settings__preview.is-testing {
+  animation: tfr-mention-test 700ms ease-out 2;
+}
+
+.tfr-chat-mention-settings__test-hint {
+  grid-column: 1 / -1;
+  color: #adadb8;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+@keyframes tfr-mention-test {
+  0%, 100% {
+    transform: translateX(0);
+    box-shadow: none;
+  }
+  35% {
+    transform: translateX(4px);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--tfr-chat-mention-preview-color, #9147ff) 65%, transparent),
+      0 0 22px color-mix(in srgb, var(--tfr-chat-mention-preview-color, #9147ff) 45%, transparent);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tfr-chat-mention-settings__preview.is-testing {
+    animation: none;
+    box-shadow: 0 0 0 2px var(--tfr-chat-mention-preview-color, #9147ff);
+  }
 }
 
 @media (max-width: 720px) {
