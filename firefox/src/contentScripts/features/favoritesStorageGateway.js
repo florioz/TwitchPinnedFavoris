@@ -1,4 +1,5 @@
 (() => {
+  const extensionApi = globalThis.browser || globalThis.chrome;
   const isInvalidatedContextError = (error) => {
     const message = String(error?.message || '').toLowerCase();
     return message.includes('extension context invalidated') || message.includes('context invalidated');
@@ -7,11 +8,11 @@
   const createFavoritesStorageGateway = ({ storageKey, liveCacheKey = '' }) => {
     const keys = liveCacheKey ? [storageKey, liveCacheKey] : storageKey;
 
-    const read = async () => chrome.storage.local.get(keys);
-    const readState = async () => (await chrome.storage.local.get(storageKey))?.[storageKey];
+    const read = async () => extensionApi.storage.local.get(keys);
+    const readState = async () => (await extensionApi.storage.local.get(storageKey))?.[storageKey];
     const writeState = async (state) => {
       try {
-        await chrome.storage.local.set({ [storageKey]: state });
+        await extensionApi.storage.local.set({ [storageKey]: state });
         return true;
       } catch (error) {
         if (isInvalidatedContextError(error)) return false;
@@ -26,8 +27,8 @@
           liveData: liveCacheKey ? changes[liveCacheKey]?.newValue : undefined
         });
       };
-      chrome.storage.onChanged.addListener(handler);
-      return () => chrome.storage.onChanged.removeListener?.(handler);
+      extensionApi.storage.onChanged.addListener(handler);
+      return () => extensionApi.storage.onChanged.removeListener?.(handler);
     };
 
     return { read, readState, writeState, subscribe };

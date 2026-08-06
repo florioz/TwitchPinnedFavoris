@@ -59,7 +59,7 @@
 
   const TWITCH_GRAPHQL_ENDPOINT = 'https://gql.twitch.tv/gql';
   const TWITCH_CLIENT_ID = 'kimne78kx3ncx6brgo4mv6wki5h1ko';
-  const extensionApi = globalThis.chrome ?? globalThis.browser;
+  const extensionApi = globalThis.browser ?? globalThis.chrome;
   const sendExtensionMessage = (payload) =>
     new Promise((resolve) => {
       if (!extensionApi?.runtime?.sendMessage) {

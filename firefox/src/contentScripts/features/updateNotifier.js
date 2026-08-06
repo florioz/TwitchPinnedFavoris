@@ -1,4 +1,5 @@
 (() => {
+  const extensionApi = globalThis.browser || globalThis.chrome;
   const createUpdateNotifier = ({
     UPDATE_STORAGE_KEY,
     UPDATE_REPO_API_URL,
@@ -11,12 +12,12 @@
       this.apiUrl = UPDATE_REPO_API_URL;
       this.repoUrl = UPDATE_REPO_URL;
       this.checkInterval = UPDATE_CHECK_INTERVAL_MS;
-      this.currentVersion = chrome.runtime?.getManifest?.().version || '0.0.0';
+      this.currentVersion = extensionApi?.runtime?.getManifest?.().version || '0.0.0';
       this.banner = null;
     }
 
     async init() {
-      if (!chrome?.storage?.local || typeof fetch !== 'function') {
+      if (!extensionApi?.storage?.local || typeof fetch !== 'function') {
         return;
       }
       try {
@@ -28,7 +29,7 @@
 
     async getState() {
       try {
-        const stored = await chrome.storage.local.get(this.storageKey);
+        const stored = await extensionApi.storage.local.get(this.storageKey);
         const value = stored?.[this.storageKey];
         return value && typeof value === 'object' ? value : {};
       } catch (error) {
@@ -40,7 +41,7 @@
     async setState(partial) {
       const state = await this.getState();
       const next = { ...state, ...partial };
-      await chrome.storage.local.set({ [this.storageKey]: next });
+      await extensionApi.storage.local.set({ [this.storageKey]: next });
       return next;
     }
 
@@ -122,7 +123,7 @@
           nextState.dismissedVersion = null;
           nextState.snoozeUntil = null;
         }
-        await chrome.storage.local.set({ [this.storageKey]: nextState });
+        await extensionApi.storage.local.set({ [this.storageKey]: nextState });
         if (this.canShowVersion(remoteVersion, nextState, now)) {
           this.showBanner(remoteVersion, releaseUrl, releaseNotes);
         } else if (this.banner) {
