@@ -426,6 +426,12 @@
       }
     }
 
+    dispose() {
+      this.stopPolling();
+      this.unsubscribeStorage?.();
+      this.unsubscribeStorage = null;
+    }
+
     getSnapshot() {
       return deepCopy(this.state);
     }
