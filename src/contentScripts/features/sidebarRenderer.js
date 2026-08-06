@@ -517,7 +517,7 @@
     ensureContainer() {
       const mount = this.domAdapter.resolveMount(document);
       const targetParent = mount?.target || null;
-      let needsListItem = Boolean(mount?.needsListItem);
+      const needsListItem = Boolean(mount?.needsListItem);
 
       (mount?.pointerTargets || []).forEach((element) => {
         if (element?.style) element.style.pointerEvents = 'auto';
@@ -526,15 +526,6 @@
       if (!(targetParent instanceof HTMLElement)) {
         this.container = null;
         return;
-      }
-
-      if (
-        !needsListItem &&
-        (targetParent.tagName === 'UL' ||
-          targetParent.tagName === 'OL' ||
-          targetParent.getAttribute('role') === 'list')
-      ) {
-        needsListItem = true;
       }
 
       const desiredTag = needsListItem ? 'li' : 'div';
@@ -578,6 +569,7 @@
       } else {
         container.classList.remove('tfr-favorites-root--modern');
       }
+      container.classList.toggle('tfr-favorites-root--native-scroll', Boolean(mount.nativeScroll));
 
       container.style.pointerEvents = 'auto';
       container.removeEventListener('mouseenter', this.boundMouseEnter);

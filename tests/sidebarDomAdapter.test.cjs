@@ -30,6 +30,7 @@ test('sidebar DOM adapter inserts favorites inside Twitch native scroll contents
   const adapter = loadAdapter(documentRef);
 
   assert.equal(adapter.findInsertionTarget(documentRef), contents);
+  assert.equal(adapter.resolveMount(documentRef).nativeScroll, true);
 });
 
 test('sidebar DOM adapter exposes the native viewport used by auto compact', () => {
@@ -83,4 +84,5 @@ test('sidebar DOM adapter resolves legacy list mounts without renderer knowledge
   assert.equal(mount.target, list);
   assert.equal(mount.needsListItem, true);
   assert.equal(mount.modern, false);
+  assert.equal(mount.nativeScroll, false);
 });

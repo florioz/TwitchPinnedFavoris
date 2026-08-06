@@ -53,6 +53,21 @@
   box-sizing: border-box;
 }
 
+#tfr-favorites-root.tfr-favorites-root--native-scroll {
+  margin-left: 0;
+  margin-right: 0;
+  width: 100%;
+}
+
+#tfr-favorites-root.tfr-favorites-root--native-scroll[data-surface-style="full"],
+#tfr-favorites-root.tfr-favorites-root--native-scroll[data-surface-style="edge"] {
+  margin-left: 0;
+  margin-right: 0;
+  width: 100%;
+  padding-left: 4px;
+  padding-right: 4px;
+}
+
 #tfr-favorites-root[data-surface-style="full"] {
   padding-left: 0;
   padding-right: 0;
