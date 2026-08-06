@@ -56,6 +56,10 @@ const loadFeatures = () => {
     context
   );
   vm.runInNewContext(
+    fs.readFileSync(path.join(__dirname, '../src/contentScripts/features/domWorkScheduler.js'), 'utf8'),
+    context
+  );
+  vm.runInNewContext(
     fs.readFileSync(path.join(__dirname, '../src/contentScripts/features/streamEnhancements.js'), 'utf8'),
     context
   );

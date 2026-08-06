@@ -61,6 +61,10 @@
         this.pendingReplyContext = null;
         this.locationTimer = null;
         this.loadGeneration = 0;
+        this.renderScheduler = window.TFRDomWorkScheduler.create({
+          process: (node) => this.scanNode(node),
+          maxBatchSize: 10
+        });
       }
 
       init() {
@@ -79,6 +83,7 @@
         this.observer = null;
         this.locationTimer = null;
         this.emotes.clear();
+        this.renderScheduler.dispose();
       }
 
       configure({ sevenTvEnabled, betterTtvEnabled }) {
@@ -183,7 +188,7 @@
         this.observer = new MutationObserver((mutations) => {
           if (document.visibilityState === 'hidden') return;
           const startedAt = window.TFRPerformance?.now?.();
-          mutations.forEach((mutation) => mutation.addedNodes.forEach((node) => this.scanNode(node)));
+          mutations.forEach((mutation) => mutation.addedNodes.forEach((node) => this.renderScheduler.enqueue(node)));
           if (startedAt !== undefined) window.TFRPerformance?.report?.('emotes.renderMessages', startedAt);
         });
         this.observer.observe(container, { childList: true, subtree: true });

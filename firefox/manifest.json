@@ -54,6 +54,7 @@
         "src/contentScripts/features/locationWatcher.js",
         "src/contentScripts/features/chatEmoteResolver.js",
         "src/contentScripts/features/chatDomTools.js",
+        "src/contentScripts/features/domWorkScheduler.js",
         "src/contentScripts/features/moderationDurationTools.js",
         "src/contentScripts/features/moderationHistoryPresenter.js",
         "src/contentScripts/features/moderationActionCollection.js",
