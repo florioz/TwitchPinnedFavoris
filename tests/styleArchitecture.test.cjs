@@ -22,6 +22,7 @@ test('manifest loads helper modules before their consumers', () => {
   before('src/contentScripts/features/moderationDurationTools.js', 'src/contentScripts/features/chatModeration.js');
   before('src/contentScripts/features/deletedMessageView.js', 'src/contentScripts/features/streamEnhancements.js');
   before('src/contentScripts/features/domWorkScheduler.js', 'src/contentScripts/features/streamEnhancements.js');
+  before('src/contentScripts/features/playerAudioEngine.js', 'src/contentScripts/features/streamEnhancements.js');
   before('src/contentScripts/contentI18nMessages.js', 'src/contentScripts/main.js');
   before('src/contentScripts/extensionI18n.js', 'src/contentScripts/main.js');
   before('src/contentScripts/appBootstrap.js', 'src/contentScripts/main.js');

@@ -33,4 +33,8 @@ test('preference sanitizers provide safe chat and toast fallbacks', () => {
   assert.equal(tools.liveHoverPreviewMode('unknown'), 'image');
   assert.equal(tools.playerAudioCompressorPreset('unknown'), 'balanced');
   assert.equal(tools.playerAudioCompressorPreset('strong'), 'strong');
+  assert.equal(tools.playerVolumeTargetDb(-100), -80);
+  assert.equal(tools.playerVolumeTargetDb(-40), -40);
+  assert.equal(tools.playerVolumeTargetDb(-12), -12);
+  assert.equal(tools.playerVolumeTargetDb('invalid'), -16);
 });

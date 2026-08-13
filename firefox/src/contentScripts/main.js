@@ -41,8 +41,11 @@
       sevenTvEmotesEnabled: false,
       betterTtvEmotesEnabled: false,
       playerLatencyEnabled: false,
+      autoClaimChannelPointsEnabled: false,
       playerAudioCompressorEnabled: false,
       playerAudioCompressorPreset: 'balanced',
+      playerVolumeNormalizerEnabled: false,
+      playerVolumeTargetDb: -16,
       chatFontEnabled: false,
       chatFontFamily: 'system',
       chatCustomFontName: '',
@@ -607,6 +610,7 @@
   }
   const ThirdPartyChatEmotes = streamEnhancements?.ThirdPartyChatEmotes || NoopEnhancement;
   const PlayerLatencyIndicator = streamEnhancements?.PlayerLatencyIndicator || NoopEnhancement;
+  const AutoClaimChannelPoints = streamEnhancements?.AutoClaimChannelPoints || NoopEnhancement;
   const PlayerAudioCompressor = streamEnhancements?.PlayerAudioCompressor || NoopEnhancement;
   const ChatFontManager = streamEnhancements?.ChatFontManager || NoopEnhancement;
   const ChatPaddingManager = streamEnhancements?.ChatPaddingManager || NoopEnhancement;
@@ -668,6 +672,7 @@
     ModerationHistoryUI,
     ThirdPartyChatEmotes,
     PlayerLatencyIndicator,
+    AutoClaimChannelPoints,
     PlayerAudioCompressor,
     ChatFontManager,
     ChatPaddingManager,

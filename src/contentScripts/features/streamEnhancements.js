@@ -13,6 +13,14 @@
     const CHAT_MENTION_SOUND_IDS = new Set(['soft', 'chime', 'arcade', 'pulse', 'alert']);
     const CHAT_MENTION_FALLBACK_IDENTITY = 'twitch-current-user';
     const CHAT_SNAPSHOT_CACHE_LIMIT = 500;
+    const audioEngineModule = window.TFRPlayerAudioEngine;
+    if (!audioEngineModule?.PlayerAudioEngine) throw new Error('Player audio engine module is missing');
+    const {
+      PlayerAudioEngine,
+      PRESETS: AUDIO_COMPRESSOR_PRESETS,
+      TARGET_MIN_DB: VOLUME_TARGET_MIN_DB,
+      TARGET_MAX_DB: VOLUME_TARGET_MAX_DB
+    } = audioEngineModule;
     const TWITCH_GQL_ENDPOINT = 'https://gql.twitch.tv/gql';
     const TWITCH_CLIENT_ID = 'kimne78kx3ncx6brgo4mv6wki5h1ko';
     const CHAT_RETRY_DELAY_MS = 1500;
@@ -313,86 +321,161 @@
       }
     }
 
-    class PlayerAudioCompressor {
+    class AutoClaimChannelPoints {
       constructor() {
         this.enabled = false;
+        this.observer = null;
+        this.claimedButtons = new WeakSet();
+      }
+
+      init() {}
+
+      configure(enabled) {
+        const nextEnabled = Boolean(enabled);
+        if (this.enabled === nextEnabled) return;
+        this.enabled = nextEnabled;
+        if (this.enabled) this.start(); else this.stop();
+      }
+
+      start() {
+        if (!document.body) return;
+        this.scan(document.body);
+        if (this.observer) return;
+        this.observer = new MutationObserver((mutations) => {
+          mutations.forEach((mutation) => mutation.addedNodes.forEach((node) => this.scan(node)));
+        });
+        this.observer.observe(document.body, { childList: true, subtree: true });
+      }
+
+      stop() {
+        this.observer?.disconnect();
+        this.observer = null;
+      }
+
+      dispose() {
+        this.stop();
+        this.enabled = false;
+      }
+
+      findClaimButton(node) {
+        if (!(node instanceof Element)) return null;
+        const iconSelector = '[data-test-selector="claimable-bonus__icon"], .claimable-bonus__icon';
+        const icon = node.matches?.(iconSelector) ? node : node.querySelector?.(iconSelector);
+        if (icon) return icon.closest?.('button') || null;
+        const candidates = [
+          ...(node.matches?.('button[aria-label]') ? [node] : []),
+          ...(node.querySelectorAll?.('button[aria-label]') || [])
+        ];
+        return candidates.find((button) => /^(?:claim bonus|r[ée]clamer le bonus)$/i.test(
+          String(button.getAttribute('aria-label') || '').trim()
+        )) || null;
+      }
+
+      scan(node) {
+        if (!this.enabled) return;
+        const button = this.findClaimButton(node);
+        if (!button || button.disabled || this.claimedButtons.has(button)) return;
+        this.claimedButtons.add(button);
+        button.click();
+      }
+    }
+
+    class PlayerAudioCompressor {
+      constructor() {
+        this.engine = new PlayerAudioEngine();
+        this.enabled = false;
         this.preset = 'balanced';
+        this.normalizerEnabled = false;
+        this.targetDb = -16;
         this.timer = null;
-        this.video = null;
-        this.graph = null;
+        this.meterTimer = null;
         this.button = null;
         this.panel = null;
         this.updatePreference = null;
       }
 
+      get currentGainDb() { return this.engine.currentGainDb; }
+      get measuredLevelDb() { return this.engine.measuredLevelDb; }
+      get video() { return this.engine.video; }
+      get graph() { return this.engine.graph; }
+      set graph(value) { this.engine.graph = value; }
+
       init() {
         this.timer = window.setInterval(() => this.refresh(), 1000);
+        this.meterTimer = window.setInterval(() => this.updateVolumeNormalization(), 200);
       }
 
       setPreferenceUpdater(updatePreference) {
         this.updatePreference = updatePreference;
       }
 
-      configure({ enabled, preset }) {
+      configure({ enabled, preset, normalizerEnabled, targetDb }) {
         const panelWasOpen = Boolean(this.panel?.isConnected);
         this.enabled = Boolean(enabled);
         this.preset = this.normalizePreset(preset);
+        this.normalizerEnabled = Boolean(normalizerEnabled);
+        this.targetDb = this.normalizeTargetDb(targetDb);
+        this.engine.configure({
+          compressorEnabled: this.enabled,
+          preset: this.preset,
+          normalizerEnabled: this.normalizerEnabled,
+          targetDb: this.targetDb
+        });
         this.panel?.remove();
         this.refresh();
         if (panelWasOpen) this.togglePanel();
       }
 
       normalizePreset(preset) {
-        return new Set(['soft', 'balanced', 'strong']).has(preset) ? preset : 'balanced';
+        return this.engine.normalizePreset(preset);
       }
 
-      getPresetValues() {
-        return {
-          soft: { threshold: -12, knee: 18, ratio: 2, attack: 0.008, release: 0.3 },
-          balanced: { threshold: -20, knee: 24, ratio: 4, attack: 0.006, release: 0.28 },
-          strong: { threshold: -30, knee: 30, ratio: 8, attack: 0.003, release: 0.35 }
-        }[this.preset];
+      normalizeTargetDb(value) {
+        return this.engine.normalizeTargetDb(value);
+      }
+
+      calculateTargetGainDb(inputDb) {
+        this.engine.targetDb = this.targetDb;
+        return this.engine.calculateTargetGainDb(inputDb);
+      }
+
+      calculateMeasuredLevelDb(samples) {
+        return this.engine.calculateMeasuredLevelDb(samples);
       }
 
       applyCompressorState() {
-        const compressor = this.graph?.compressor;
-        if (!compressor) return;
-        const values = this.enabled
-          ? this.getPresetValues()
-          : { threshold: 0, knee: 0, ratio: 1, attack: 0, release: 0.25 };
-        Object.entries(values).forEach(([property, value]) => {
-          if (compressor[property]) compressor[property].value = value;
-        });
-        this.button?.classList.toggle('is-active', this.enabled);
-        this.button?.setAttribute('aria-pressed', String(this.enabled));
+        this.engine.compressorEnabled = this.enabled;
+        this.engine.preset = this.preset;
+        this.engine.applyCompressorState();
+        const audioProtectionEnabled = this.enabled || this.normalizerEnabled;
+        this.button?.classList.toggle('is-active', audioProtectionEnabled);
+        this.button?.setAttribute('aria-pressed', String(audioProtectionEnabled));
+      }
+
+      updateVolumeNormalization() {
+        const result = this.engine.update();
+        if (result) this.updateNormalizerReadout(result.levelDb, result.contextState);
+      }
+
+      updateNormalizerReadout(levelDb, contextState = 'running') {
+        const levelOutput = this.panel?.querySelector?.('.tfr-audio-normalizer__level');
+        const gainOutput = this.panel?.querySelector?.('.tfr-audio-normalizer__gain');
+        const calibrateButton = this.panel?.querySelector?.('.tfr-audio-normalizer__calibrate');
+        if (calibrateButton) calibrateButton.disabled = !this.normalizerEnabled || !Number.isFinite(levelDb);
+        if (levelOutput) {
+          levelOutput.textContent = contextState === 'running'
+            ? t('settings.volumeNormalizer.measured', {
+              level: Number.isFinite(levelDb) ? levelDb.toFixed(1) : '—'
+            })
+            : t('settings.volumeNormalizer.audioPaused');
+        }
+        if (gainOutput) gainOutput.textContent = this.normalizerEnabled
+          ? t('settings.volumeNormalizer.gain', { gain: this.currentGainDb.toFixed(1) })
+          : t('settings.volumeNormalizer.gainInactive');
       }
 
       attachAudio(video) {
-        if (!video || this.video === video && this.graph) return;
-        const AudioContextConstructor = window.AudioContext || window.webkitAudioContext;
-        if (!AudioContextConstructor) return;
-        let context = null;
-        let source = null;
-        try {
-          this.graph?.source?.disconnect?.();
-          this.graph?.compressor?.disconnect?.();
-          this.graph?.context?.close?.();
-          this.graph = null;
-          this.video = null;
-          context = new AudioContextConstructor();
-          source = context.createMediaElementSource(video);
-          const compressor = context.createDynamicsCompressor();
-          source.connect(compressor);
-          compressor.connect(context.destination);
-          this.video = video;
-          this.graph = { context, source, compressor };
-          this.applyCompressorState();
-        } catch (error) {
-          try {
-            source?.connect?.(context.destination);
-          } catch {}
-          console.debug('[TFR] audio compressor unavailable for this player', error);
-        }
+        return this.engine.attach(video);
       }
 
       ensureButton() {
@@ -418,37 +501,59 @@
         this.applyCompressorState();
       }
 
+      createPanelHeading(titleKey, enabled) {
+        const heading = document.createElement('div');
+        heading.className = 'tfr-audio-compressor-panel__heading';
+        const title = document.createElement('strong');
+        title.textContent = t(titleKey);
+        const status = document.createElement('span');
+        status.className = 'tfr-audio-compressor-panel__status';
+        status.textContent = enabled
+          ? t('settings.audioCompressor.statusEnabled') : t('settings.audioCompressor.statusDisabled');
+        heading.append(title, status);
+        return heading;
+      }
+
+      createStateToggle(enabled, onToggle) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = `tfr-audio-compressor-panel__toggle ${enabled ? 'is-disable' : 'is-enable'}`;
+        button.textContent = enabled
+          ? t('settings.audioCompressor.disable') : t('settings.audioCompressor.enable');
+        button.addEventListener('click', onToggle);
+        return button;
+      }
+
+      createTargetScale() {
+        const scale = document.createElement('span');
+        scale.className = 'tfr-audio-normalizer__scale';
+        ['quieter', 'recommended', 'louder'].forEach((label) => {
+          const item = document.createElement('span');
+          item.textContent = t(`settings.volumeNormalizer.${label}`);
+          scale.appendChild(item);
+        });
+        return scale;
+      }
+
       togglePanel() {
         if (this.panel?.isConnected) {
           this.panel.remove();
           return;
         }
-        this.graph?.context?.resume?.();
+        this.engine.resume();
         const panel = document.createElement('div');
         panel.className = 'tfr-audio-compressor-panel';
         panel.classList.toggle('is-enabled', this.enabled);
-        const heading = document.createElement('div');
-        heading.className = 'tfr-audio-compressor-panel__heading';
-        const title = document.createElement('strong');
-        title.textContent = t('settings.audioCompressor.title');
-        const status = document.createElement('span');
-        status.className = 'tfr-audio-compressor-panel__status';
-        status.textContent = this.enabled
-          ? t('settings.audioCompressor.statusEnabled') : t('settings.audioCompressor.statusDisabled');
-        heading.append(title, status);
+        panel.classList.toggle('is-normalizing', this.normalizerEnabled);
+        const heading = this.createPanelHeading('settings.audioCompressor.title', this.enabled);
         const description = document.createElement('small');
         description.textContent = t('settings.audioCompressor.panelDescription');
-        const toggle = document.createElement('button');
-        toggle.type = 'button';
-        toggle.className = `tfr-audio-compressor-panel__toggle ${this.enabled ? 'is-disable' : 'is-enable'}`;
-        toggle.textContent = this.enabled
-          ? t('settings.audioCompressor.disable') : t('settings.audioCompressor.enable');
-        toggle.addEventListener('click', async () => {
+        const toggle = this.createStateToggle(this.enabled, async () => {
           await this.updatePreference?.({ enabled: !this.enabled, preset: this.preset });
         });
         const presets = document.createElement('div');
         presets.className = 'tfr-audio-compressor-panel__presets';
-        ['soft', 'balanced', 'strong'].forEach((preset) => {
+        AUDIO_COMPRESSOR_PRESETS.forEach((preset) => {
           const button = document.createElement('button');
           button.type = 'button';
           button.textContent = t(`settings.audioCompressor.preset.${preset}`);
@@ -459,7 +564,59 @@
           });
           presets.appendChild(button);
         });
-        panel.append(heading, description, toggle, presets);
+        const normalizer = document.createElement('section');
+        normalizer.className = 'tfr-audio-normalizer';
+        const normalizerHeading = this.createPanelHeading(
+          'settings.volumeNormalizer.title', this.normalizerEnabled
+        );
+        const normalizerDescription = document.createElement('small');
+        normalizerDescription.textContent = t('settings.volumeNormalizer.panelDescription');
+        const normalizerToggle = this.createStateToggle(this.normalizerEnabled, async () => {
+          await this.updatePreference?.({ normalizerEnabled: !this.normalizerEnabled });
+        });
+        const targetLabel = document.createElement('label');
+        targetLabel.className = 'tfr-audio-normalizer__target';
+        const targetHeading = document.createElement('span');
+        targetHeading.textContent = t('settings.volumeNormalizer.target');
+        const targetOutput = document.createElement('output');
+        targetOutput.textContent = `${this.targetDb} dB`;
+        targetHeading.appendChild(targetOutput);
+        const targetInput = document.createElement('input');
+        targetInput.type = 'range';
+        targetInput.min = String(VOLUME_TARGET_MIN_DB);
+        targetInput.max = String(VOLUME_TARGET_MAX_DB);
+        targetInput.step = '1';
+        targetInput.value = String(this.targetDb);
+        targetInput.disabled = !this.normalizerEnabled;
+        targetInput.addEventListener('input', () => { targetOutput.textContent = `${targetInput.value} dB`; });
+        targetInput.addEventListener('change', async () => {
+          await this.updatePreference?.({ targetDb: Number(targetInput.value) });
+        });
+        const calibrateButton = document.createElement('button');
+        calibrateButton.type = 'button';
+        calibrateButton.className = 'tfr-audio-normalizer__calibrate';
+        calibrateButton.disabled = !this.normalizerEnabled || !Number.isFinite(this.measuredLevelDb);
+        calibrateButton.textContent = t('settings.volumeNormalizer.useCurrentLevel');
+        calibrateButton.addEventListener('click', async () => {
+          if (!Number.isFinite(this.measuredLevelDb)) return;
+          await this.updatePreference?.({ targetDb: Math.round(this.measuredLevelDb) });
+        });
+        const targetScale = this.createTargetScale();
+        targetLabel.append(targetHeading, targetInput, targetScale, calibrateButton);
+        const gainOutput = document.createElement('output');
+        gainOutput.className = 'tfr-audio-normalizer__gain';
+        gainOutput.textContent = this.normalizerEnabled
+          ? t('settings.volumeNormalizer.gain', { gain: `${this.currentGainDb >= 0 ? '+' : ''}${this.currentGainDb.toFixed(1)}` })
+          : t('settings.volumeNormalizer.gainInactive');
+        const levelOutput = document.createElement('output');
+        levelOutput.className = 'tfr-audio-normalizer__level';
+        levelOutput.textContent = t('settings.volumeNormalizer.measured', {
+          level: Number.isFinite(this.measuredLevelDb) ? this.measuredLevelDb.toFixed(1) : '—'
+        });
+        normalizer.append(
+          normalizerHeading, normalizerDescription, normalizerToggle, targetLabel, levelOutput, gainOutput
+        );
+        panel.append(heading, description, toggle, presets, normalizer);
         document.body.appendChild(panel);
         const rect = this.button.getBoundingClientRect();
         panel.style.left = `${Math.max(8, Math.min(window.innerWidth - 288, rect.left))}px`;
@@ -471,17 +628,20 @@
         if (document.visibilityState === 'hidden') return;
         this.ensureButton();
         const video = document.querySelector('.video-player__container video, [data-a-target="video-player"] video, video');
-        if (this.enabled && video && video !== this.video) this.attachAudio(video);
+        if ((this.enabled || this.normalizerEnabled) && video && video !== this.video) this.attachAudio(video);
         this.applyCompressorState();
       }
 
       dispose() {
         clearInterval(this.timer);
+        clearInterval(this.meterTimer);
         this.timer = null;
+        this.meterTimer = null;
         this.panel?.remove();
         this.button?.remove();
         this.panel = null;
         this.button = null;
+        this.engine.bypass();
       }
     }
 
@@ -877,6 +1037,8 @@
         this.observer = null;
         this.container = null;
         this.retryTimer = null;
+        this.scrollRestorePending = false;
+        this.scrollRestoreState = null;
       }
 
       init() {}
@@ -890,6 +1052,8 @@
         this.observer?.disconnect();
         this.observer = null;
         clearChatRetry(this);
+        this.scrollRestorePending = false;
+        this.scrollRestoreState = null;
         document.querySelectorAll('.tfr-custom-reply-content').forEach((node) => node.remove());
         document.querySelectorAll('.tfr-custom-reply-context').forEach((node) => node.classList.remove('tfr-custom-reply-context'));
       }
@@ -913,6 +1077,44 @@
         visitMatchingElements(node, 'p[title]', (context) => this.renderNativeContext(context));
       }
 
+      findScrollViewport(node = this.container) {
+        let current = node;
+        for (let depth = 0; current && depth < 10; depth += 1, current = current.parentElement) {
+          const style = window.getComputedStyle?.(current);
+          const scrollableOverflow = /^(?:auto|scroll|overlay)$/.test(style?.overflowY || '');
+          if (scrollableOverflow && current.scrollHeight > current.clientHeight) return current;
+        }
+        return null;
+      }
+
+      captureBottomState() {
+        const viewport = this.findScrollViewport();
+        if (!viewport) return null;
+        const distance = viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop;
+        return {
+          viewport,
+          wasNearBottom: distance <= 48,
+          scrollTop: viewport.scrollTop
+        };
+      }
+
+      restoreBottomAfterLayout(state) {
+        if (!state?.wasNearBottom) return;
+        this.scrollRestoreState = this.scrollRestoreState || state;
+        if (this.scrollRestorePending) return;
+        this.scrollRestorePending = true;
+        const scheduleFrame = window.requestAnimationFrame || ((callback) => window.setTimeout(callback, 0));
+        scheduleFrame(() => scheduleFrame(() => {
+          this.scrollRestorePending = false;
+          const pending = this.scrollRestoreState;
+          this.scrollRestoreState = null;
+          const viewport = pending?.viewport;
+          if (!viewport?.isConnected) return;
+          const userDidNotScrollUp = viewport.scrollTop >= pending.scrollTop - 2;
+          if (userDidNotScrollUp) viewport.scrollTop = viewport.scrollHeight;
+        }));
+      }
+
       renderNativeContext(replyContext) {
         if (!this.expandReplies || replyContext.querySelector('.tfr-custom-reply-content')) return;
         const nativeText = String(replyContext.textContent || '').trim();
@@ -920,6 +1122,7 @@
         const fullMessage = String(replyContext.getAttribute('title') || '').trim();
         const nativeAuthor = replyContext.querySelector('span[dir="auto"]')?.textContent?.trim() || '';
         if (!fullMessage || !nativeAuthor) return;
+        const bottomState = this.captureBottomState();
 
         const customReply = document.createElement('span');
         customReply.className = 'tfr-custom-reply-content';
@@ -935,6 +1138,7 @@
         customReply.append(author, message);
         replyContext.classList.add('tfr-custom-reply-context');
         replyContext.appendChild(customReply);
+        this.restoreBottomAfterLayout(bottomState);
       }
 
     }
@@ -942,6 +1146,7 @@
     return {
       ThirdPartyChatEmotes,
       PlayerLatencyIndicator,
+      AutoClaimChannelPoints,
       PlayerAudioCompressor,
       ChatFontManager,
       ChatPaddingManager,

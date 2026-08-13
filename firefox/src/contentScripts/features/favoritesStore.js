@@ -87,7 +87,8 @@
         chatMentionHighlightColor: (value) => this.sanitizeChatMentionColor(value),
         chatMentionSoundId: (value) => this.sanitizeChatMentionSoundId(value),
         liveHoverPreviewMode: (value) => this.sanitizeLiveHoverPreviewMode(value),
-        playerAudioCompressorPreset: (value) => this.sanitizePlayerAudioCompressorPreset(value)
+        playerAudioCompressorPreset: (value) => this.sanitizePlayerAudioCompressorPreset(value),
+        playerVolumeTargetDb: (value) => this.sanitizePlayerVolumeTargetDb(value)
       });
       this.liveData = {};
       this.emitter = new EventEmitter();
@@ -265,7 +266,9 @@
         sevenTvEmotesEnabled: false,
         betterTtvEmotesEnabled: false,
         playerLatencyEnabled: false,
+        autoClaimChannelPointsEnabled: false,
         playerAudioCompressorEnabled: false,
+        playerVolumeNormalizerEnabled: false,
         chatFontEnabled: false,
         chatNoPaddingEnabled: false,
         chatMentionHighlightEnabled: false,
@@ -291,6 +294,9 @@
       );
       this.state.preferences.playerAudioCompressorPreset = this.sanitizePlayerAudioCompressorPreset(
         this.state.preferences.playerAudioCompressorPreset
+      );
+      this.state.preferences.playerVolumeTargetDb = this.sanitizePlayerVolumeTargetDb(
+        this.state.preferences.playerVolumeTargetDb
       );
       Object.entries(DEFAULT_STATE.preferences || {}).forEach(([key, defaultValue]) => {
         if (!Object.prototype.hasOwnProperty.call(this.state.preferences, key)) {
@@ -1183,6 +1189,10 @@
       await this.setBooleanPreference('playerLatencyEnabled', enabled);
     }
 
+    async setAutoClaimChannelPointsEnabled(enabled) {
+      await this.setBooleanPreference('autoClaimChannelPointsEnabled', enabled);
+    }
+
     async setPlayerAudioCompressorEnabled(enabled) {
       await this.setBooleanPreference('playerAudioCompressorEnabled', enabled);
     }
@@ -1195,6 +1205,18 @@
       return this.setSanitizedPreference(
         'playerAudioCompressorPreset', preset, this.sanitizePlayerAudioCompressorPreset
       );
+    }
+
+    async setPlayerVolumeNormalizerEnabled(enabled) {
+      await this.setBooleanPreference('playerVolumeNormalizerEnabled', enabled);
+    }
+
+    sanitizePlayerVolumeTargetDb(value) {
+      return this.preferenceSanitizers.playerVolumeTargetDb(value);
+    }
+
+    async setPlayerVolumeTargetDb(value) {
+      return this.setSanitizedPreference('playerVolumeTargetDb', value, this.sanitizePlayerVolumeTargetDb);
     }
 
     async setChatFontEnabled(enabled) {

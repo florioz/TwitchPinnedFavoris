@@ -17,6 +17,9 @@
   }) => {
     let elements = null;
     let resizeObserver = null;
+    let resizeFrame = null;
+    let pendingWidth = null;
+    let refreshResetTimer = null;
 
     const applyResponsiveLayout = (rootElement, width) => {
       const safeWidth = Number(width) || rootElement?.getBoundingClientRect?.().width || 0;
@@ -27,8 +30,26 @@
           : safeWidth > 250
             ? 'compact'
             : 'dense';
-      rootElement.dataset.layout = layout;
+      if (rootElement.dataset.layout !== layout) rootElement.dataset.layout = layout;
       return layout;
+    };
+
+    const scheduleResponsiveLayout = (rootElement, width) => {
+      pendingWidth = width;
+      if (resizeFrame != null) return;
+      const scheduleFrame = globalThis.requestAnimationFrame;
+      if (typeof scheduleFrame !== 'function') {
+        const nextWidth = pendingWidth;
+        pendingWidth = null;
+        applyResponsiveLayout(rootElement, nextWidth);
+        return;
+      }
+      resizeFrame = scheduleFrame(() => {
+        resizeFrame = null;
+        const nextWidth = pendingWidth;
+        pendingWidth = null;
+        applyResponsiveLayout(rootElement, nextWidth);
+      });
     };
 
     const observeLayout = (rootElement) => {
@@ -39,7 +60,7 @@
         const width = entry?.contentRect?.width
           ?? entry?.borderBoxSize?.[0]?.inlineSize
           ?? rootElement.getBoundingClientRect?.().width;
-        applyResponsiveLayout(rootElement, width);
+        scheduleResponsiveLayout(rootElement, width);
       });
       resizeObserver.observe(rootElement);
     };
@@ -64,6 +85,28 @@
         if (card?.dataset?.login) {
           onOpenChannel(card.dataset.login);
         }
+      }
+    };
+
+    const setRefreshState = (state = 'idle') => {
+      const button = elements?.refresh;
+      if (!button) return;
+      if (refreshResetTimer) clearTimeout(refreshResetTimer);
+      refreshResetTimer = null;
+      const labels = {
+        idle: t('panel.refresh'),
+        loading: t('panel.refreshing'),
+        success: t('panel.refreshed'),
+        error: t('panel.refreshFailed')
+      };
+      button.disabled = state === 'loading';
+      button.classList.toggle('is-loading', state === 'loading');
+      button.classList.toggle('is-success', state === 'success');
+      button.classList.toggle('is-error', state === 'error');
+      button.setAttribute('aria-busy', String(state === 'loading'));
+      button.textContent = labels[state] || labels.idle;
+      if (state === 'success' || state === 'error') {
+        refreshResetTimer = setTimeout(() => setRefreshState('idle'), 1800);
       }
     };
 
@@ -99,7 +142,8 @@
         sections: rootElement.querySelector('.tfr-panel__sections'),
         subtitle: rootElement.querySelector('.tfr-panel__subtitle'),
         empty: rootElement.querySelector('.tfr-panel__empty'),
-        timestamp: rootElement.querySelector('.tfr-panel__timestamp')
+        timestamp: rootElement.querySelector('.tfr-panel__timestamp'),
+        refresh: rootElement.querySelector('[data-action="refresh"]')
       };
       return elements;
     };
@@ -108,9 +152,15 @@
       applyResponsiveLayout,
       ensure,
       getElements: () => elements,
+      setRefreshState,
       disconnect: () => {
         resizeObserver?.disconnect();
         resizeObserver = null;
+        if (resizeFrame != null) globalThis.cancelAnimationFrame?.(resizeFrame);
+        resizeFrame = null;
+        pendingWidth = null;
+        if (refreshResetTimer) clearTimeout(refreshResetTimer);
+        refreshResetTimer = null;
       }
     };
   };

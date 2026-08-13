@@ -11,8 +11,10 @@
     getPanelRoot,
     getSubtitle,
     hasLiveData,
+    setRefreshState = () => {},
     errorMessage = 'Impossible de récupérer les favoris.'
   }) => {
+    let refreshPromise = null;
     const applySnapshot = (snapshot) => {
       if (!snapshot || snapshot.error) {
         const subtitle = getSubtitle();
@@ -24,10 +26,14 @@
     };
 
     const refresh = async (forceRefresh = false, options = {}) => {
+      if (refreshPromise) return refreshPromise;
+      const run = async () => {
+      const showFeedback = options.showFeedback === true;
       const showLoading = options.showLoading !== false && (
         forceRefresh || !hasLiveData()
       );
       const rootElement = getPanelRoot();
+      if (showFeedback) setRefreshState('loading');
       if (showLoading) {
         rootElement?.classList.add('tfr-panel--loading');
       }
@@ -41,7 +47,14 @@
           rootElement?.classList.remove('tfr-panel--loading');
         }
       }
-      return applySnapshot(snapshot);
+      const succeeded = applySnapshot(snapshot);
+      if (showFeedback) setRefreshState(succeeded ? 'success' : 'error');
+      return succeeded;
+      };
+      refreshPromise = run().finally(() => {
+        refreshPromise = null;
+      });
+      return refreshPromise;
     };
 
     const preload = async () => {

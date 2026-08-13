@@ -79,7 +79,7 @@
     documentRef: document,
     standalone: isStandaloneContext,
     t,
-    onRefresh: () => panelSnapshotController.refresh(true),
+    onRefresh: () => panelSnapshotController.refresh(true, { showFeedback: true }),
     onClose: () => {
       if (isStandaloneContext && typeof window.close === 'function') {
         window.close();
@@ -157,6 +157,7 @@
     getPanelRoot: () => panelView.getElements()?.root,
     getSubtitle: () => panelView.getElements()?.subtitle,
     hasLiveData: panelSnapshotPresenter.hasLiveData,
+    setRefreshState: panelView.setRefreshState,
     errorMessage: t('panel.error')
   });
   const panelLifecycle = panelLifecycleApi.createPanelLifecycle({

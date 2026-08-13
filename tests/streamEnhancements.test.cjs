@@ -62,6 +62,10 @@ const loadFeatures = () => {
     context
   );
   vm.runInNewContext(
+    fs.readFileSync(path.join(__dirname, '../src/contentScripts/features/playerAudioEngine.js'), 'utf8'),
+    context
+  );
+  vm.runInNewContext(
     fs.readFileSync(path.join(__dirname, '../src/contentScripts/features/streamEnhancements.js'), 'utf8'),
     context
   );
@@ -73,6 +77,7 @@ test('player latency indicator starts and stops without leaving a timer behind',
   const { features, activeIntervals } = loadFeatures();
   const indicator = new features.PlayerLatencyIndicator();
 
+  assert.equal(indicator.engine, undefined);
   indicator.configure(true);
   assert.equal(activeIntervals.size, 1);
 
@@ -84,12 +89,36 @@ test('stream enhancement module exposes independent emote and player features', 
   const { features } = loadFeatures();
   assert.equal(typeof features.ThirdPartyChatEmotes, 'function');
   assert.equal(typeof features.PlayerLatencyIndicator, 'function');
+  assert.equal(typeof features.AutoClaimChannelPoints, 'function');
   assert.equal(typeof features.PlayerAudioCompressor, 'function');
   assert.equal(typeof features.ChatFontManager, 'function');
   assert.equal(typeof features.ChatPaddingManager, 'function');
   assert.equal(typeof features.ChatMentionHighlighter, 'function');
   assert.equal(typeof features.DeletedMessageViewer, 'function');
   assert.equal(typeof features.ReplyExpansionTracker, 'function');
+});
+
+test('channel point bonuses are claimed once without clicking unrelated buttons', () => {
+  const { features, ElementMock } = loadFeatures();
+  const manager = new features.AutoClaimChannelPoints();
+  let claimClicks = 0;
+  const claimButton = { disabled: false, click: () => { claimClicks += 1; } };
+  const bonusNode = new ElementMock();
+  bonusNode.matches = () => false;
+  bonusNode.querySelector = () => ({ closest: () => claimButton });
+  bonusNode.querySelectorAll = () => [];
+
+  manager.enabled = true;
+  manager.scan(bonusNode);
+  manager.scan(bonusNode);
+  assert.equal(claimClicks, 1);
+
+  const unrelatedNode = new ElementMock();
+  unrelatedNode.matches = () => false;
+  unrelatedNode.querySelector = () => null;
+  unrelatedNode.querySelectorAll = () => [{ getAttribute: () => 'Community Points' }];
+  manager.scan(unrelatedNode);
+  assert.equal(claimClicks, 1);
 });
 
 test('audio compressor presets remain bounded and disabled mode is transparent', () => {
@@ -105,6 +134,21 @@ test('audio compressor presets remain bounded and disabled mode is transparent',
   compressor.configure({ enabled: true, preset: 'strong' });
   assert.equal(parameters.threshold.value, -30);
   assert.equal(parameters.ratio.value, 8);
+});
+
+test('volume normalization clamps its target and applied correction', () => {
+  const { features } = loadFeatures();
+  const manager = new features.PlayerAudioCompressor();
+  manager.configure({ enabled: false, normalizerEnabled: true, targetDb: -16 });
+  assert.equal(manager.targetDb, -16);
+  assert.equal(manager.calculateTargetGainDb(-4), -12);
+  assert.equal(manager.calculateTargetGainDb(-30), 0);
+  assert.equal(manager.calculateTargetGainDb(-52), 0);
+  assert.equal(manager.calculateTargetGainDb(-92), null);
+  const musicLikeSignal = new Float32Array([0.05, 0.05, 0.05, 0.8]);
+  assert.ok(manager.calculateMeasuredLevelDb(musicLikeSignal) > -13);
+  manager.configure({ enabled: false, normalizerEnabled: true, targetDb: -40 });
+  assert.equal(manager.targetDb, -40);
 });
 
 test('chat mention colors and sounds use safe fallbacks', () => {
@@ -235,6 +279,37 @@ test('reply expansion display text does not pollute Twitch message text content'
   assert.match(css, /\.tfr-custom-reply-message::before\s*\{\s*content:\s*attr\(data-tfr-text\)/);
   assert.doesNotMatch(css, /\.tfr-chat-full-replies\s+\[data-a-target\*?=[^\n]+reply-context/);
   assert.doesNotMatch(css, /\.tfr-chat-full-replies\s+\[class\*=[^\n]+reply/);
+});
+
+test('reply expansion preserves the bottom only when the viewer was already near it', () => {
+  const { features } = loadFeatures();
+  const tracker = new features.ReplyExpansionTracker();
+  const nearBottom = {
+    scrollHeight: 1000,
+    clientHeight: 400,
+    scrollTop: 570,
+    isConnected: true
+  };
+  tracker.findScrollViewport = () => nearBottom;
+  const state = tracker.captureBottomState();
+  assert.equal(state.wasNearBottom, true);
+  nearBottom.scrollTop = 400;
+  assert.equal(nearBottom.scrollTop < state.scrollTop - 2, true, 'manual upward scrolling is detectable');
+
+  nearBottom.scrollTop = 300;
+  assert.equal(tracker.captureBottomState().wasNearBottom, false);
+});
+
+test('reply expansion schedules bottom restoration after its custom content is appended', () => {
+  const source = fs.readFileSync(
+    path.join(__dirname, '../src/contentScripts/features/streamEnhancements.js'),
+    'utf8'
+  );
+  const start = source.indexOf('class ReplyExpansionTracker');
+  const replyTracker = source.slice(start, source.indexOf('\n    return {', start));
+  assert.match(replyTracker, /const bottomState = this\.captureBottomState\(\)/);
+  assert.match(replyTracker, /replyContext\.appendChild\(customReply\);\s*this\.restoreBottomAfterLayout\(bottomState\)/);
+  assert.match(replyTracker, /userDidNotScrollUp/);
 });
 
 test('chat observers share a single pending container retry', () => {

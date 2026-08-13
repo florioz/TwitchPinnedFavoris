@@ -7,6 +7,7 @@
     ModerationHistoryUI,
     ThirdPartyChatEmotes,
     PlayerLatencyIndicator,
+    AutoClaimChannelPoints,
     PlayerAudioCompressor,
     ChatFontManager,
     ChatPaddingManager,
@@ -35,10 +36,16 @@ class FeatureController {
         selectPreferences: (prefs) => prefs.playerLatencyEnabled === true
       },
       {
+        property: 'autoClaimChannelPoints', Type: AutoClaimChannelPoints, label: 'channel points auto claim',
+        selectPreferences: (prefs) => prefs.autoClaimChannelPointsEnabled === true
+      },
+      {
         property: 'playerAudioCompressor', Type: PlayerAudioCompressor, label: 'player audio compressor',
         selectPreferences: (prefs) => ({
           enabled: prefs.playerAudioCompressorEnabled === true,
-          preset: prefs.playerAudioCompressorPreset || 'balanced'
+          preset: prefs.playerAudioCompressorPreset || 'balanced',
+          normalizerEnabled: prefs.playerVolumeNormalizerEnabled === true,
+          targetDb: Number.isFinite(Number(prefs.playerVolumeTargetDb)) ? Number(prefs.playerVolumeTargetDb) : -16
         })
       },
       {
@@ -106,9 +113,13 @@ class FeatureController {
   initializeEnhancement({ property, Type, label }) {
     try {
       const instance = new Type();
-      instance.setPreferenceUpdater?.(async ({ enabled, preset }) => {
-        await this.store.setPlayerAudioCompressorPreset(preset);
-        await this.store.setPlayerAudioCompressorEnabled(enabled);
+      instance.setPreferenceUpdater?.(async (changes = {}) => {
+        if (Object.hasOwn(changes, 'preset')) await this.store.setPlayerAudioCompressorPreset(changes.preset);
+        if (Object.hasOwn(changes, 'enabled')) await this.store.setPlayerAudioCompressorEnabled(changes.enabled);
+        if (Object.hasOwn(changes, 'targetDb')) await this.store.setPlayerVolumeTargetDb(changes.targetDb);
+        if (Object.hasOwn(changes, 'normalizerEnabled')) {
+          await this.store.setPlayerVolumeNormalizerEnabled(changes.normalizerEnabled);
+        }
       });
       instance.init();
       this[property] = instance;

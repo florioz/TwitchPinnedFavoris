@@ -41,7 +41,8 @@ test('backup preferences keep typed values and ignore invalid booleans', () => {
     liveHoverPreviewMode: 'video',
     chatMentionHighlightEnabled: true,
     chatMentionHighlightColor: '#123456',
-    chatMentionSoundId: 'chime'
+    chatMentionSoundId: 'chime',
+    autoClaimChannelPointsEnabled: true
   });
   assert.equal(result.liveFavoritesEnabled, true);
   assert.equal(result.recentLiveEnabled, undefined);
@@ -51,6 +52,7 @@ test('backup preferences keep typed values and ignore invalid booleans', () => {
   assert.equal(result.chatMentionHighlightEnabled, true);
   assert.equal(result.chatMentionHighlightColor, '#123456');
   assert.equal(result.chatMentionSoundId, 'chime');
+  assert.equal(result.autoClaimChannelPointsEnabled, true);
 });
 
 test('backup preferences clamp durations and truncate custom font names', () => {

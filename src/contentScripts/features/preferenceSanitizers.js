@@ -18,6 +18,7 @@
     chatMentionSound: (value) => CHAT_SOUNDS.has(value) ? value : 'soft',
     liveHoverPreviewMode: (value) => value === 'video' ? 'video' : 'image',
     playerAudioCompressorPreset: (value) => AUDIO_COMPRESSOR_PRESETS.has(value) ? value : 'balanced',
+    playerVolumeTargetDb: (value) => boundedInteger(value, -80, -10, -16),
     chatFontFamily: (value) => CHAT_FONTS.has(value) ? value : 'system',
     chatFontDataUrl: (value) => {
       const candidate = typeof value === 'string' ? value.trim() : '';

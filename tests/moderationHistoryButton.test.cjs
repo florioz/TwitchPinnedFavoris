@@ -103,6 +103,32 @@ test('moderation history anchors immediately before chat settings', () => {
   assert.doesNotMatch(anchorMethod, /emote-picker-button/);
 });
 
+test('moderation history stays hidden on Twitch replay pages', () => {
+  const ui = Object.create(ModerationHistoryUI.prototype);
+  let removed = 0;
+  let closed = 0;
+  let anchorCleared = 0;
+  ui.button = {
+    parentElement: {
+      removeChild() { removed += 1; }
+    }
+  };
+  ui.closePanel = () => { closed += 1; };
+  ui.clearButtonAnchor = () => { anchorCleared += 1; };
+  ui.findControlsAnchor = () => { throw new Error('VOD controls must not be inspected'); };
+
+  assert.equal(ui.isReplayPage('/videos/1234567890'), true);
+  assert.equal(ui.isReplayPage('/some_channel'), false);
+  const previousPath = context.window.location?.pathname;
+  context.window.location = { pathname: '/videos/1234567890' };
+  ui.mountButton();
+  context.window.location = previousPath == null ? undefined : { pathname: previousPath };
+
+  assert.equal(removed, 1);
+  assert.equal(closed, 1);
+  assert.equal(anchorCleared, 1);
+});
+
 test('viewer card observer ignores mutations created by its own history renderer', () => {
   const renderer = new ViewerCardHistoryRenderer({});
   const history = { id: 'tfr-viewer-history', closest: () => null };

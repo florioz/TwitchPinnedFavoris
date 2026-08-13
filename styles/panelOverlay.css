@@ -82,6 +82,43 @@
   background-color: rgba(255, 255, 255, 0.08);
 }
 
+.tfr-panel__button:disabled {
+  cursor: wait;
+  opacity: 0.78;
+}
+
+.tfr-panel__button.is-loading {
+  border-color: rgba(145, 71, 255, 0.8);
+  background: rgba(145, 71, 255, 0.16);
+}
+
+.tfr-panel__button.is-loading::before {
+  content: '';
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: 6px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  vertical-align: -1px;
+  animation: tfr-panel-refresh-spin 0.7s linear infinite;
+}
+
+.tfr-panel__button.is-success {
+  border-color: rgba(74, 222, 128, 0.7);
+  color: #86efac;
+}
+
+.tfr-panel__button.is-error {
+  border-color: rgba(248, 113, 113, 0.75);
+  color: #fca5a5;
+}
+
+@keyframes tfr-panel-refresh-spin {
+  to { transform: rotate(360deg); }
+}
+
 .tfr-panel__button--accent {
   border-color: transparent;
   background: linear-gradient(135deg, var(--tfr-accent), var(--tfr-accent-strong));

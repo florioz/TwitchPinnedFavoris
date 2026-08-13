@@ -1860,40 +1860,82 @@ class FavoritesOverlay {
     return Number.isFinite(parsed) ? Math.max(0, Math.min(20, Math.round(parsed))) : 0;
   }
 
-  createChatPaddingSettings(preferences) {
-    const enabled = preferences.chatNoPaddingEnabled === true;
-    const value = this.normalizeChatPaddingPx(preferences.chatPaddingPx);
+  createRangeSetting({
+    enabled = true,
+    title,
+    value,
+    min,
+    max,
+    step = 1,
+    unit = '',
+    scaleKeys = [],
+    hint = '',
+    onInput,
+    onChange
+  }) {
     const choice = document.createElement('label');
     choice.className = 'tfr-chat-padding-choice';
     choice.classList.toggle('is-disabled', !enabled);
 
     const heading = document.createElement('span');
     heading.className = 'tfr-chat-padding-choice__heading';
-    const title = document.createElement('strong');
-    title.textContent = t('settings.chatPadding.amount');
+    const label = document.createElement('strong');
+    label.textContent = title;
     const output = document.createElement('output');
     output.className = 'tfr-chat-padding-choice__value';
-    output.textContent = `${value} px`;
-    heading.append(title, output);
+    const formatValue = (nextValue) => `${nextValue}${unit ? ` ${unit}` : ''}`;
+    output.textContent = formatValue(value);
+    heading.append(label, output);
 
     const input = document.createElement('input');
     input.type = 'range';
-    input.min = '0';
-    input.max = '20';
-    input.step = '1';
+    input.min = String(min);
+    input.max = String(max);
+    input.step = String(step);
     input.value = String(value);
     input.disabled = !enabled;
     input.addEventListener('input', (event) => {
-      const nextValue = this.normalizeChatPaddingPx(event.target.value);
-      output.textContent = `${nextValue} px`;
-      document.documentElement.style.setProperty('--tfr-chat-padding', `${nextValue}px`);
+      const nextValue = event.target.value;
+      output.textContent = formatValue(nextValue);
+      onInput?.(nextValue);
     });
-    input.addEventListener('change', (event) => {
-      this.store.setChatPaddingPx(this.normalizeChatPaddingPx(event.target.value));
-    });
+    input.addEventListener('change', (event) => onChange?.(event.target.value));
 
     choice.append(heading, input);
+    if (scaleKeys.length > 0) {
+      const scale = document.createElement('span');
+      scale.className = 'tfr-volume-target-scale';
+      scaleKeys.forEach((key) => {
+        const scaleLabel = document.createElement('span');
+        scaleLabel.textContent = t(key);
+        scale.appendChild(scaleLabel);
+      });
+      choice.appendChild(scale);
+    }
+    if (hint) {
+      const hintElement = document.createElement('small');
+      hintElement.textContent = hint;
+      choice.appendChild(hintElement);
+    }
     return choice;
+  }
+
+  createChatPaddingSettings(preferences) {
+    const enabled = preferences.chatNoPaddingEnabled === true;
+    const value = this.normalizeChatPaddingPx(preferences.chatPaddingPx);
+    return this.createRangeSetting({
+      enabled,
+      title: t('settings.chatPadding.amount'),
+      value,
+      min: 0,
+      max: 20,
+      unit: 'px',
+      onInput: (rawValue) => {
+      const nextValue = this.normalizeChatPaddingPx(rawValue);
+      document.documentElement.style.setProperty('--tfr-chat-padding', `${nextValue}px`);
+      },
+      onChange: (rawValue) => this.store.setChatPaddingPx(this.normalizeChatPaddingPx(rawValue))
+    });
   }
 
   renderFeatureToggles(state) {
@@ -1974,6 +2016,25 @@ class FavoritesOverlay {
     });
     compressorChoice.append(compressorLabel, compressorSelect);
     cards.get('player').body.appendChild(compressorChoice);
+
+    const targetDb = Number.isFinite(Number(prefs.playerVolumeTargetDb))
+      ? Math.max(-80, Math.min(-10, Math.round(Number(prefs.playerVolumeTargetDb))))
+      : -16;
+    cards.get('player').body.appendChild(this.createRangeSetting({
+      enabled: prefs.playerVolumeNormalizerEnabled === true,
+      title: t('settings.volumeNormalizer.target'),
+      value: targetDb,
+      min: -80,
+      max: -10,
+      unit: 'dB',
+      scaleKeys: [
+        'settings.volumeNormalizer.quieter',
+        'settings.volumeNormalizer.recommended',
+        'settings.volumeNormalizer.louder'
+      ],
+      hint: t('settings.volumeNormalizer.targetHint'),
+      onChange: (rawValue) => this.store.setPlayerVolumeTargetDb(Number(rawValue))
+    }));
 
     const fontChoice = document.createElement('label');
     fontChoice.className = 'tfr-chat-font-choice';

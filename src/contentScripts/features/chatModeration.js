@@ -2059,6 +2059,10 @@
     }
 
     mountButton() {
+      if (this.isReplayPage()) {
+        this.unmountButton();
+        return;
+      }
       const anchor = this.findControlsAnchor();
       const container = this.findControlsContainer();
       const button = this.ensureButton();
@@ -2079,6 +2083,16 @@
         button.style.removeProperty('top');
         if (!mountContainer.contains(button)) mountContainer.appendChild(button);
       }
+    }
+
+    isReplayPage(pathname = window.location?.pathname) {
+      return /^\/videos\/[^/]+(?:\/|$)/i.test(String(pathname || ''));
+    }
+
+    unmountButton() {
+      this.closePanel(true);
+      if (this.button?.parentElement) this.button.parentElement.removeChild(this.button);
+      this.clearButtonAnchor();
     }
 
     clearButtonAnchor() {

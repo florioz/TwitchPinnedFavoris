@@ -3268,6 +3268,78 @@
   gap: 6px;
 }
 
+.tfr-audio-normalizer {
+  display: grid;
+  gap: 9px;
+  margin-top: 4px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(145, 71, 255, 0.28);
+}
+
+.tfr-audio-compressor-panel.is-normalizing .tfr-audio-normalizer .tfr-audio-compressor-panel__status {
+  border-color: #9147ff;
+  color: #fff;
+  background: #9147ff;
+}
+
+.tfr-audio-normalizer__target {
+  display: grid;
+  gap: 5px;
+}
+
+.tfr-audio-normalizer__target > span {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  color: rgba(239, 239, 241, 0.78);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.tfr-audio-normalizer__target > .tfr-audio-normalizer__scale,
+.tfr-volume-target-scale {
+  display: flex;
+  justify-content: space-between;
+  gap: 6px;
+  color: rgba(239, 239, 241, 0.52);
+  font-size: 9px;
+  font-weight: 600;
+}
+
+.tfr-audio-normalizer__scale span:nth-child(2),
+.tfr-volume-target-scale span:nth-child(2) {
+  color: #bf94ff;
+  text-align: center;
+}
+
+.tfr-audio-normalizer__scale span:last-child,
+.tfr-volume-target-scale span:last-child {
+  text-align: right;
+}
+
+.tfr-audio-normalizer__target input {
+  width: 100%;
+  accent-color: #9147ff;
+}
+
+.tfr-audio-normalizer__calibrate {
+  width: 100%;
+  min-height: 28px !important;
+  font-size: 10px;
+}
+
+.tfr-audio-normalizer__gain,
+.tfr-audio-normalizer__level {
+  color: #bf94ff;
+  font-size: 11px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.tfr-audio-normalizer__level {
+  color: rgba(239, 239, 241, 0.68);
+}
+
 .tfr-chat-custom-font [data-a-target="chat-line-message"],
 .tfr-chat-custom-font [data-test-selector="chat-line-message"],
 .tfr-chat-custom-font .chat-line__message,
