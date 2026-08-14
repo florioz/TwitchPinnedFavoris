@@ -12,9 +12,13 @@
     getSubtitle,
     hasLiveData,
     setRefreshState = () => {},
+    feedbackMinDurationMs = 450,
+    wait = (delay) => new Promise((resolve) => setTimeout(resolve, delay)),
     errorMessage = 'Impossible de récupérer les favoris.'
   }) => {
     let refreshPromise = null;
+    let feedbackSequence = 0;
+    let feedbackVisible = false;
     const applySnapshot = (snapshot) => {
       if (!snapshot || snapshot.error) {
         const subtitle = getSubtitle();
@@ -25,15 +29,34 @@
       return true;
     };
 
-    const refresh = async (forceRefresh = false, options = {}) => {
-      if (refreshPromise) return refreshPromise;
+    const presentFeedback = async (promise) => {
+      const sequence = ++feedbackSequence;
+      const feedbackStartedAt = Date.now();
+      if (!feedbackVisible) {
+        feedbackVisible = true;
+        setRefreshState('loading');
+      }
+      const succeeded = await promise;
+      const remaining = Math.max(0, feedbackMinDurationMs - (Date.now() - feedbackStartedAt));
+      if (remaining) await wait(remaining);
+      if (sequence === feedbackSequence) {
+        setRefreshState(succeeded ? 'success' : 'error');
+        feedbackVisible = false;
+      }
+      return succeeded;
+    };
+
+    const refresh = (forceRefresh = false, options = {}) => {
+      if (refreshPromise) {
+        return options.showFeedback === true
+          ? presentFeedback(refreshPromise)
+          : refreshPromise;
+      }
       const run = async () => {
-      const showFeedback = options.showFeedback === true;
       const showLoading = options.showLoading !== false && (
         forceRefresh || !hasLiveData()
       );
       const rootElement = getPanelRoot();
-      if (showFeedback) setRefreshState('loading');
       if (showLoading) {
         rootElement?.classList.add('tfr-panel--loading');
       }
@@ -48,13 +71,14 @@
         }
       }
       const succeeded = applySnapshot(snapshot);
-      if (showFeedback) setRefreshState(succeeded ? 'success' : 'error');
       return succeeded;
       };
       refreshPromise = run().finally(() => {
         refreshPromise = null;
       });
-      return refreshPromise;
+      return options.showFeedback === true
+        ? presentFeedback(refreshPromise)
+        : refreshPromise;
     };
 
     const preload = async () => {

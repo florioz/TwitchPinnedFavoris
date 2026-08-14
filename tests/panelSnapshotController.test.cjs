@@ -34,6 +34,7 @@ const createHarness = ({
     }),
     getSubtitle: () => subtitle,
     hasLiveData: () => liveDataPresent,
+    feedbackMinDurationMs: 0,
     setRefreshState: (state) => refreshStates.push(state)
   });
   return { controller, classes, rendered, requests, subtitle, refreshStates };
@@ -91,6 +92,7 @@ test('successful refresh exposes feedback and shares concurrent requests', async
     getPanelRoot: () => ({ classList: { add() {}, remove() {} } }),
     getSubtitle: () => null,
     hasLiveData: () => true,
+    feedbackMinDurationMs: 0,
     setRefreshState: (state) => states.push(state)
   });
 
@@ -99,5 +101,31 @@ test('successful refresh exposes feedback and shares concurrent requests', async
   assert.equal(requestCount, 1);
   resolveRequest({ liveData: { one: {} } });
   assert.deepEqual(await Promise.all([first, second]), [true, true]);
+  assert.deepEqual(states, ['loading', 'success']);
+});
+
+test('manual refresh exposes feedback while a silent refresh is already running', async () => {
+  let resolveRequest;
+  let requestCount = 0;
+  const states = [];
+  const controller = createPanelSnapshotController({
+    requestSnapshot: () => {
+      requestCount += 1;
+      return new Promise((resolve) => { resolveRequest = resolve; });
+    },
+    renderSnapshot() {},
+    getPanelRoot: () => ({ classList: { add() {}, remove() {} } }),
+    getSubtitle: () => null,
+    hasLiveData: () => true,
+    feedbackMinDurationMs: 0,
+    setRefreshState: (state) => states.push(state)
+  });
+
+  const automaticRefresh = controller.refresh(true, { showLoading: false });
+  const manualRefresh = controller.refresh(true, { showFeedback: true });
+  assert.equal(requestCount, 1);
+  assert.deepEqual(states, ['loading']);
+  resolveRequest({ liveData: { one: {} } });
+  assert.deepEqual(await Promise.all([automaticRefresh, manualRefresh]), [true, true]);
   assert.deepEqual(states, ['loading', 'success']);
 });

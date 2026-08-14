@@ -845,6 +845,7 @@ class FavoritesOverlay {
 
     const accountArea = document.createElement('div');
     accountArea.className = 'tfr-shared-remote__account-area';
+    if (!status?.connected) accountArea.classList.add('is-onboarding');
     const description = document.createElement('p');
     description.textContent = !status?.configured
       ? t('sharedSpaces.remote.notConfigured')
@@ -876,6 +877,16 @@ class FavoritesOverlay {
     section.appendChild(spacePanel);
     accountArea.appendChild(accountPanel);
     if (status?.configured && !status.connected) {
+      const benefits = document.createElement('div');
+      benefits.className = 'tfr-shared-onboarding__benefits';
+      ['sync', 'invite', 'roles'].forEach((benefit) => {
+        const item = document.createElement('div');
+        const icon = document.createElement('span'); icon.setAttribute('aria-hidden', 'true');
+        icon.textContent = benefit === 'sync' ? '↻' : benefit === 'invite' ? '＋' : '✓';
+        const text = document.createElement('span'); text.textContent = t(`sharedSpaces.remote.benefit.${benefit}`);
+        item.append(icon, text); benefits.appendChild(item);
+      });
+      accountPanel.insertBefore(benefits, accountActions);
       const connect = document.createElement('button');
       connect.type = 'button'; connect.className = 'tfr-button'; connect.textContent = t('sharedSpaces.remote.connect');
       connect.addEventListener('click', async () => {
@@ -889,9 +900,10 @@ class FavoritesOverlay {
       });
       accountActions.appendChild(connect);
       if (status.redirectUrl) {
-        const redirect = document.createElement('small');
-        redirect.textContent = t('sharedSpaces.remote.redirectUrl', { url: status.redirectUrl });
-        accountPanel.appendChild(redirect);
+        const technical = document.createElement('details'); technical.className = 'tfr-shared-onboarding__technical';
+        const summary = document.createElement('summary'); summary.textContent = t('sharedSpaces.remote.technicalHelp');
+        const redirect = document.createElement('small'); redirect.textContent = t('sharedSpaces.remote.redirectUrl', { url: status.redirectUrl });
+        technical.append(summary, redirect); accountPanel.appendChild(technical);
       }
     } else if (status?.connected) {
       const remoteMatch = this.remoteSharedSpaces.find((space) => space.id === activeSpace?.id);
@@ -2546,6 +2558,25 @@ class FavoritesOverlay {
       ],
       hint: t('settings.volumeNormalizer.targetHint'),
       onChange: (rawValue) => this.store.setPlayerVolumeTargetDb(Number(rawValue))
+    }));
+
+    const maxReductionDb = Number.isFinite(Number(prefs.playerVolumeMaxReductionDb))
+      ? Math.max(-40, Math.min(-12, Math.round(Number(prefs.playerVolumeMaxReductionDb))))
+      : -24;
+    cards.get('player').body.appendChild(this.createRangeSetting({
+      enabled: prefs.playerVolumeNormalizerEnabled === true,
+      title: t('settings.volumeNormalizer.maxReduction'),
+      value: maxReductionDb,
+      min: -40,
+      max: -12,
+      unit: 'dB',
+      scaleKeys: [
+        'settings.volumeNormalizer.strongerLimit',
+        'settings.volumeNormalizer.defaultLimit',
+        'settings.volumeNormalizer.lighterLimit'
+      ],
+      hint: t('settings.volumeNormalizer.maxReductionHint'),
+      onChange: (rawValue) => this.store.setPlayerVolumeMaxReductionDb(Number(rawValue))
     }));
 
     const fontChoice = document.createElement('label');

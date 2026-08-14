@@ -1,5 +1,5 @@
 (() => {
-  const createStreamEnhancements = ({ t }) => {
+  const createStreamEnhancements = ({ t, audioWorkletModuleUrl = '' }) => {
     const deletedMessageView = window.TFRDeletedMessageView.create(document);
     const CHAT_CONTAINER_SELECTORS = [
       '[data-test-selector="chat-scrollable-area__message-container"]',
@@ -19,7 +19,10 @@
       PlayerAudioEngine,
       PRESETS: AUDIO_COMPRESSOR_PRESETS,
       TARGET_MIN_DB: VOLUME_TARGET_MIN_DB,
-      TARGET_MAX_DB: VOLUME_TARGET_MAX_DB
+      TARGET_MAX_DB: VOLUME_TARGET_MAX_DB,
+      MAX_REDUCTION_MIN_DB: VOLUME_MAX_REDUCTION_MIN_DB,
+      MAX_REDUCTION_MAX_DB: VOLUME_MAX_REDUCTION_MAX_DB,
+      MAX_REDUCTION_DEFAULT_DB: VOLUME_MAX_REDUCTION_DEFAULT_DB
     } = audioEngineModule;
     const TWITCH_GQL_ENDPOINT = 'https://gql.twitch.tv/gql';
     const TWITCH_CLIENT_ID = 'kimne78kx3ncx6brgo4mv6wki5h1ko';
@@ -288,11 +291,50 @@
           this.root = document.createElement('div');
           this.root.className = 'tfr-player-latency';
         }
-        if (this.root.parentElement !== container) {
+        if (reference?.nextSibling !== this.root) {
           if (reference?.nextSibling) container.insertBefore(this.root, reference.nextSibling);
           else container.appendChild(this.root);
+        } else if (this.root.parentElement !== container) {
+          container.appendChild(this.root);
         }
         return this.root;
+      }
+
+      getInsertionReference(container, fallback) {
+        const nativeChildren = Array.from(container?.children || [])
+          .filter((child) => child !== this.root);
+        return nativeChildren.at(-1) || fallback;
+      }
+
+      resolveStatsLayout(statsAnchor) {
+        let candidate = statsAnchor?.parentElement || null;
+        for (let depth = 0; candidate && depth < 7; depth += 1) {
+          const directChildren = Array.from(candidate.children || []);
+          const hasDirectViewerBlock = directChildren.some((child) => child.contains?.(statsAnchor));
+          const collaborationControl = directChildren.find((child) => (
+            !child.contains?.(statsAnchor)
+            && child.matches?.('.tw-svg, [class*="ScSvgWrapper"]')
+          ));
+          if (hasDirectViewerBlock && collaborationControl) {
+            return { container: candidate, reference: collaborationControl };
+          }
+          const text = candidate.textContent || '';
+          if (/\b\d{1,2}:\d{2}:\d{2}\b/.test(text)) {
+            let viewerBlock = statsAnchor;
+            while (viewerBlock?.parentElement && viewerBlock.parentElement !== candidate) {
+              viewerBlock = viewerBlock.parentElement;
+            }
+            if (viewerBlock?.parentElement === candidate) {
+              return { container: candidate, reference: viewerBlock };
+            }
+          }
+          candidate = candidate.parentElement;
+        }
+        const container = statsAnchor?.parentElement || null;
+        return {
+          container,
+          reference: this.getInsertionReference(container, statsAnchor)
+        };
       }
 
       update() {
@@ -301,7 +343,8 @@
         const statsAnchor = document.querySelector(
           '[data-a-target="animated-channel-viewers-count"], [data-a-target="channel-viewers-count"], [data-test-selector="animated-channel-viewers-count"]'
         );
-        const statsContainer = statsAnchor?.parentElement;
+        const statsLayout = this.resolveStatsLayout(statsAnchor);
+        const statsContainer = statsLayout.container;
         if (!video || !statsAnchor || !statsContainer || !Number.isFinite(video.currentTime)) {
           this.root?.remove();
           return;
@@ -313,7 +356,7 @@
             break;
           }
         }
-        const root = this.ensureRoot(statsContainer, statsAnchor);
+        const root = this.ensureRoot(statsContainer, statsLayout.reference);
         root.textContent = t('settings.playerLatency.value', {
           buffer: bufferSeconds.toFixed(1)
         });
@@ -382,45 +425,69 @@
 
     class PlayerAudioCompressor {
       constructor() {
-        this.engine = new PlayerAudioEngine();
+        this.engine = new PlayerAudioEngine({
+          workletModuleUrl: audioWorkletModuleUrl,
+          onWorkletLevel: () => this.updateVolumeNormalization(true)
+        });
         this.enabled = false;
         this.preset = 'balanced';
         this.normalizerEnabled = false;
         this.targetDb = -16;
+        this.maxReductionDb = VOLUME_MAX_REDUCTION_DEFAULT_DB;
         this.timer = null;
         this.meterTimer = null;
         this.button = null;
         this.panel = null;
         this.updatePreference = null;
+        this.resumeAudio = () => this.engine.resume();
+        this.boundVideo = null;
+        this.lastMeterReadoutAt = 0;
       }
 
       get currentGainDb() { return this.engine.currentGainDb; }
       get measuredLevelDb() { return this.engine.measuredLevelDb; }
+      get normalizerPhase() { return this.engine.normalizerPhase; }
       get video() { return this.engine.video; }
       get graph() { return this.engine.graph; }
       set graph(value) { this.engine.graph = value; }
 
       init() {
         this.timer = window.setInterval(() => this.refresh(), 1000);
-        this.meterTimer = window.setInterval(() => this.updateVolumeNormalization(), 200);
+      }
+
+      syncRuntimeActivity() {
+        if (this.normalizerEnabled && !this.meterTimer) {
+          this.meterTimer = window.setInterval(() => this.updateVolumeNormalization(false), 100);
+        } else if (!this.normalizerEnabled && this.meterTimer) {
+          clearInterval(this.meterTimer);
+          this.meterTimer = null;
+        }
+        const shouldResumeAudio = this.enabled || this.normalizerEnabled;
+        const method = shouldResumeAudio ? 'addEventListener' : 'removeEventListener';
+        document[method]?.('pointerdown', this.resumeAudio, true);
+        document[method]?.('keydown', this.resumeAudio, true);
+        if (!shouldResumeAudio) this.bindVideoEvents(null);
       }
 
       setPreferenceUpdater(updatePreference) {
         this.updatePreference = updatePreference;
       }
 
-      configure({ enabled, preset, normalizerEnabled, targetDb }) {
+      configure({ enabled, preset, normalizerEnabled, targetDb, maxReductionDb }) {
         const panelWasOpen = Boolean(this.panel?.isConnected);
         this.enabled = Boolean(enabled);
         this.preset = this.normalizePreset(preset);
         this.normalizerEnabled = Boolean(normalizerEnabled);
         this.targetDb = this.normalizeTargetDb(targetDb);
+        this.maxReductionDb = this.engine.normalizeMaxReductionDb(maxReductionDb);
         this.engine.configure({
           compressorEnabled: this.enabled,
           preset: this.preset,
           normalizerEnabled: this.normalizerEnabled,
-          targetDb: this.targetDb
+          targetDb: this.targetDb,
+          maxReductionDb: this.maxReductionDb
         });
+        this.syncRuntimeActivity();
         this.panel?.remove();
         this.refresh();
         if (panelWasOpen) this.togglePanel();
@@ -452,15 +519,37 @@
         this.button?.setAttribute('aria-pressed', String(audioProtectionEnabled));
       }
 
-      updateVolumeNormalization() {
+      updateVolumeNormalization(fromWorklet = false) {
+        if (document.visibilityState === 'hidden' || !this.normalizerEnabled) return;
+        if (!fromWorklet && this.engine.isWorkletMeasurementFresh()) return;
         const result = this.engine.update();
-        if (result) this.updateNormalizerReadout(result.levelDb, result.contextState);
+        const now = Date.now();
+        if (result && now - this.lastMeterReadoutAt >= 200) {
+          this.lastMeterReadoutAt = now;
+          this.updateNormalizerReadout(
+            result.levelDb,
+            result.contextState,
+            result.normalizerPhase,
+            result.measurementMode
+          );
+        }
       }
 
-      updateNormalizerReadout(levelDb, contextState = 'running') {
+      formatReductionDb(value) {
+        const reduction = Number(value) || 0;
+        return (Math.abs(reduction) < 0.05 ? 0 : reduction).toFixed(1);
+      }
+
+      updateNormalizerReadout(
+        levelDb,
+        contextState = 'running',
+        phase = this.normalizerPhase,
+        measurementMode = this.engine.getMeasurementMode()
+      ) {
         const levelOutput = this.panel?.querySelector?.('.tfr-audio-normalizer__level');
         const gainOutput = this.panel?.querySelector?.('.tfr-audio-normalizer__gain');
         const calibrateButton = this.panel?.querySelector?.('.tfr-audio-normalizer__calibrate');
+        const measurementOutput = this.panel?.querySelector?.('.tfr-audio-normalizer__measurement');
         if (calibrateButton) calibrateButton.disabled = !this.normalizerEnabled || !Number.isFinite(levelDb);
         if (levelOutput) {
           levelOutput.textContent = contextState === 'running'
@@ -470,12 +559,45 @@
             : t('settings.volumeNormalizer.audioPaused');
         }
         if (gainOutput) gainOutput.textContent = this.normalizerEnabled
-          ? t('settings.volumeNormalizer.gain', { gain: this.currentGainDb.toFixed(1) })
+          ? t(
+            phase === 'releasing'
+              ? 'settings.volumeNormalizer.gainReleasing'
+              : 'settings.volumeNormalizer.gain',
+            { gain: this.formatReductionDb(this.currentGainDb) }
+          )
           : t('settings.volumeNormalizer.gainInactive');
+        if (measurementOutput) measurementOutput.textContent = t(
+          measurementMode === 'worklet'
+            ? 'settings.volumeNormalizer.measurementWorklet'
+            : 'settings.volumeNormalizer.measurementFallback'
+        );
+      }
+
+      updateCompressorReadout() {
+        const output = this.panel?.querySelector?.('.tfr-audio-compressor__reduction');
+        if (!output) return;
+        const reduction = this.formatReductionDb(this.graph?.compressor?.reduction);
+        output.textContent = this.enabled
+          ? t('settings.audioCompressor.reduction', { reduction })
+          : t('settings.audioCompressor.reductionInactive');
       }
 
       attachAudio(video) {
-        return this.engine.attach(video);
+        const attached = this.engine.attach(video);
+        if (attached) {
+          this.bindVideoEvents(video);
+          this.engine.resume();
+        }
+        return attached;
+      }
+
+      bindVideoEvents(video) {
+        if (this.boundVideo === video) return;
+        ['play', 'playing', 'volumechange'].forEach((eventName) => {
+          this.boundVideo?.removeEventListener?.(eventName, this.resumeAudio);
+          video?.addEventListener?.(eventName, this.resumeAudio);
+        });
+        this.boundVideo = video || null;
       }
 
       ensureButton() {
@@ -524,15 +646,39 @@
         return button;
       }
 
-      createTargetScale() {
+      createRangeScale(labelKeys) {
         const scale = document.createElement('span');
         scale.className = 'tfr-audio-normalizer__scale';
-        ['quieter', 'recommended', 'louder'].forEach((label) => {
+        labelKeys.forEach((labelKey) => {
           const item = document.createElement('span');
-          item.textContent = t(`settings.volumeNormalizer.${label}`);
+          item.textContent = t(labelKey);
           scale.appendChild(item);
         });
         return scale;
+      }
+
+      createDbRangeControl({ titleKey, value, min, max, scaleKeys, preferenceKey, footer = null }) {
+        const label = document.createElement('label');
+        label.className = 'tfr-audio-normalizer__target';
+        const heading = document.createElement('span');
+        heading.textContent = t(titleKey);
+        const output = document.createElement('output');
+        output.textContent = `${value} dB`;
+        heading.appendChild(output);
+        const input = document.createElement('input');
+        input.type = 'range';
+        input.min = String(min);
+        input.max = String(max);
+        input.step = '1';
+        input.value = String(value);
+        input.disabled = !this.normalizerEnabled;
+        input.addEventListener('input', () => { output.textContent = `${input.value} dB`; });
+        input.addEventListener('change', async () => {
+          await this.updatePreference?.({ [preferenceKey]: Number(input.value) });
+        });
+        label.append(heading, input, this.createRangeScale(scaleKeys));
+        if (footer) label.appendChild(footer);
+        return label;
       }
 
       togglePanel() {
@@ -564,6 +710,13 @@
           });
           presets.appendChild(button);
         });
+        const compressorReduction = document.createElement('output');
+        compressorReduction.className = 'tfr-audio-compressor__reduction';
+        compressorReduction.textContent = this.enabled
+          ? t('settings.audioCompressor.reduction', {
+            reduction: (Number(this.graph?.compressor?.reduction) || 0).toFixed(1)
+          })
+          : t('settings.audioCompressor.reductionInactive');
         const normalizer = document.createElement('section');
         normalizer.className = 'tfr-audio-normalizer';
         const normalizerHeading = this.createPanelHeading(
@@ -574,24 +727,6 @@
         const normalizerToggle = this.createStateToggle(this.normalizerEnabled, async () => {
           await this.updatePreference?.({ normalizerEnabled: !this.normalizerEnabled });
         });
-        const targetLabel = document.createElement('label');
-        targetLabel.className = 'tfr-audio-normalizer__target';
-        const targetHeading = document.createElement('span');
-        targetHeading.textContent = t('settings.volumeNormalizer.target');
-        const targetOutput = document.createElement('output');
-        targetOutput.textContent = `${this.targetDb} dB`;
-        targetHeading.appendChild(targetOutput);
-        const targetInput = document.createElement('input');
-        targetInput.type = 'range';
-        targetInput.min = String(VOLUME_TARGET_MIN_DB);
-        targetInput.max = String(VOLUME_TARGET_MAX_DB);
-        targetInput.step = '1';
-        targetInput.value = String(this.targetDb);
-        targetInput.disabled = !this.normalizerEnabled;
-        targetInput.addEventListener('input', () => { targetOutput.textContent = `${targetInput.value} dB`; });
-        targetInput.addEventListener('change', async () => {
-          await this.updatePreference?.({ targetDb: Number(targetInput.value) });
-        });
         const calibrateButton = document.createElement('button');
         calibrateButton.type = 'button';
         calibrateButton.className = 'tfr-audio-normalizer__calibrate';
@@ -601,22 +736,61 @@
           if (!Number.isFinite(this.measuredLevelDb)) return;
           await this.updatePreference?.({ targetDb: Math.round(this.measuredLevelDb) });
         });
-        const targetScale = this.createTargetScale();
-        targetLabel.append(targetHeading, targetInput, targetScale, calibrateButton);
+        const targetLabel = this.createDbRangeControl({
+          titleKey: 'settings.volumeNormalizer.target',
+          value: this.targetDb,
+          min: VOLUME_TARGET_MIN_DB,
+          max: VOLUME_TARGET_MAX_DB,
+          scaleKeys: [
+            'settings.volumeNormalizer.quieter',
+            'settings.volumeNormalizer.recommended',
+            'settings.volumeNormalizer.louder'
+          ],
+          preferenceKey: 'targetDb',
+          footer: calibrateButton
+        });
+        const reductionHint = document.createElement('small');
+        reductionHint.textContent = t('settings.volumeNormalizer.maxReductionHint');
+        const reductionLabel = this.createDbRangeControl({
+          titleKey: 'settings.volumeNormalizer.maxReduction',
+          value: this.maxReductionDb,
+          min: VOLUME_MAX_REDUCTION_MIN_DB,
+          max: VOLUME_MAX_REDUCTION_MAX_DB,
+          scaleKeys: [
+            'settings.volumeNormalizer.strongerLimit',
+            'settings.volumeNormalizer.defaultLimit',
+            'settings.volumeNormalizer.lighterLimit'
+          ],
+          preferenceKey: 'maxReductionDb',
+          footer: reductionHint
+        });
         const gainOutput = document.createElement('output');
         gainOutput.className = 'tfr-audio-normalizer__gain';
         gainOutput.textContent = this.normalizerEnabled
-          ? t('settings.volumeNormalizer.gain', { gain: `${this.currentGainDb >= 0 ? '+' : ''}${this.currentGainDb.toFixed(1)}` })
+          ? t(
+            this.normalizerPhase === 'releasing'
+              ? 'settings.volumeNormalizer.gainReleasing'
+              : 'settings.volumeNormalizer.gain',
+            { gain: this.formatReductionDb(this.currentGainDb) }
+          )
           : t('settings.volumeNormalizer.gainInactive');
         const levelOutput = document.createElement('output');
         levelOutput.className = 'tfr-audio-normalizer__level';
         levelOutput.textContent = t('settings.volumeNormalizer.measured', {
           level: Number.isFinite(this.measuredLevelDb) ? this.measuredLevelDb.toFixed(1) : '—'
         });
-        normalizer.append(
-          normalizerHeading, normalizerDescription, normalizerToggle, targetLabel, levelOutput, gainOutput
+        const measurementOutput = document.createElement('output');
+        measurementOutput.className = 'tfr-audio-normalizer__measurement';
+        measurementOutput.textContent = t(
+          this.engine.getMeasurementMode() === 'worklet'
+            ? 'settings.volumeNormalizer.measurementWorklet'
+            : 'settings.volumeNormalizer.measurementFallback'
         );
-        panel.append(heading, description, toggle, presets, normalizer);
+        normalizer.append(
+          normalizerHeading, normalizerDescription, normalizerToggle, targetLabel,
+          reductionLabel, measurementOutput, levelOutput, gainOutput
+        );
+        panel.append(heading, description, toggle, presets, compressorReduction, normalizer);
         document.body.appendChild(panel);
         const rect = this.button.getBoundingClientRect();
         panel.style.left = `${Math.max(8, Math.min(window.innerWidth - 288, rect.left))}px`;
@@ -630,6 +804,7 @@
         const video = document.querySelector('.video-player__container video, [data-a-target="video-player"] video, video');
         if ((this.enabled || this.normalizerEnabled) && video && video !== this.video) this.attachAudio(video);
         this.applyCompressorState();
+        this.updateCompressorReadout();
       }
 
       dispose() {
@@ -641,6 +816,9 @@
         this.button?.remove();
         this.panel = null;
         this.button = null;
+        document.removeEventListener?.('pointerdown', this.resumeAudio, true);
+        document.removeEventListener?.('keydown', this.resumeAudio, true);
+        this.bindVideoEvents(null);
         this.engine.bypass();
       }
     }

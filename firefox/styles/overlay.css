@@ -442,6 +442,29 @@
   border-top: 1px solid rgba(145, 71, 255, 0.2);
 }
 
+.tfr-shared-remote__account-area.is-onboarding {
+  grid-template-columns: minmax(0, 720px);
+  justify-content: center;
+  padding: 24px 16px 8px;
+}
+
+.tfr-shared-remote__account-area.is-onboarding .tfr-shared-remote__panel--account {
+  gap: 12px;
+  padding: 22px;
+  border-color: rgba(145, 71, 255, 0.42);
+  background: radial-gradient(circle at 90% 0%, rgba(145,71,255,.16), transparent 42%), rgba(12,7,22,.68);
+  box-shadow: 0 14px 38px rgba(0,0,0,.18);
+}
+
+.tfr-shared-remote__account-area.is-onboarding .tfr-shared-remote__panel--account > strong { font-size: 17px; }
+.tfr-shared-onboarding__benefits { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.tfr-shared-onboarding__benefits > div { display: grid; grid-template-columns: auto 1fr; gap: 8px; align-items: center; padding: 10px; border-radius: 9px; background: rgba(255,255,255,.035); color: #d8cfdf; font-size: 12px; }
+.tfr-shared-onboarding__benefits > div > span:first-child { display: inline-grid; place-items: center; width: 25px; height: 25px; border-radius: 50%; background: rgba(145,71,255,.22); color: #cdaaff; font-weight: 900; }
+.tfr-shared-remote__account-area.is-onboarding .tfr-shared-remote__actions { grid-template-columns: minmax(180px, 300px); justify-content: center; }
+.tfr-shared-onboarding__technical { padding-top: 4px; color: #968ba3; font-size: 11px; }
+.tfr-shared-onboarding__technical summary { cursor: pointer; text-align: center; }
+.tfr-shared-onboarding__technical small { display: block; margin-top: 7px; overflow-wrap: anywhere; text-align: center; }
+
 .tfr-shared-remote__panel {
   display: grid;
   grid-template-rows: auto auto 1fr;
@@ -825,6 +848,7 @@
 }
 
 @media (max-width: 760px) {
+  .tfr-shared-onboarding__benefits { grid-template-columns: 1fr; }
   .tfr-profile-controls {
     grid-template-columns: 1fr;
   }
@@ -3558,7 +3582,7 @@
   display: inline-flex;
   align-items: center;
   flex: 0 0 auto;
-  margin-left: 8px;
+  margin-left: 6px;
   padding: 4px 8px;
   border: 1px solid rgba(255, 255, 255, 0.22);
   border-radius: 999px;
@@ -3567,6 +3591,7 @@
   font-size: 11px;
   font-weight: 700;
   line-height: 1.2;
+  white-space: nowrap;
   backdrop-filter: blur(5px);
 }
 
@@ -3738,15 +3763,28 @@
 }
 
 .tfr-audio-normalizer__gain,
-.tfr-audio-normalizer__level {
+.tfr-audio-normalizer__level,
+.tfr-audio-compressor__reduction {
   color: #bf94ff;
   font-size: 11px;
   font-weight: 700;
   text-align: center;
 }
 
+.tfr-audio-compressor__reduction {
+  display: block;
+  color: rgba(239, 239, 241, 0.68);
+}
+
 .tfr-audio-normalizer__level {
   color: rgba(239, 239, 241, 0.68);
+}
+
+.tfr-audio-normalizer__measurement {
+  color: rgba(191, 148, 255, 0.72);
+  font-size: 9px;
+  font-weight: 600;
+  text-align: center;
 }
 
 .tfr-chat-custom-font [data-a-target="chat-line-message"],

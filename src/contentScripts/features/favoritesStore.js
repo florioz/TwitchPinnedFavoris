@@ -92,7 +92,8 @@
         chatMentionSoundId: (value) => this.sanitizeChatMentionSoundId(value),
         liveHoverPreviewMode: (value) => this.sanitizeLiveHoverPreviewMode(value),
         playerAudioCompressorPreset: (value) => this.sanitizePlayerAudioCompressorPreset(value),
-        playerVolumeTargetDb: (value) => this.sanitizePlayerVolumeTargetDb(value)
+        playerVolumeTargetDb: (value) => this.sanitizePlayerVolumeTargetDb(value),
+        playerVolumeMaxReductionDb: (value) => this.sanitizePlayerVolumeMaxReductionDb(value)
       });
       this.liveData = {};
       this.emitter = new EventEmitter();
@@ -375,6 +376,9 @@
       );
       this.state.preferences.playerVolumeTargetDb = this.sanitizePlayerVolumeTargetDb(
         this.state.preferences.playerVolumeTargetDb
+      );
+      this.state.preferences.playerVolumeMaxReductionDb = this.sanitizePlayerVolumeMaxReductionDb(
+        this.state.preferences.playerVolumeMaxReductionDb
       );
       Object.entries(DEFAULT_STATE.preferences || {}).forEach(([key, defaultValue]) => {
         if (!Object.prototype.hasOwnProperty.call(this.state.preferences, key)) {
@@ -1540,6 +1544,16 @@
 
     async setPlayerVolumeTargetDb(value) {
       return this.setSanitizedPreference('playerVolumeTargetDb', value, this.sanitizePlayerVolumeTargetDb);
+    }
+
+    sanitizePlayerVolumeMaxReductionDb(value) {
+      return this.preferenceSanitizers.playerVolumeMaxReductionDb(value);
+    }
+
+    async setPlayerVolumeMaxReductionDb(value) {
+      return this.setSanitizedPreference(
+        'playerVolumeMaxReductionDb', value, this.sanitizePlayerVolumeMaxReductionDb
+      );
     }
 
     async setChatFontEnabled(enabled) {

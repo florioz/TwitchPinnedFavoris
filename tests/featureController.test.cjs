@@ -59,6 +59,7 @@ test('enhancement registry selects and propagates preferences', () => {
     playerAudioCompressorPreset: 'strong',
     playerVolumeNormalizerEnabled: true,
     playerVolumeTargetDb: -18,
+    playerVolumeMaxReductionDb: -36,
     showFullRepliesEnabled: true
   });
 
@@ -78,7 +79,7 @@ test('enhancement registry selects and propagates preferences', () => {
   assert.equal(controller.autoClaimChannelPoints.value, true);
   assert.deepEqual(
     JSON.parse(JSON.stringify(controller.playerAudioCompressor.value)),
-    { enabled: true, preset: 'strong', normalizerEnabled: true, targetDb: -18 }
+    { enabled: true, preset: 'strong', normalizerEnabled: true, targetDb: -18, maxReductionDb: -36 }
   );
 });
 

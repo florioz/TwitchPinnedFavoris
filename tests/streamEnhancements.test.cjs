@@ -85,6 +85,62 @@ test('player latency indicator starts and stops without leaving a timer behind',
   assert.equal(activeIntervals.size, 0);
 });
 
+test('player latency indicator stays after native collaborative viewer controls', () => {
+  const { features } = loadFeatures();
+  const indicator = new features.PlayerLatencyIndicator();
+  const viewers = { id: 'viewers' };
+  const collaborationMenu = { id: 'collaboration-menu' };
+  const ownIndicator = { id: 'buffer' };
+  indicator.root = ownIndicator;
+
+  const container = {
+    children: [viewers, ownIndicator, collaborationMenu]
+  };
+
+  assert.equal(indicator.getInsertionReference(container, viewers), collaborationMenu);
+});
+
+test('player latency indicator mounts outside the collaborative viewer block', () => {
+  const { features } = loadFeatures();
+  const indicator = new features.PlayerLatencyIndicator();
+  const row = { textContent: '19 295 00:57:11', parentElement: null };
+  const viewerBlock = { textContent: '19 295', parentElement: row };
+  const counterContainer = { textContent: '19 295', parentElement: viewerBlock };
+  const viewers = { textContent: '19 295', parentElement: counterContainer };
+
+  const layout = indicator.resolveStatsLayout(viewers);
+  assert.equal(layout.container, row);
+  assert.equal(layout.reference, viewerBlock);
+});
+
+test('player latency indicator mounts after the real Twitch collaboration arrow', () => {
+  const { features } = loadFeatures();
+  const indicator = new features.PlayerLatencyIndicator();
+  const viewers = {};
+  const innerCounter = {
+    contains: (node) => node === viewers
+  };
+  const hiddenHint = {
+    contains: () => false,
+    matches: () => false
+  };
+  const collaborationArrow = {
+    contains: () => false,
+    matches: (selector) => selector.includes('.tw-svg')
+  };
+  const collaborationRow = {
+    children: [innerCounter, hiddenHint, collaborationArrow],
+    textContent: '',
+    parentElement: null
+  };
+  viewers.parentElement = innerCounter;
+  innerCounter.parentElement = collaborationRow;
+
+  const layout = indicator.resolveStatsLayout(viewers);
+  assert.equal(layout.container, collaborationRow);
+  assert.equal(layout.reference, collaborationArrow);
+});
+
 test('stream enhancement module exposes independent emote and player features', () => {
   const { features } = loadFeatures();
   assert.equal(typeof features.ThirdPartyChatEmotes, 'function');
@@ -139,8 +195,9 @@ test('audio compressor presets remain bounded and disabled mode is transparent',
 test('volume normalization clamps its target and applied correction', () => {
   const { features } = loadFeatures();
   const manager = new features.PlayerAudioCompressor();
-  manager.configure({ enabled: false, normalizerEnabled: true, targetDb: -16 });
+  manager.configure({ enabled: false, normalizerEnabled: true, targetDb: -16, maxReductionDb: -34 });
   assert.equal(manager.targetDb, -16);
+  assert.equal(manager.maxReductionDb, -34);
   assert.equal(manager.calculateTargetGainDb(-4), -12);
   assert.equal(manager.calculateTargetGainDb(-30), 0);
   assert.equal(manager.calculateTargetGainDb(-52), 0);
@@ -149,6 +206,71 @@ test('volume normalization clamps its target and applied correction', () => {
   assert.ok(manager.calculateMeasuredLevelDb(musicLikeSignal) > -13);
   manager.configure({ enabled: false, normalizerEnabled: true, targetDb: -40 });
   assert.equal(manager.targetDb, -40);
+});
+
+test('volume meter timer runs only while normalization is enabled', () => {
+  const { features, activeIntervals } = loadFeatures();
+  const manager = new features.PlayerAudioCompressor();
+  manager.init();
+  assert.equal(activeIntervals.size, 1);
+  manager.configure({ enabled: false, normalizerEnabled: true, targetDb: -16 });
+  assert.equal(activeIntervals.size, 2);
+  manager.configure({ enabled: false, normalizerEnabled: false, targetDb: -16 });
+  assert.equal(activeIntervals.size, 1);
+  manager.dispose();
+  assert.equal(activeIntervals.size, 0);
+});
+
+test('fresh AudioWorklet events avoid duplicate timer processing', () => {
+  const { features } = loadFeatures();
+  const manager = new features.PlayerAudioCompressor();
+  let updates = 0;
+  manager.normalizerEnabled = true;
+  manager.engine.workletStatus = 'active';
+  manager.engine.workletLevelAt = Date.now();
+  manager.engine.update = () => {
+    updates += 1;
+    return null;
+  };
+
+  manager.updateVolumeNormalization(false);
+  assert.equal(updates, 0);
+  manager.updateVolumeNormalization(true);
+  assert.equal(updates, 1);
+});
+
+test('audio protection follows Twitch video playback lifecycle', () => {
+  const { features } = loadFeatures();
+  const manager = new features.PlayerAudioCompressor();
+  const added = [];
+  const removed = [];
+  const firstVideo = {
+    addEventListener: (name) => added.push(`first:${name}`),
+    removeEventListener: (name) => removed.push(`first:${name}`)
+  };
+  const secondVideo = {
+    addEventListener: (name) => added.push(`second:${name}`),
+    removeEventListener: (name) => removed.push(`second:${name}`)
+  };
+
+  manager.bindVideoEvents(firstVideo);
+  manager.bindVideoEvents(secondVideo);
+  manager.bindVideoEvents(null);
+  assert.deepEqual(added, [
+    'first:play', 'first:playing', 'first:volumechange',
+    'second:play', 'second:playing', 'second:volumechange'
+  ]);
+  assert.deepEqual(removed, [
+    'first:play', 'first:playing', 'first:volumechange',
+    'second:play', 'second:playing', 'second:volumechange'
+  ]);
+});
+
+test('audio reduction readout removes misleading negative zero', () => {
+  const { features } = loadFeatures();
+  const manager = new features.PlayerAudioCompressor();
+  assert.equal(manager.formatReductionDb(-0.01), '0.0');
+  assert.equal(manager.formatReductionDb(-4.36), '-4.4');
 });
 
 test('chat mention colors and sounds use safe fallbacks', () => {

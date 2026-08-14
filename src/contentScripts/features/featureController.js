@@ -50,7 +50,9 @@ class FeatureController {
           enabled: prefs.playerAudioCompressorEnabled === true,
           preset: prefs.playerAudioCompressorPreset || 'balanced',
           normalizerEnabled: prefs.playerVolumeNormalizerEnabled === true,
-          targetDb: Number.isFinite(Number(prefs.playerVolumeTargetDb)) ? Number(prefs.playerVolumeTargetDb) : -16
+          targetDb: Number.isFinite(Number(prefs.playerVolumeTargetDb)) ? Number(prefs.playerVolumeTargetDb) : -16,
+          maxReductionDb: Number.isFinite(Number(prefs.playerVolumeMaxReductionDb))
+            ? Number(prefs.playerVolumeMaxReductionDb) : -24
         })
       },
       {
@@ -122,6 +124,9 @@ class FeatureController {
         if (Object.hasOwn(changes, 'preset')) await this.store.setPlayerAudioCompressorPreset(changes.preset);
         if (Object.hasOwn(changes, 'enabled')) await this.store.setPlayerAudioCompressorEnabled(changes.enabled);
         if (Object.hasOwn(changes, 'targetDb')) await this.store.setPlayerVolumeTargetDb(changes.targetDb);
+        if (Object.hasOwn(changes, 'maxReductionDb')) {
+          await this.store.setPlayerVolumeMaxReductionDb(changes.maxReductionDb);
+        }
         if (Object.hasOwn(changes, 'normalizerEnabled')) {
           await this.store.setPlayerVolumeNormalizerEnabled(changes.normalizerEnabled);
         }

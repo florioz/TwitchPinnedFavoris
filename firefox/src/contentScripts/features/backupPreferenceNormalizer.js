@@ -45,6 +45,7 @@
     sanitizeIfPresent('liveHoverPreviewMode', sanitizers.liveHoverPreviewMode, 'string');
     sanitizeIfPresent('playerAudioCompressorPreset', sanitizers.playerAudioCompressorPreset, 'string');
     sanitizeIfPresent('playerVolumeTargetDb', sanitizers.playerVolumeTargetDb);
+    sanitizeIfPresent('playerVolumeMaxReductionDb', sanitizers.playerVolumeMaxReductionDb);
 
     if (source.specialCategoryColors && typeof source.specialCategoryColors === 'object') {
       result.specialCategoryColors = sanitizers.specialCategoryColors(source.specialCategoryColors);

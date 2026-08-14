@@ -37,4 +37,8 @@ test('preference sanitizers provide safe chat and toast fallbacks', () => {
   assert.equal(tools.playerVolumeTargetDb(-40), -40);
   assert.equal(tools.playerVolumeTargetDb(-12), -12);
   assert.equal(tools.playerVolumeTargetDb('invalid'), -16);
+  assert.equal(tools.playerVolumeMaxReductionDb(-50), -40);
+  assert.equal(tools.playerVolumeMaxReductionDb(-30), -30);
+  assert.equal(tools.playerVolumeMaxReductionDb(-5), -12);
+  assert.equal(tools.playerVolumeMaxReductionDb('invalid'), -24);
 });

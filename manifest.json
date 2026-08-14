@@ -129,7 +129,17 @@
   "side_panel": {
     "default_path": "panel/sidepanel.html"
   },
-  "web_accessible_resources": [],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "src/contentScripts/worklets/audioLevelProcessor.js"
+      ],
+      "matches": [
+        "https://www.twitch.tv/*",
+        "https://twitch.tv/*"
+      ]
+    }
+  ],
   "action": {
     "default_icon": {
       "16": "assets/icon16.png",

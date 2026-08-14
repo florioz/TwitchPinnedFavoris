@@ -51,6 +51,7 @@
       playerAudioCompressorPreset: 'balanced',
       playerVolumeNormalizerEnabled: false,
       playerVolumeTargetDb: -16,
+      playerVolumeMaxReductionDb: -24,
       chatFontEnabled: false,
       chatFontFamily: 'system',
       chatCustomFontName: '',
@@ -609,7 +610,12 @@
   };
   let streamEnhancements = null;
   try {
-    streamEnhancements = window.TFRStreamEnhancements?.create?.({ t }) || null;
+    streamEnhancements = window.TFRStreamEnhancements?.create?.({
+      t,
+      audioWorkletModuleUrl: extensionApi?.runtime?.getURL?.(
+        'src/contentScripts/worklets/audioLevelProcessor.js'
+      ) || ''
+    }) || null;
   } catch (error) {
     console.error('[TFR] stream enhancements unavailable', error);
   }

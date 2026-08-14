@@ -29,7 +29,10 @@ const normalize = context.window.TFRBackupPreferenceNormalizer.create({
   chatCustomFontDataUrl: identity,
   chatMentionHighlightColor: identity,
   chatMentionSoundId: identity,
-  liveHoverPreviewMode: (value) => value === 'video' ? 'video' : 'image'
+  liveHoverPreviewMode: (value) => value === 'video' ? 'video' : 'image',
+  playerAudioCompressorPreset: identity,
+  playerVolumeTargetDb: (value) => Math.max(-80, Math.min(-10, Number(value))),
+  playerVolumeMaxReductionDb: (value) => Math.max(-40, Math.min(-12, Number(value)))
 });
 
 test('backup preferences keep typed values and ignore invalid booleans', () => {
@@ -68,4 +71,15 @@ test('backup preferences clamp durations and truncate custom font names', () => 
   assert.equal(result.chatPaddingPx, 20);
   assert.equal(result.categoryColorOpacity, 100);
   assert.equal(result.chatCustomFontName.length, 160);
+});
+
+test('backup preferences preserve bounded audio normalization settings', () => {
+  const result = normalize({
+    playerAudioCompressorPreset: 'strong',
+    playerVolumeTargetDb: -48,
+    playerVolumeMaxReductionDb: -36
+  });
+  assert.equal(result.playerAudioCompressorPreset, 'strong');
+  assert.equal(result.playerVolumeTargetDb, -48);
+  assert.equal(result.playerVolumeMaxReductionDb, -36);
 });

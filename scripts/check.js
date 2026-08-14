@@ -25,6 +25,7 @@ const files = [
   'src/contentScripts/panelSnapshotController.js',
   'src/contentScripts/panelSnapshotPresenter.js',
   'src/contentScripts/extensionRuntimeClient.js',
+  'src/contentScripts/worklets/audioLevelProcessor.js',
   'src/contentScripts/panelMessageRouter.js',
   'src/contentScripts/overlayPanel.js',
   'panel/bootstrap.js',
@@ -40,6 +41,7 @@ const files = [
   'scripts/package-all.js',
   'firefox/src/background/serviceWorker.js',
   'firefox/src/contentScripts/main.js',
+  'firefox/src/contentScripts/worklets/audioLevelProcessor.js',
   'firefox/src/contentScripts/overlayPanel.js',
   'firefox/panel/bootstrap.js',
   'firefox/panel/vods.js'
