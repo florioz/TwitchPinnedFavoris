@@ -83,3 +83,14 @@ test('backup preferences preserve bounded audio normalization settings', () => {
   assert.equal(result.playerVolumeTargetDb, -48);
   assert.equal(result.playerVolumeMaxReductionDb, -36);
 });
+
+test('backup preferences preserve onboarding progress', () => {
+  const result = normalize({
+    onboardingTutorialVersion: 1,
+    onboardingTutorialStep: 3,
+    onboardingTutorialDismissed: true
+  });
+  assert.equal(result.onboardingTutorialVersion, 1);
+  assert.equal(result.onboardingTutorialStep, 3);
+  assert.equal(result.onboardingTutorialDismissed, true);
+});

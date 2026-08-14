@@ -52,6 +52,9 @@
       playerVolumeNormalizerEnabled: false,
       playerVolumeTargetDb: -16,
       playerVolumeMaxReductionDb: -24,
+      onboardingTutorialVersion: 0,
+      onboardingTutorialStep: 0,
+      onboardingTutorialDismissed: false,
       chatFontEnabled: false,
       chatFontFamily: 'system',
       chatCustomFontName: '',
@@ -672,6 +675,10 @@
   if (!ViewerCardSharedInvite) {
     throw new Error('[TFR] viewer card shared invite module is missing');
   }
+  const OnboardingTutorial = window.TFROnboardingTutorial?.create?.({ t });
+  if (!OnboardingTutorial) {
+    throw new Error('[TFR] onboarding tutorial module is missing');
+  }
   const TopNavManager = window.TFRTopNav?.create?.({
     t,
     sendExtensionMessage,
@@ -702,7 +709,8 @@
   }
   const app = window.TFRAppBootstrap?.create?.({
     FavoritesStore, FeatureController, SidebarRenderer, ChannelFavoriteButton,
-    FavoritesOverlay, TopNavManager, UpdateNotifier, ViewerCardSharedInvite
+    FavoritesOverlay, TopNavManager, UpdateNotifier, ViewerCardSharedInvite,
+    OnboardingTutorial
   });
   if (!app) throw new Error('[TFR] application bootstrap module is missing');
   const bootstrap = () => app.start();

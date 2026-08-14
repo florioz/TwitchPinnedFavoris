@@ -719,6 +719,218 @@
   color: #f7f7f8;
 }
 
+.tfr-tutorial-launch {
+  padding: 8px 12px;
+  border: 1px solid rgba(191, 148, 255, 0.5);
+  border-radius: 8px;
+  background: rgba(145, 71, 255, 0.12);
+  color: #d8bfff;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.tfr-tutorial-launch:hover {
+  background: rgba(145, 71, 255, 0.24);
+}
+
+.tfr-onboarding-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483646;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(5, 3, 10, 0.78);
+  backdrop-filter: blur(5px);
+}
+
+.tfr-onboarding {
+  box-sizing: border-box;
+  width: min(520px, 100%);
+  padding: 20px;
+  border: 1px solid rgba(145, 71, 255, 0.65);
+  border-radius: 18px;
+  background:
+    radial-gradient(circle at 50% 0%, rgba(145, 71, 255, 0.2), transparent 42%),
+    #160d27;
+  color: #f7f7f8;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.58);
+}
+
+.tfr-onboarding header,
+.tfr-onboarding footer,
+.tfr-onboarding footer > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.tfr-onboarding__eyebrow {
+  color: #bf94ff;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.tfr-onboarding__later,
+.tfr-onboarding__skip,
+.tfr-onboarding__secondary,
+.tfr-onboarding__primary {
+  border-radius: 9px;
+  padding: 9px 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.tfr-onboarding__later,
+.tfr-onboarding__skip {
+  border: 0;
+  background: transparent;
+  color: rgba(239, 239, 241, 0.7);
+}
+
+.tfr-onboarding__visual {
+  display: grid;
+  place-items: center;
+  width: 92px;
+  height: 92px;
+  margin: 22px auto 16px;
+  border: 1px solid rgba(191, 148, 255, 0.45);
+  border-radius: 28px;
+  background: linear-gradient(145deg, rgba(145, 71, 255, 0.42), rgba(0, 229, 204, 0.12));
+  color: #fff;
+  font-size: 42px;
+  box-shadow: 0 14px 34px rgba(63, 25, 112, 0.35);
+}
+
+.tfr-onboarding h2 {
+  margin: 0;
+  text-align: center;
+  font-size: 24px;
+}
+
+.tfr-onboarding > p {
+  margin: 10px auto 14px;
+  max-width: 440px;
+  color: rgba(239, 239, 241, 0.78);
+  text-align: center;
+  line-height: 1.5;
+}
+
+.tfr-onboarding__tip {
+  padding: 11px 13px;
+  border-left: 3px solid #9147ff;
+  border-radius: 7px;
+  background: rgba(145, 71, 255, 0.1);
+  color: #d9c7f5;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.tfr-onboarding__dots {
+  display: flex;
+  justify-content: center;
+  gap: 7px;
+  margin: 18px 0;
+}
+
+.tfr-onboarding__dots span {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: rgba(239, 239, 241, 0.25);
+}
+
+.tfr-onboarding__dots .is-active {
+  width: 22px;
+  border-radius: 8px;
+  background: #9147ff;
+}
+
+.tfr-onboarding__secondary {
+  border: 1px solid rgba(145, 71, 255, 0.5);
+  background: transparent;
+  color: #d8bfff;
+}
+
+.tfr-onboarding__primary {
+  border: 1px solid #9147ff;
+  background: #9147ff;
+  color: #fff;
+}
+
+.tfr-onboarding button:hover {
+  filter: brightness(1.12);
+}
+
+.tfr-onboarding-guide {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483647;
+  pointer-events: none;
+}
+
+.tfr-onboarding-guide__highlight {
+  position: fixed;
+  box-sizing: border-box;
+  border: 3px solid #bf94ff;
+  border-radius: 12px;
+  box-shadow:
+    0 0 0 9999px rgba(5, 3, 10, 0.72),
+    0 0 0 6px rgba(145, 71, 255, 0.22),
+    0 0 28px rgba(191, 148, 255, 0.85);
+  animation: tfr-onboarding-pulse 1.5s ease-in-out infinite;
+}
+
+.tfr-onboarding-guide__callout {
+  position: fixed;
+  box-sizing: border-box;
+  padding: 14px;
+  border: 1px solid rgba(191, 148, 255, 0.65);
+  border-radius: 12px;
+  background: #1c1030;
+  color: #f7f7f8;
+  box-shadow: 0 16px 42px rgba(0, 0, 0, 0.55);
+  pointer-events: auto;
+}
+
+.tfr-onboarding-guide__callout strong {
+  color: #bf94ff;
+  font-size: 13px;
+  text-transform: uppercase;
+}
+
+.tfr-onboarding-guide__callout p {
+  margin: 7px 0 12px;
+  color: rgba(239, 239, 241, 0.82);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.tfr-onboarding-guide__callout > div {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+@keyframes tfr-onboarding-pulse {
+  50% { border-color: #fff; }
+}
+
+@media (max-width: 520px) {
+  .tfr-onboarding { padding: 16px; }
+  .tfr-onboarding footer { align-items: stretch; flex-direction: column-reverse; }
+  .tfr-onboarding footer > div { width: 100%; }
+  .tfr-onboarding__secondary,
+  .tfr-onboarding__primary { flex: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tfr-onboarding-guide__highlight { animation: none; }
+}
+
 .tfr-backup-controls {
   display: flex;
   flex-wrap: wrap;

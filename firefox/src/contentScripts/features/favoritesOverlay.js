@@ -88,6 +88,10 @@ class FavoritesOverlay {
     this.sharedCreationImport = null;
     this.sharedCreationSource = '';
     this.featureCardsOpen = new Set();
+    this.openFromTutorial = () => this.open();
+    this.closeFromTutorial = () => this.close();
+    document.addEventListener('tfr:favorites-manager:open', this.openFromTutorial);
+    document.addEventListener('tfr:favorites-manager:close', this.closeFromTutorial);
     this.categoryFilterController = new FavoriteCategoryFilterController({
       store: this.store,
       getCategorySuggestions: (term) => this.getCategorySuggestions(term),
@@ -251,6 +255,8 @@ class FavoritesOverlay {
     this.sharedAutoSync?.dispose();
     this.sharedAutoSync = null;
     document.removeEventListener('keydown', this.handleEscapeKeydown);
+    document.removeEventListener('tfr:favorites-manager:open', this.openFromTutorial);
+    document.removeEventListener('tfr:favorites-manager:close', this.closeFromTutorial);
     this.openListeners.clear();
     this.closeListeners.clear();
     this.categorySuggestionCache.clear();
@@ -350,6 +356,18 @@ class FavoritesOverlay {
     return child;
   }
 
+  createTutorialLaunchButton(mode, labelKey) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'tfr-tutorial-launch';
+    button.textContent = t(labelKey);
+    button.addEventListener('click', () => {
+      this.close();
+      document.dispatchEvent(new CustomEvent('tfr:onboarding:open', { detail: { mode } }));
+    });
+    return button;
+  }
+
   renderManagerControls() {
     const controls = document.createElement('div');
     controls.className = 'tfr-manager-controls';
@@ -380,7 +398,11 @@ class FavoritesOverlay {
       await this.store.setSortMode(this.sortMode);
       this.render();
     });
-    controls.append(searchInput, sortSelect);
+    const tutorialButton = this.createTutorialLaunchButton('basic', 'onboarding.relaunch');
+    const advancedTutorialButton = this.createTutorialLaunchButton(
+      'advanced', 'onboarding.relaunchAdvanced'
+    );
+    controls.append(searchInput, sortSelect, tutorialButton, advancedTutorialButton);
     return controls;
   }
 
@@ -463,6 +485,7 @@ class FavoritesOverlay {
       const button = document.createElement('button');
       button.type = 'button';
       button.className = 'tfr-workspace-switcher__tab';
+      button.dataset.tfrWorkspaceMode = mode;
       button.classList.toggle('is-active', (state.workspaceMode || 'personal') === mode);
       button.textContent = t(labelKey);
       button.addEventListener('click', async () => {
@@ -2237,6 +2260,7 @@ class FavoritesOverlay {
   createFeatureCard(group, toggles, preferences) {
     const card = document.createElement('details');
     card.className = 'tfr-feature-card';
+    card.dataset.tfrFeatureGroup = group.id;
     card.open = this.featureCardsOpen.has(group.id);
     card.addEventListener('toggle', () => {
       if (card.open) this.featureCardsOpen.add(group.id);

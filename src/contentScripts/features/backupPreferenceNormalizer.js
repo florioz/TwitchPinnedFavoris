@@ -8,7 +8,8 @@
     'autoClaimChannelPointsEnabled',
     'playerVolumeNormalizerEnabled', 'chatFontEnabled',
     'chatNoPaddingEnabled', 'showDeletedMessagesEnabled', 'showFullRepliesEnabled',
-    'liveHoverPreviewEnabled', 'chatMentionHighlightEnabled', 'chatMentionSoundEnabled'
+    'liveHoverPreviewEnabled', 'chatMentionHighlightEnabled', 'chatMentionSoundEnabled',
+    'onboardingTutorialDismissed'
   ];
 
   const createBackupPreferenceNormalizer = (sanitizers) => (source = {}) => {
@@ -63,6 +64,8 @@
     copyClampedInteger('recentLiveThresholdMinutes', 1, 120);
     copyClampedInteger('toastDurationSeconds', 2, 60);
     copyClampedInteger('chatPaddingPx', 0, 20);
+    copyClampedInteger('onboardingTutorialVersion', 0, 1000);
+    copyClampedInteger('onboardingTutorialStep', 0, 20);
     return result;
   };
 

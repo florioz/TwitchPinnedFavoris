@@ -119,6 +119,15 @@ test('bounded integer preferences share rounding, limits and invalid-value behav
   assert.equal(getWrites(), 2);
 });
 
+test('onboarding progress is persisted as one bounded preference update', async () => {
+  const { store, getWrites } = createStore();
+  await store.setOnboardingTutorialState({ version: 1, step: 99, dismissed: true });
+  assert.equal(store.state.preferences.onboardingTutorialVersion, 1);
+  assert.equal(store.state.preferences.onboardingTutorialStep, 20);
+  assert.equal(store.state.preferences.onboardingTutorialDismissed, true);
+  assert.equal(getWrites(), 1);
+});
+
 test('boolean migration supports coercive and strict preference groups', () => {
   const { store } = createStore({ legacyEnabled: 1, strictEnabled: 'true' });
   store.normalizeBooleanPreference('legacyEnabled', false);

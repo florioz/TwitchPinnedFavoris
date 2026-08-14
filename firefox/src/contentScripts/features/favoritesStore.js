@@ -380,6 +380,14 @@
       this.state.preferences.playerVolumeMaxReductionDb = this.sanitizePlayerVolumeMaxReductionDb(
         this.state.preferences.playerVolumeMaxReductionDb
       );
+      this.state.preferences.onboardingTutorialVersion = this.sanitizeBoundedInteger(
+        this.state.preferences.onboardingTutorialVersion, 0, 1000, 0
+      );
+      this.state.preferences.onboardingTutorialStep = this.sanitizeBoundedInteger(
+        this.state.preferences.onboardingTutorialStep, 0, 20, 0
+      );
+      this.state.preferences.onboardingTutorialDismissed =
+        this.state.preferences.onboardingTutorialDismissed === true;
       Object.entries(DEFAULT_STATE.preferences || {}).forEach(([key, defaultValue]) => {
         if (!Object.prototype.hasOwnProperty.call(this.state.preferences, key)) {
           this.state.preferences[key] = deepCopy(defaultValue);
@@ -1554,6 +1562,19 @@
       return this.setSanitizedPreference(
         'playerVolumeMaxReductionDb', value, this.sanitizePlayerVolumeMaxReductionDb
       );
+    }
+
+    async setOnboardingTutorialState({ version, step, dismissed } = {}) {
+      await this.updateState((draft) => {
+        const preferences = draft.preferences || (draft.preferences = {});
+        if (version != null) {
+          preferences.onboardingTutorialVersion = this.sanitizeBoundedInteger(version, 0, 1000, 0);
+        }
+        if (step != null) {
+          preferences.onboardingTutorialStep = this.sanitizeBoundedInteger(step, 0, 20, 0);
+        }
+        if (typeof dismissed === 'boolean') preferences.onboardingTutorialDismissed = dismissed;
+      });
     }
 
     async setChatFontEnabled(enabled) {
