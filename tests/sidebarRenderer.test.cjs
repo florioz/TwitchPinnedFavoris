@@ -52,7 +52,9 @@ const loadSidebarRenderer = (windowRef, documentRef) => {
     'utf8'
   );
   vm.runInContext(rendererSource, context);
-  return context.window.TFRSidebarRenderer.create({});
+  return context.window.TFRSidebarRenderer.create({
+    getLiveDataEntry: (liveData, favorite) => liveData?.[favorite?.login] || null
+  });
 };
 
 test('auto compact is immediately remeasured after crossing its release threshold', () => {
@@ -245,4 +247,31 @@ test('live structure signature ignores viewer-driven ordering but detects member
     renderer.createLiveStructureSignature(first),
     renderer.createLiveStructureSignature(changed)
   );
+});
+
+test('render signatures distinguish personal profiles and shared spaces', () => {
+  const SidebarRenderer = loadSidebarRenderer(
+    { innerHeight: 700 },
+    { body: { contains: () => true }, hidden: false }
+  );
+  const renderer = new SidebarRenderer({});
+  const groups = [{
+    id: 'group', name: 'Group', collapsed: false, totalEntries: 1,
+    entries: [{ login: 'alpha', displayName: 'Alpha' }], children: []
+  }];
+  const baseState = {
+    activeProfileId: 'profile-one',
+    preferences: {},
+    favorites: { alpha: { login: 'alpha' } }
+  };
+  const personal = renderer.createRenderSignature(
+    { ...baseState, workspaceMode: 'personal', activeSharedSpaceId: '' },
+    {}, groups
+  );
+  const shared = renderer.createRenderSignature(
+    { ...baseState, workspaceMode: 'shared', activeSharedSpaceId: 'space-one' },
+    {}, groups
+  );
+
+  assert.notEqual(personal, shared);
 });

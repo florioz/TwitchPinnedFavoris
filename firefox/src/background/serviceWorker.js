@@ -13,6 +13,8 @@ import { createLiveSnapshotCoordinator } from './liveSnapshotCoordinator.mjs';
 import { createLiveNotificationService } from './liveNotificationService.mjs';
 import { createBadgeManager } from './badgeManager.mjs';
 import { createUpdateService } from './updateService.mjs';
+import { SHARED_SPACES_CONFIG, isSharedSpacesRemoteConfigured } from './sharedSpacesConfig.mjs';
+import { createSharedSpacesRemote } from './sharedSpacesRemote.mjs';
 
 const extensionApi = globalThis.chrome ?? globalThis.browser;
 
@@ -24,6 +26,10 @@ const DEFAULT_STATE = {
   revision: 0,
   activeProfileId: 'default',
   profiles: {},
+  workspaceMode: 'personal',
+  personalWorkspaceSnapshot: null,
+  activeSharedSpaceId: '',
+  sharedSpaces: {},
   favorites: {},
   categories: [],
   preferences: {
@@ -91,6 +97,11 @@ const overlayTabs = new Set();
 const SIDE_PANEL_PATH = 'panel/sidepanel.html';
 
 const { fetchStreamerLiveData } = createTwitchClient();
+const sharedSpacesRemote = createSharedSpacesRemote({
+  extensionApi,
+  config: SHARED_SPACES_CONFIG,
+  isConfigured: isSharedSpacesRemoteConfigured
+});
 
 const sendMessageToTab = (tabId, payload) =>
   new Promise((resolve) => {
@@ -728,10 +739,20 @@ const performLiveStatusEvaluation = async (reason = 'manual') => {
     previousNotifiedStreams = nextNotifiedStreams;
     latestState.favorites = nextFavorites;
     latestState.revision = Number(latestState.revision || 0) + 1;
-    const activeProfileId = latestState.activeProfileId;
-    if (activeProfileId && latestState.profiles?.[activeProfileId]) {
+    const activeSharedSpaceId = latestState.workspaceMode === 'shared'
+      ? latestState.activeSharedSpaceId
+      : '';
+    if (activeSharedSpaceId && latestState.sharedSpaces?.[activeSharedSpaceId]) {
+      latestState.sharedSpaces[activeSharedSpaceId].favorites = nextFavorites;
+      latestState.sharedSpaces[activeSharedSpaceId].updatedAt = now;
+      latestState.sharedSpaces[activeSharedSpaceId].revision =
+        Number(latestState.sharedSpaces[activeSharedSpaceId].revision || 0) + 1;
+    } else {
+      const activeProfileId = latestState.activeProfileId;
+      if (activeProfileId && latestState.profiles?.[activeProfileId]) {
       latestState.profiles[activeProfileId].favorites = nextFavorites;
       latestState.profiles[activeProfileId].updatedAt = now;
+      }
     }
     await extensionApi.storage.local.set({
       [STORAGE_KEY]: latestState,
@@ -865,6 +886,31 @@ extensionApi.storage.onChanged.addListener((changes, areaName) => {
 });
 
 extensionApi.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message?.type?.startsWith?.('TFR_SHARED_')) {
+    const operations = {
+      TFR_SHARED_STATUS: () => sharedSpacesRemote.getStatus(),
+      TFR_SHARED_CONNECT: () => sharedSpacesRemote.connect(),
+      TFR_SHARED_DISCONNECT: () => sharedSpacesRemote.disconnect(),
+      TFR_SHARED_LIST_SPACES: () => sharedSpacesRemote.listSpaces(),
+      TFR_SHARED_CREATE_SPACE: () => sharedSpacesRemote.createSpace(message.space),
+      TFR_SHARED_PULL_SPACE: () => sharedSpacesRemote.pullSpace(message.spaceId),
+      TFR_SHARED_PUSH_SPACE: () => sharedSpacesRemote.pushSpace(message.space),
+      TFR_SHARED_INVITE_LOGIN: () => sharedSpacesRemote.inviteByLogin(message.spaceId, message.login, message.role),
+      TFR_SHARED_CREATE_LINK: () => sharedSpacesRemote.createInviteLink(message.spaceId, message.role),
+      TFR_SHARED_LIST_INVITATIONS: () => sharedSpacesRemote.listInvitations(),
+      TFR_SHARED_RESPOND_INVITATION: () => sharedSpacesRemote.respondToInvitation(message.invitationId, message.accept),
+      TFR_SHARED_JOIN_TOKEN: () => sharedSpacesRemote.joinByToken(message.token),
+      TFR_SHARED_SET_MEMBER_ROLE: () => sharedSpacesRemote.setMemberRole(message.spaceId, message.userId, message.role),
+      TFR_SHARED_DELETE_SPACE: () => sharedSpacesRemote.deleteSpace(message.spaceId),
+      TFR_SHARED_LEAVE_SPACE: () => sharedSpacesRemote.leaveSpace(message.spaceId)
+    };
+    const operation = operations[message.type];
+    if (!operation) return false;
+    operation()
+      .then((data) => sendResponse({ ok: true, data }))
+      .catch((error) => sendResponse({ ok: false, message: error?.message || 'Shared space request failed' }));
+    return true;
+  }
   if (message?.type === 'TFR_GET_POPUP_STATE') {
     if (sender?.tab?.id) {
       overlayTabs.add(sender.tab.id);

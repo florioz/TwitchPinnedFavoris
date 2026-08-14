@@ -24,6 +24,7 @@ const FeatureController = context.window.TFRFeatureController.create({
   ModerationHistoryUI: Enhancement,
   ThirdPartyChatEmotes: Enhancement,
   PlayerLatencyIndicator: Enhancement,
+  PlayerRecovery: Enhancement,
   AutoClaimChannelPoints: Enhancement,
   PlayerAudioCompressor: Enhancement,
   ChatFontManager: Enhancement,

@@ -7,6 +7,7 @@
     ModerationHistoryUI,
     ThirdPartyChatEmotes,
     PlayerLatencyIndicator,
+    PlayerRecovery,
     AutoClaimChannelPoints,
     PlayerAudioCompressor,
     ChatFontManager,
@@ -34,6 +35,10 @@ class FeatureController {
       {
         property: 'playerLatencyIndicator', Type: PlayerLatencyIndicator, label: 'player indicator',
         selectPreferences: (prefs) => prefs.playerLatencyEnabled === true
+      },
+      {
+        property: 'playerRecovery', Type: PlayerRecovery, label: 'player recovery',
+        selectPreferences: (prefs) => prefs.playerRecoveryEnabled === true
       },
       {
         property: 'autoClaimChannelPoints', Type: AutoClaimChannelPoints, label: 'channel points auto claim',

@@ -6,6 +6,10 @@
     revision: 0,
     activeProfileId: 'default',
     profiles: {},
+    workspaceMode: 'personal',
+    personalWorkspaceSnapshot: null,
+    activeSharedSpaceId: '',
+    sharedSpaces: {},
     favorites: {},
     categories: [],
     preferences: {
@@ -41,6 +45,7 @@
       sevenTvEmotesEnabled: false,
       betterTtvEmotesEnabled: false,
       playerLatencyEnabled: false,
+      playerRecoveryEnabled: false,
       autoClaimChannelPointsEnabled: false,
       playerAudioCompressorEnabled: false,
       playerAudioCompressorPreset: 'balanced',
@@ -610,6 +615,7 @@
   }
   const ThirdPartyChatEmotes = streamEnhancements?.ThirdPartyChatEmotes || NoopEnhancement;
   const PlayerLatencyIndicator = streamEnhancements?.PlayerLatencyIndicator || NoopEnhancement;
+  const PlayerRecovery = window.TFRPlayerRecovery?.PlayerRecovery || NoopEnhancement;
   const AutoClaimChannelPoints = streamEnhancements?.AutoClaimChannelPoints || NoopEnhancement;
   const PlayerAudioCompressor = streamEnhancements?.PlayerAudioCompressor || NoopEnhancement;
   const ChatFontManager = streamEnhancements?.ChatFontManager || NoopEnhancement;
@@ -656,6 +662,10 @@
   if (!FavoritesOverlay) {
     throw new Error('[TFR] favorites overlay module is missing');
   }
+  const ViewerCardSharedInvite = window.TFRViewerCardSharedInvite?.create?.({ t });
+  if (!ViewerCardSharedInvite) {
+    throw new Error('[TFR] viewer card shared invite module is missing');
+  }
   const TopNavManager = window.TFRTopNav?.create?.({
     t,
     sendExtensionMessage,
@@ -672,6 +682,7 @@
     ModerationHistoryUI,
     ThirdPartyChatEmotes,
     PlayerLatencyIndicator,
+    PlayerRecovery,
     AutoClaimChannelPoints,
     PlayerAudioCompressor,
     ChatFontManager,
@@ -685,7 +696,7 @@
   }
   const app = window.TFRAppBootstrap?.create?.({
     FavoritesStore, FeatureController, SidebarRenderer, ChannelFavoriteButton,
-    FavoritesOverlay, TopNavManager, UpdateNotifier
+    FavoritesOverlay, TopNavManager, UpdateNotifier, ViewerCardSharedInvite
   });
   if (!app) throw new Error('[TFR] application bootstrap module is missing');
   const bootstrap = () => app.start();

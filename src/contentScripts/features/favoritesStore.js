@@ -62,6 +62,10 @@
         defaultPreferences: DEFAULT_STATE.preferences,
         getDefaultName: () => t('profiles.defaultName')
       });
+      this.sharedSpaceModel = window.TFRSharedSpaceModel;
+      this.sharedProfileCatalog = window.TFRSharedProfileCatalog;
+      this.sharedWorkspaceTransitions = window.TFRSharedWorkspaceTransitions;
+      this.liveDataCache = window.TFRLiveDataCache;
       this.backupNormalizer = window.TFRBackupNormalizer.create({
         defaultAvatar: DEFAULT_AVATAR,
         sanitizeCategoryList,
@@ -97,6 +101,8 @@
       this.lastLiveRefreshAt = 0;
       this.lastLiveStorageAt = 0;
       this.stateMutationQueue = Promise.resolve();
+      this.workspaceSwitchToken = 0;
+      this.workspacePersistTimer = null;
       this.liveRefreshCooldownMs = Math.max(15_000, Math.min(60_000, Math.floor(POLL_INTERVAL_MS / 2)));
       this.storageGateway = window.TFRFavoritesStorageGateway.create({
         storageKey: STORAGE_KEY,
@@ -154,11 +160,69 @@
     }
 
     syncActiveProfile(target = this.state) {
+      if (target.workspaceMode === 'shared' && target.activeSharedSpaceId) {
+        const space = target.sharedSpaces?.[target.activeSharedSpaceId];
+        if (space) {
+          const nextFavorites = target.favorites || {};
+          const nextCategories = target.categories || [];
+          const contentChanged = JSON.stringify(space.favorites || {}) !== JSON.stringify(nextFavorites)
+            || JSON.stringify(space.categories || []) !== JSON.stringify(nextCategories);
+          if (!contentChanged) return;
+          space.favorites = deepCopy(nextFavorites);
+          space.categories = deepCopy(nextCategories);
+          space.updatedAt = Date.now();
+          space.revision = Math.max(0, Number(space.revision) || 0) + 1;
+          if (space.syncState === 'synced') space.syncState = 'local';
+          return;
+        }
+      }
       this.profileTools.syncActive(target);
     }
 
     applyProfileToRoot(target, profileId) {
       return this.profileTools.applyToRoot(target, profileId);
+    }
+
+    capturePersonalWorkspace(target) {
+      this.profileTools.syncActive(target);
+      target.personalWorkspaceSnapshot = {
+        activeProfileId: target.activeProfileId,
+        favorites: deepCopy(target.favorites || {}),
+        categories: deepCopy(target.categories || []),
+        preferences: deepCopy(target.preferences || {})
+      };
+    }
+
+    restorePersonalWorkspace(target) {
+      const snapshot = target.personalWorkspaceSnapshot;
+      if (snapshot && typeof snapshot === 'object') {
+        target.activeProfileId = snapshot.activeProfileId || target.activeProfileId;
+        target.favorites = deepCopy(snapshot.favorites || {});
+        target.categories = deepCopy(snapshot.categories || []);
+        target.preferences = deepCopy(snapshot.preferences || target.preferences || {});
+        this.profileTools.syncActive(target);
+        return true;
+      }
+      const profileId = target.profiles?.[target.activeProfileId]
+        ? target.activeProfileId
+        : Object.keys(target.profiles || {})[0];
+      return profileId ? this.applyProfileToRoot(target, profileId) : false;
+    }
+
+    applySharedWorkspaceToRoot(target, spaceId) {
+      const space = target.sharedSpaces?.[spaceId];
+      if (!space) return false;
+      target.workspaceMode = 'shared';
+      target.activeSharedSpaceId = spaceId;
+      target.favorites = deepCopy(space.favorites || {});
+      target.categories = deepCopy(space.categories || []);
+      return true;
+    }
+
+    applyPersonalWorkspaceToRoot(target) {
+      target.workspaceMode = 'personal';
+      target.activeSharedSpaceId = '';
+      return this.restorePersonalWorkspace(target);
     }
 
     normalizeBooleanPreference(key, fallback = false, strict = false) {
@@ -176,6 +240,19 @@
     }
 
     ensureStateIntegrity() {
+      this.state.workspaceMode = this.state.workspaceMode === 'shared' ? 'shared' : 'personal';
+      if (!this.state.personalWorkspaceSnapshot || typeof this.state.personalWorkspaceSnapshot !== 'object') {
+        this.state.personalWorkspaceSnapshot = null;
+      }
+      if (!this.state.sharedSpaces || typeof this.state.sharedSpaces !== 'object') this.state.sharedSpaces = {};
+      this.state.sharedSpaces = Object.fromEntries(Object.entries(this.state.sharedSpaces).map(([id, space]) => [
+        id,
+        this.sharedSpaceModel.createSpace({ ...space, id }, deepCopy)
+      ]));
+      if (typeof this.state.activeSharedSpaceId !== 'string') this.state.activeSharedSpaceId = '';
+      if (this.state.workspaceMode === 'shared' && !this.state.sharedSpaces[this.state.activeSharedSpaceId]) {
+        this.state.activeSharedSpaceId = '';
+      }
       if (!this.state.profiles || typeof this.state.profiles !== 'object') {
         this.state.profiles = {};
       }
@@ -266,6 +343,7 @@
         sevenTvEmotesEnabled: false,
         betterTtvEmotesEnabled: false,
         playerLatencyEnabled: false,
+        playerRecoveryEnabled: false,
         autoClaimChannelPointsEnabled: false,
         playerAudioCompressorEnabled: false,
         playerVolumeNormalizerEnabled: false,
@@ -439,6 +517,8 @@
 
     dispose() {
       this.stopPolling();
+      clearTimeout(this.workspacePersistTimer);
+      this.workspacePersistTimer = null;
       this.unsubscribeStorage?.();
       this.unsubscribeStorage = null;
     }
@@ -472,23 +552,48 @@
       }
     }
 
-    async updateState(mutator, emit = true) {
+    async updateState(mutator, emit = true, { optimistic = false, shouldApply = null } = {}) {
       const operation = this.stateMutationQueue.then(async () => {
-        const persisted = await this.storageGateway.readState();
-        if (persisted) {
-          this.state = deepCopy({ ...DEFAULT_STATE, ...persisted });
-          this.ensureStateIntegrity();
+        if (shouldApply && !shouldApply()) return false;
+        if (!optimistic) {
+          const persisted = await this.storageGateway.readState();
+          if (persisted) {
+            this.state = deepCopy({ ...DEFAULT_STATE, ...persisted });
+            this.ensureStateIntegrity();
+          }
         }
         const draft = deepCopy(this.state);
         mutator(draft);
         draft.revision = Math.max(Number(this.state.revision || 0), Number(draft.revision || 0)) + 1;
         this.state = draft;
         this.ensureStateIntegrity();
+        if (emit && optimistic) this.emitter.emit({ kind: CHANGE_KIND.STATE, state: this.getSnapshot() });
         await this.persistState();
-        if (emit) this.emitter.emit({ kind: CHANGE_KIND.STATE, state: this.getSnapshot() });
+        if (emit && !optimistic) this.emitter.emit({ kind: CHANGE_KIND.STATE, state: this.getSnapshot() });
+        return true;
       });
       this.stateMutationQueue = operation.catch(() => {});
       return operation;
+    }
+
+    applyImmediateWorkspaceState(mutator) {
+      const draft = deepCopy(this.state);
+      mutator(draft);
+      draft.revision = Math.max(Number(this.state.revision || 0), Number(draft.revision || 0)) + 1;
+      this.state = draft;
+      this.ensureStateIntegrity();
+      this.emitter.emit({ kind: CHANGE_KIND.STATE, state: this.getSnapshot() });
+      clearTimeout(this.workspacePersistTimer);
+      this.workspacePersistTimer = setTimeout(() => {
+        this.workspacePersistTimer = null;
+        const snapshot = deepCopy(this.state);
+        const operation = this.stateMutationQueue.then(async () => {
+          if (Number(snapshot.revision || 0) < Number(this.state.revision || 0)) return;
+          await this.storageGateway.writeState(snapshot);
+        });
+        this.stateMutationQueue = operation.catch(() => {});
+      }, 120);
+      return true;
     }
 
   getBackupData() {
@@ -498,10 +603,223 @@
       generatedAt: new Date().toISOString(),
       activeProfileId: this.state.activeProfileId,
       profiles: deepCopy(this.state.profiles),
+      workspaceMode: this.state.workspaceMode,
+      activeSharedSpaceId: this.state.activeSharedSpaceId,
+      sharedSpaces: deepCopy(this.state.sharedSpaces),
       favorites: deepCopy(this.state.favorites),
       categories: deepCopy(this.state.categories),
       preferences: deepCopy(this.state.preferences)
     };
+  }
+
+  getSharedSpaces() {
+    return Object.values(this.state.sharedSpaces || {}).map((space) => ({
+      id: space.id,
+      name: space.name,
+      memberCount: space.members?.length || 0,
+      role: this.sharedSpaceModel.getCurrentMember(space)?.role || 'viewer',
+      syncState: space.syncState || 'local',
+      count: Object.keys(space.favorites || {}).length
+    }));
+  }
+
+  getActiveSharedSpace() {
+    return this.state.sharedSpaces?.[this.state.activeSharedSpaceId] || null;
+  }
+
+  getActiveWorkspacePermissions() {
+    return this.state.workspaceMode === 'shared'
+      ? this.sharedSpaceModel.getPermissions(this.getActiveSharedSpace())
+      : { view: true, edit: true, invite: false, manageMembers: false, delete: false };
+  }
+
+  async switchWorkspaceMode(mode) {
+    const nextMode = mode === 'shared' ? 'shared' : 'personal';
+    ++this.workspaceSwitchToken;
+    if (nextMode === this.state.workspaceMode) return true;
+    return this.applyImmediateWorkspaceState((draft) => {
+      this.syncActiveProfile(draft);
+      if (nextMode === 'shared') {
+        if (draft.workspaceMode !== 'shared') this.capturePersonalWorkspace(draft);
+        const spaceId = draft.activeSharedSpaceId || Object.keys(draft.sharedSpaces || {})[0];
+        if (!this.applySharedWorkspaceToRoot(draft, spaceId)) {
+          this.sharedWorkspaceTransitions.enterEmptySharedWorkspace(draft);
+        }
+      } else {
+        this.applyPersonalWorkspaceToRoot(draft);
+      }
+    });
+  }
+
+  async createSharedSpace(name, { sourceProfileId = '', importedProfile = null } = {}) {
+    const label = String(name || '').trim();
+    if (!label) return null;
+    let createdId = null;
+    await this.updateState((draft) => {
+      if (draft.workspaceMode !== 'shared') this.capturePersonalWorkspace(draft);
+      else this.syncActiveProfile(draft);
+      const source = importedProfile && typeof importedProfile === 'object'
+        ? importedProfile
+        : draft.profiles?.[sourceProfileId];
+      const space = this.sharedSpaceModel.createSpace({
+        name: label,
+        ownerName: t('sharedSpaces.me'),
+        favorites: source?.favorites || {},
+        categories: source?.categories || [],
+        settings: { allowMemberExport: true, initializedAt: Date.now() }
+      }, deepCopy);
+      createdId = space.id;
+      draft.sharedSpaces[space.id] = space;
+      this.applySharedWorkspaceToRoot(draft, space.id);
+    });
+    return createdId;
+  }
+
+  getProfileSnapshot(profileId) {
+    return this.sharedProfileCatalog.resolve({
+      profiles: this.state.profiles,
+      personalSnapshot: this.state.personalWorkspaceSnapshot,
+      workspaceMode: this.state.workspaceMode
+    }, profileId, deepCopy);
+  }
+
+  async switchSharedSpace(spaceId) {
+    const id = String(spaceId || '');
+    if (!this.state.sharedSpaces?.[id]) return;
+    await this.updateState((draft) => {
+      this.syncActiveProfile(draft);
+      this.applySharedWorkspaceToRoot(draft, id);
+    }, true, { optimistic: true });
+  }
+
+  async importRemoteSharedSpace(remoteSpace, { activate = false } = {}) {
+    if (!remoteSpace?.id) return false;
+    const normalized = this.sharedSpaceModel.createSpace({
+      ...remoteSpace,
+      syncState: 'synced'
+    }, deepCopy);
+    await this.updateState((draft) => {
+      if (activate && draft.workspaceMode !== 'shared') this.capturePersonalWorkspace(draft);
+      draft.sharedSpaces[normalized.id] = normalized;
+      if (activate || draft.activeSharedSpaceId === normalized.id) {
+        this.applySharedWorkspaceToRoot(draft, normalized.id);
+      }
+    });
+    return true;
+  }
+
+  async replaceSharedSpaceId(localId, remoteSpace) {
+    if (!localId || !remoteSpace?.id) return false;
+    const normalized = this.sharedSpaceModel.createSpace({ ...remoteSpace, syncState: 'synced' }, deepCopy);
+    await this.updateState((draft) => {
+      delete draft.sharedSpaces[localId];
+      draft.sharedSpaces[normalized.id] = normalized;
+      this.applySharedWorkspaceToRoot(draft, normalized.id);
+    });
+    return true;
+  }
+
+  async addSharedSpaceMember(displayName, role = 'viewer') {
+    const name = String(displayName || '').trim();
+    if (!name || !this.getActiveWorkspacePermissions().manageMembers) return false;
+    await this.updateState((draft) => {
+      const space = draft.sharedSpaces?.[draft.activeSharedSpaceId];
+      if (!space) return;
+      space.members.push(this.sharedSpaceModel.createMember({ displayName: name, role }));
+      space.updatedAt = Date.now();
+    });
+    return true;
+  }
+
+  async setSharedSpaceMemberRole(memberId, role) {
+    if (!this.getActiveWorkspacePermissions().manageMembers) return false;
+    await this.updateState((draft) => {
+      const space = draft.sharedSpaces?.[draft.activeSharedSpaceId];
+      const member = space?.members?.find((candidate) => candidate.id === memberId);
+      if (!member || member.id === space.ownerId) return;
+      member.role = this.sharedSpaceModel.sanitizeRole(role);
+      space.updatedAt = Date.now();
+    });
+    return true;
+  }
+
+  async setSharedSpaceMemberExportAllowed(allowed) {
+    if (!this.getActiveWorkspacePermissions().manageMembers) return false;
+    await this.updateState((draft) => {
+      const space = draft.sharedSpaces?.[draft.activeSharedSpaceId];
+      if (!space) return;
+      space.settings = { ...space.settings, allowMemberExport: Boolean(allowed) };
+      space.updatedAt = Date.now();
+      space.revision = Math.max(0, Number(space.revision) || 0) + 1;
+      if (space.syncState === 'synced') space.syncState = 'local';
+    });
+    return true;
+  }
+
+  getActiveSharedSpaceExportData() {
+    this.syncActiveProfile(this.state);
+    const space = this.getActiveSharedSpace();
+    if (!space) throw new Error('Espace introuvable');
+    const permissions = this.sharedSpaceModel.getPermissions(space);
+    if (!permissions.delete && space.settings?.allowMemberExport === false) {
+      throw new Error('Export interdit');
+    }
+    return {
+      type: 'tfr-shared-space-list',
+      version: 1,
+      generatedAt: new Date().toISOString(),
+      profile: {
+        name: space.name,
+        favorites: deepCopy(space.favorites || {}),
+        categories: deepCopy(space.categories || [])
+      }
+    };
+  }
+
+  removeSharedSpaceFromDraft(draft, spaceId, { stayShared = false } = {}) {
+    return this.sharedWorkspaceTransitions.removeSpace(draft, spaceId, {
+      stayShared,
+      applyShared: (target, nextId) => this.applySharedWorkspaceToRoot(target, nextId),
+      applyPersonal: (target) => this.applyPersonalWorkspaceToRoot(target)
+    });
+  }
+
+  async removeSharedSpace(spaceId, { requireOwner = false, stayShared = false } = {}) {
+    const id = String(spaceId || '');
+    const currentSpace = this.state.sharedSpaces?.[id];
+    if (!currentSpace) return false;
+    const isOwner = this.sharedSpaceModel.getPermissions(currentSpace).delete;
+    if (requireOwner !== isOwner) return false;
+    await this.updateState((draft) => {
+      this.syncActiveProfile(draft);
+      this.removeSharedSpaceFromDraft(draft, id, { stayShared });
+    }, true, { optimistic: true });
+    return true;
+  }
+
+  async deleteSharedSpace(spaceId = this.state.activeSharedSpaceId) {
+    return this.removeSharedSpace(spaceId, { requireOwner: true, stayShared: false });
+  }
+
+  async leaveSharedSpace(spaceId = this.state.activeSharedSpaceId) {
+    return this.removeSharedSpace(spaceId, { requireOwner: false, stayShared: true });
+  }
+
+  async reconcileRemoteSharedSpaces(remoteSpaceIds = []) {
+    const availableIds = new Set((remoteSpaceIds || []).map((id) => String(id || '')).filter(Boolean));
+    const orphanIds = Object.values(this.state.sharedSpaces || {})
+      .filter((space) => space?.remoteBacked === true && !availableIds.has(space.id))
+      .map((space) => space.id);
+    if (!orphanIds.length) return false;
+    await this.updateState((draft) => {
+      const removedActive = orphanIds.includes(draft.activeSharedSpaceId);
+      orphanIds.forEach((id) => { delete draft.sharedSpaces[id]; });
+      if (!removedActive) return;
+      const nextId = Object.keys(draft.sharedSpaces || {})[0] || '';
+      if (nextId) this.applySharedWorkspaceToRoot(draft, nextId);
+      else this.applyPersonalWorkspaceToRoot(draft);
+    }, true, { optimistic: true });
+    return true;
   }
 
   getActiveProfileExportData() {
@@ -564,10 +882,21 @@
           draft.profiles[id] = this.createProfileSnapshot({ ...profile, id });
         });
       }
+      if (payload.sharedSpaces && typeof payload.sharedSpaces === 'object') {
+        draft.sharedSpaces = Object.fromEntries(Object.entries(payload.sharedSpaces)
+          .filter(([id, space]) => id && space && typeof space === 'object')
+          .map(([id, space]) => [id, this.sharedSpaceModel.createSpace({ ...space, id }, deepCopy)]));
+      }
       draft.activeProfileId = typeof payload.activeProfileId === 'string' && payload.activeProfileId
         ? payload.activeProfileId
         : draft.activeProfileId;
-      if (draft.profiles?.[draft.activeProfileId]) {
+      const restoredSharedSpaceId = typeof payload.activeSharedSpaceId === 'string'
+        ? payload.activeSharedSpaceId
+        : '';
+      if (payload.workspaceMode === 'shared' && draft.sharedSpaces?.[restoredSharedSpaceId]) {
+        this.applySharedWorkspaceToRoot(draft, restoredSharedSpaceId);
+      } else if (draft.profiles?.[draft.activeProfileId]) {
+        draft.workspaceMode = 'personal';
         this.applyProfileToRoot(draft, draft.activeProfileId);
       }
     });
@@ -576,18 +905,8 @@
   }
 
     getProfiles() {
-      this.syncActiveProfile(this.state);
-      return Object.values(this.state.profiles || {})
-        .map((profile) => ({
-          id: profile.id,
-          name: profile.name,
-          count: Object.keys(profile.favorites || {}).length
-        }))
-        .sort((a, b) => {
-          if (a.id === this.state.activeProfileId) return -1;
-          if (b.id === this.state.activeProfileId) return 1;
-          return a.name.localeCompare(b.name, 'fr', { sensitivity: 'base' });
-        });
+      if (this.state.workspaceMode !== 'shared') this.syncActiveProfile(this.state);
+      return this.sharedProfileCatalog.list(this.state, deepCopy);
     }
 
     async createProfile(name) {
@@ -612,12 +931,12 @@
     async switchProfile(profileId) {
       const id = String(profileId || '').trim();
       if (!id || id === this.state.activeProfileId || !this.state.profiles?.[id]) return;
-      await this.updateState((draft) => {
+      ++this.workspaceSwitchToken;
+      const applied = this.applyImmediateWorkspaceState((draft) => {
         this.syncActiveProfile(draft);
         this.applyProfileToRoot(draft, id);
       });
-      this.liveData = {};
-      await this.refreshLiveData();
+      if (applied) void this.refreshLiveData();
     }
 
     async renameProfile(profileId, name) {
@@ -1189,6 +1508,10 @@
       await this.setBooleanPreference('playerLatencyEnabled', enabled);
     }
 
+    async setPlayerRecoveryEnabled(enabled) {
+      await this.setBooleanPreference('playerRecoveryEnabled', enabled);
+    }
+
     async setAutoClaimChannelPointsEnabled(enabled) {
       await this.setBooleanPreference('autoClaimChannelPointsEnabled', enabled);
     }
@@ -1703,7 +2026,11 @@
             };
           }
         });
-        this.liveData = nextLive;
+        this.liveData = this.liveDataCache.mergeWorkspace({
+          cache: this.liveData,
+          favorites: this.state.favorites,
+          updates: nextLive
+        });
         if (Object.keys(favoriteUpdates).length) {
           await this.updateState((draft) => {
             favoriteRenames.forEach((nextLogin, previousLogin) => {

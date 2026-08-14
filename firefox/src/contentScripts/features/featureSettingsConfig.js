@@ -7,6 +7,7 @@
       ['sevenTvEmotesEnabled', 'settings.sevenTv', 'setSevenTvEmotesEnabled', false],
       ['betterTtvEmotesEnabled', 'settings.betterTtv', 'setBetterTtvEmotesEnabled', false],
       ['playerLatencyEnabled', 'settings.playerLatency', 'setPlayerLatencyEnabled', false],
+      ['playerRecoveryEnabled', 'settings.playerRecovery', 'setPlayerRecoveryEnabled', false],
       ['autoClaimChannelPointsEnabled', 'settings.autoClaimChannelPoints', 'setAutoClaimChannelPointsEnabled', false],
       ['playerAudioCompressorEnabled', 'settings.audioCompressor', 'setPlayerAudioCompressorEnabled', false],
       ['playerVolumeNormalizerEnabled', 'settings.volumeNormalizer', 'setPlayerVolumeNormalizerEnabled', false],
@@ -35,7 +36,7 @@
       { id: 'emotes', keys: ['sevenTvEmotesEnabled', 'betterTtvEmotesEnabled'] },
       {
         id: 'player',
-        keys: ['liveFavoritesEnabled', 'playerLatencyEnabled', 'autoClaimChannelPointsEnabled', 'playerAudioCompressorEnabled', 'playerVolumeNormalizerEnabled', 'hideCollapsedGroupsUntilHover', 'autoCompactSidebarEnabled', 'liveHoverPreviewEnabled']
+        keys: ['liveFavoritesEnabled', 'playerLatencyEnabled', 'playerRecoveryEnabled', 'autoClaimChannelPointsEnabled', 'playerAudioCompressorEnabled', 'playerVolumeNormalizerEnabled', 'hideCollapsedGroupsUntilHover', 'autoCompactSidebarEnabled', 'liveHoverPreviewEnabled']
       }
     ].map((group) => ({
       ...group,

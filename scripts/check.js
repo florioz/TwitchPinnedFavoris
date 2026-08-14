@@ -11,6 +11,8 @@ const files = [
   'src/background/badgeManager.mjs',
   'src/background/twitchClient.mjs',
   'src/background/updateService.mjs',
+  'src/background/sharedSpacesConfig.mjs',
+  'src/background/sharedSpacesRemote.mjs',
   'src/contentScripts/main.js',
   'src/contentScripts/extensionI18n.js',
   'src/contentScripts/panelModel.js',

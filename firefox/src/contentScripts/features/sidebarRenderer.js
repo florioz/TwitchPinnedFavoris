@@ -75,6 +75,9 @@
     init() {
       this.unsubscribe = this.store.subscribe((event) => {
         const isLiveUpdate = event?.kind === 'live';
+        if (!isLiveUpdate) {
+          this.invalidateStateRenderCache();
+        }
         this.scheduleRender({ defer: isLiveUpdate, liveUpdate: isLiveUpdate });
       });
       this.observeSideNav();
@@ -87,6 +90,14 @@
       window.addEventListener('tfr:previewSidebarAnimation', this.boundPreviewAnimation);
       window.addEventListener('resize', this.boundResize);
       this.render();
+    }
+
+    invalidateStateRenderCache() {
+      this.lastRenderSignature = '';
+      this.lastAutoCompactSignature = '';
+      this.lastLiveStructureSignature = '';
+      this.previousVisibleLogins = null;
+      this.suppressAnimationsOnce = true;
     }
 
     dispose() {

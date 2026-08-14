@@ -23,6 +23,10 @@ test('manifest loads helper modules before their consumers', () => {
   before('src/contentScripts/features/deletedMessageView.js', 'src/contentScripts/features/streamEnhancements.js');
   before('src/contentScripts/features/domWorkScheduler.js', 'src/contentScripts/features/streamEnhancements.js');
   before('src/contentScripts/features/playerAudioEngine.js', 'src/contentScripts/features/streamEnhancements.js');
+  before('src/contentScripts/features/sharedSpaceModel.js', 'src/contentScripts/features/favoritesStore.js');
+  before('src/contentScripts/features/sharedWorkspaceTransitions.js', 'src/contentScripts/features/favoritesStore.js');
+  before('src/contentScripts/features/viewerCardSharedInvite.js', 'src/contentScripts/main.js');
+  before('src/contentScripts/features/sharedSpacesRemoteState.js', 'src/contentScripts/features/favoritesOverlay.js');
   before('src/contentScripts/contentI18nMessages.js', 'src/contentScripts/main.js');
   before('src/contentScripts/extensionI18n.js', 'src/contentScripts/main.js');
   before('src/contentScripts/appBootstrap.js', 'src/contentScripts/main.js');

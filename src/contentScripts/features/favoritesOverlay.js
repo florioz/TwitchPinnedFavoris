@@ -53,6 +53,26 @@ class FavoritesOverlay {
     this.driveMessage = '';
     this.driveDebugVisible = false;
     this.toastSoundMessage = '';
+    this.sharedRemote = window.TFRSharedSpacesRemoteState.create({
+      client: window.TFRSharedSpacesClient,
+      onChange: () => { if (this.isOpen) this.render(); }
+    });
+    this.sharedPublisher = window.TFRSharedSpacePublisher.create({
+      client: window.TFRSharedSpacesClient,
+      store: this.store,
+      remoteState: this.sharedRemote
+    });
+    this.sharedAutoSync = window.TFRSharedSpacesAutoSync.create({
+      store: this.store,
+      client: window.TFRSharedSpacesClient,
+      remoteState: this.sharedRemote,
+      onMessage: (message) => {
+        this.sharedRemoteMessage = message === 'conflict'
+          ? t('sharedSpaces.remote.conflict')
+          : message;
+      },
+      onSynced: () => { if (this.isOpen) this.render(); }
+    });
     this.mentionTestTimer = null;
     this.draggedLogin = null;
     this.draggedCategoryStartX = 0;
@@ -64,6 +84,9 @@ class FavoritesOverlay {
     this.appearanceWizardOpen = false;
     this.appearanceAdvancedOpen = false;
     this.dataToolsOpen = false;
+    this.sharedCreationOpen = false;
+    this.sharedCreationImport = null;
+    this.sharedCreationSource = '';
     this.featureCardsOpen = new Set();
     this.categoryFilterController = new FavoriteCategoryFilterController({
       store: this.store,
@@ -76,7 +99,8 @@ class FavoritesOverlay {
       defaultAvatar: DEFAULT_AVATAR,
       onChange: () => this.render()
     }) || null;
-    this.unsubscribe = this.store.subscribe(() => {
+    this.unsubscribe = this.store.subscribe((event) => {
+      this.sharedAutoSync?.handleStoreChange(event);
       if (this.isOpen) {
         this.render();
       }
@@ -224,6 +248,8 @@ class FavoritesOverlay {
     }
     this.unsubscribe?.();
     this.unsubscribe = null;
+    this.sharedAutoSync?.dispose();
+    this.sharedAutoSync = null;
     document.removeEventListener('keydown', this.handleEscapeKeydown);
     this.openListeners.clear();
     this.closeListeners.clear();
@@ -429,6 +455,140 @@ class FavoritesOverlay {
   }
 
   renderProfileControls(state) {
+    const container = document.createElement('section');
+    container.className = 'tfr-workspace-switcher';
+    const tabs = document.createElement('div');
+    tabs.className = 'tfr-workspace-switcher__tabs';
+    [['personal', 'sharedSpaces.personal'], ['shared', 'sharedSpaces.shared']].forEach(([mode, labelKey]) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'tfr-workspace-switcher__tab';
+      button.classList.toggle('is-active', (state.workspaceMode || 'personal') === mode);
+      button.textContent = t(labelKey);
+      button.addEventListener('click', async () => {
+        button.disabled = true;
+        try {
+          const applied = await this.store.switchWorkspaceMode?.(mode);
+          if (applied && mode === 'shared' && this.store.getState().workspaceMode === 'shared') {
+            await this.refreshSharedRemote();
+          }
+        } finally {
+          if (button.isConnected) button.disabled = false;
+        }
+      });
+      tabs.appendChild(button);
+    });
+    container.appendChild(tabs);
+    container.appendChild(state.workspaceMode === 'shared'
+      ? this.renderSharedSpaceControls(state)
+      : this.renderPersonalProfileControls(state));
+    return container;
+  }
+
+  async createSharedSpaceFromPrompt() {
+    this.sharedCreationOpen = true;
+    this.sharedCreationImport = null;
+    this.sharedCreationSource = '';
+    this.render();
+    return true;
+  }
+
+  renderSharedSpaceCreation(state) {
+    if (!this.sharedCreationOpen) return null;
+    const panel = document.createElement('section'); panel.className = 'tfr-shared-create';
+    const title = document.createElement('strong'); title.textContent = t('sharedSpaces.create.title');
+    const hint = document.createElement('small'); hint.textContent = t('sharedSpaces.create.hint');
+    const fields = document.createElement('div'); fields.className = 'tfr-shared-create__fields';
+    const nameLabel = document.createElement('label'); nameLabel.className = 'tfr-shared-create__name';
+    const nameText = document.createElement('span'); nameText.textContent = t('sharedSpaces.create.name');
+    const name = document.createElement('input'); name.type = 'text'; name.maxLength = 100;
+    name.placeholder = t('sharedSpaces.defaultName'); name.value = t('sharedSpaces.defaultName');
+    nameLabel.append(nameText, name);
+    const sourceTitle = document.createElement('span'); sourceTitle.className = 'tfr-shared-create__label'; sourceTitle.textContent = t('sharedSpaces.create.source');
+    const sources = document.createElement('div'); sources.className = 'tfr-shared-create__sources';
+    const selectSource = (value, button) => {
+      this.sharedCreationSource = value; this.sharedCreationImport = null;
+      sources.querySelectorAll('.tfr-shared-create__source').forEach((item) => item.classList.toggle('is-selected', item === button));
+    };
+    const emptyCard = document.createElement('button'); emptyCard.type = 'button'; emptyCard.className = 'tfr-shared-create__source is-selected';
+    emptyCard.innerHTML = `<strong>${t('sharedSpaces.create.empty')}</strong><small>${t('sharedSpaces.create.emptyHint')}</small>`;
+    emptyCard.addEventListener('click', () => selectSource('', emptyCard)); sources.appendChild(emptyCard);
+    (this.store.getProfiles?.() || []).forEach((profile) => {
+      const card = document.createElement('button'); card.type = 'button'; card.className = 'tfr-shared-create__source';
+      const strong = document.createElement('strong'); strong.textContent = profile.name;
+      const count = document.createElement('small'); count.textContent = t('sharedSpaces.create.profileCount', { count: profile.count });
+      card.append(strong, count); card.addEventListener('click', () => selectSource(profile.id, card)); sources.appendChild(card);
+    });
+    const file = document.createElement('input'); file.type = 'file'; file.accept = 'application/json'; file.className = 'tfr-backup-file-input';
+    const importButton = document.createElement('button'); importButton.type = 'button'; importButton.className = 'tfr-shared-create__source';
+    importButton.innerHTML = `<strong>${t('sharedSpaces.create.importFile')}</strong><small>${t('sharedSpaces.create.importHint')}</small>`;
+    importButton.addEventListener('click', () => file.click()); sources.appendChild(importButton);
+    const importStatus = document.createElement('small'); importStatus.textContent = this.sharedCreationImport?.name || '';
+    file.addEventListener('change', async () => {
+      try {
+        const parsed = JSON.parse(await file.files?.[0]?.text());
+        const profile = parsed?.type === 'tfr-profile' || parsed?.type === 'tfr-shared-space-list' ? parsed.profile : parsed?.profile || parsed;
+        if (!profile || typeof profile !== 'object') throw new Error('invalid');
+        this.sharedCreationImport = profile; this.sharedCreationSource = '';
+        sources.querySelectorAll('.tfr-shared-create__source').forEach((item) => item.classList.toggle('is-selected', item === importButton));
+        importStatus.textContent = profile.name || file.files?.[0]?.name || '';
+      } catch { window.alert(t('profiles.importError')); }
+      file.value = '';
+    });
+    fields.append(nameLabel, sourceTitle, sources, file, importStatus);
+    const actions = document.createElement('div'); actions.className = 'tfr-profile-controls__actions';
+    const create = document.createElement('button'); create.type = 'button'; create.className = 'tfr-button'; create.textContent = t('sharedSpaces.create.confirm');
+    create.addEventListener('click', async () => {
+      if (!name.value.trim()) return;
+      const selectedProfile = this.sharedCreationSource ? this.store.getProfileSnapshot?.(this.sharedCreationSource) : null;
+      await this.store.createSharedSpace?.(name.value.trim(), { importedProfile: this.sharedCreationImport || selectedProfile });
+      this.sharedCreationOpen = false; this.sharedCreationImport = null; this.sharedCreationSource = ''; this.render();
+    });
+    const cancel = document.createElement('button'); cancel.type = 'button'; cancel.className = 'tfr-button tfr-button--ghost'; cancel.textContent = t('sharedSpaces.create.cancel');
+    cancel.addEventListener('click', () => { this.sharedCreationOpen = false; this.sharedCreationImport = null; this.sharedCreationSource = ''; this.render(); });
+    actions.append(create, cancel); panel.append(title, hint, fields, actions); return panel;
+  }
+
+  async refreshSharedRemote({ pullActive = true } = {}) {
+    const snapshot = await this.sharedRemote.refresh();
+    if (snapshot?.status?.connected) {
+      await this.store.reconcileRemoteSharedSpaces?.(snapshot.spaces.map((space) => space.id));
+    }
+    const activeSpace = this.store.getActiveSharedSpace?.();
+    const existsRemotely = snapshot?.spaces?.some((space) => space.id === activeSpace?.id);
+    if (!pullActive || !snapshot?.status?.connected || !activeSpace?.id || !existsRemotely
+      || activeSpace.syncState === 'local') return snapshot;
+    const result = await window.TFRSharedSpacesClient.pullSpace(activeSpace.id);
+    if (result.ok) await this.store.importRemoteSharedSpace?.(result.data, { activate: true });
+    else this.sharedRemoteMessage = result.message;
+    return snapshot;
+  }
+
+  get sharedRemoteStatus() {
+    return this.sharedRemote.snapshot().status;
+  }
+
+  get sharedInvitations() {
+    return this.sharedRemote.snapshot().invitations;
+  }
+
+  get remoteSharedSpaces() {
+    return this.sharedRemote.snapshot().spaces;
+  }
+
+  async ensureRemoteSharedSpace(space) {
+    return this.sharedPublisher.ensurePublished(space);
+  }
+
+  get sharedRemoteMessage() {
+    return this.sharedRemote.snapshot().message;
+  }
+
+  set sharedRemoteMessage(message) {
+    this.sharedRemote.setMessage(message);
+  }
+
+  renderPersonalProfileControls(state) {
     const profiles = this.store.getProfiles ? this.store.getProfiles() : [];
     const activeId = state.activeProfileId || profiles[0]?.id || 'default';
     const wrapper = document.createElement('section');
@@ -522,6 +682,358 @@ class FavoritesOverlay {
 
     wrapper.appendChild(actions);
     return wrapper;
+  }
+
+  renderSharedSpaceControls(state) {
+    const spaces = this.store.getSharedSpaces?.() || [];
+    const activeSpace = this.store.getActiveSharedSpace?.();
+    const permissions = this.store.getActiveWorkspacePermissions?.() || {};
+    const isRemoteSpace = this.remoteSharedSpaces.some((space) => space.id === activeSpace?.id);
+    const exitAction = window.TFRSharedSpaceModel.getExitAction(activeSpace, { remote: isRemoteSpace });
+    const wrapper = document.createElement('section');
+    wrapper.className = 'tfr-profile-controls tfr-shared-space-controls';
+    if (!this.sharedRemoteStatus) queueMicrotask(() => this.refreshSharedRemote());
+
+    const label = document.createElement('label');
+    label.className = 'tfr-profile-controls__select';
+    const labelText = document.createElement('span');
+    labelText.textContent = t('sharedSpaces.label');
+    const select = document.createElement('select');
+    select.disabled = !spaces.length;
+    if (!spaces.length) {
+      const option = document.createElement('option');
+      option.value = '';
+      option.textContent = t('sharedSpaces.emptySelect');
+      select.appendChild(option);
+    }
+    spaces.forEach((space) => {
+      const option = document.createElement('option');
+      option.value = space.id;
+      option.textContent = `${space.name} (${space.count})`;
+      select.appendChild(option);
+    });
+    select.value = state.activeSharedSpaceId || '';
+    select.addEventListener('change', async (event) => {
+      await this.store.switchSharedSpace?.(event.target.value);
+    });
+    label.append(labelText, select);
+
+    const summary = document.createElement('div');
+    summary.className = 'tfr-shared-space-controls__summary';
+    const role = activeSpace?.members?.find((member) => member.id === activeSpace.currentMemberId)?.role || 'viewer';
+    summary.textContent = activeSpace
+      ? t('sharedSpaces.summary', {
+        count: activeSpace.members?.length || 0,
+        role: t(`sharedSpaces.role.${role}`),
+        status: t(`sharedSpaces.sync.${activeSpace.syncState || 'local'}`)
+      })
+      : t('sharedSpaces.emptySummary');
+
+    const actions = document.createElement('div');
+    actions.className = 'tfr-profile-controls__actions';
+    const newButton = document.createElement('button');
+    newButton.type = 'button';
+    newButton.className = 'tfr-button';
+    newButton.textContent = t('sharedSpaces.new');
+    newButton.addEventListener('click', () => this.createSharedSpaceFromPrompt());
+    const manageButton = document.createElement('button');
+    manageButton.type = 'button';
+    manageButton.className = 'tfr-button tfr-button--ghost';
+    manageButton.textContent = t(permissions.manageMembers ? 'sharedSpaces.manage' : 'sharedSpaces.viewMembers');
+    manageButton.disabled = !activeSpace;
+    manageButton.addEventListener('click', () => {
+      const memberSection = wrapper.querySelector('.tfr-shared-members');
+      if (!memberSection) return;
+      const isOpening = memberSection.classList.contains('tfr-hidden');
+      memberSection.classList.toggle('tfr-hidden');
+      memberSection.classList.toggle('is-managing', isOpening && permissions.manageMembers);
+      if (isOpening) memberSection.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    });
+    const exitButton = document.createElement('button');
+    exitButton.type = 'button';
+    exitButton.className = exitAction.type === 'delete' ? 'tfr-button tfr-button--danger' : 'tfr-button tfr-button--ghost';
+    exitButton.textContent = exitAction.type === 'delete' ? t('sharedSpaces.delete') : t('sharedSpaces.leave');
+    exitButton.disabled = !exitAction.enabled;
+    exitButton.addEventListener('click', async () => {
+      if (!activeSpace) return;
+      const confirmed = window.confirm(t(
+        exitAction.type === 'delete' ? 'sharedSpaces.confirmDelete' : 'sharedSpaces.confirmLeave',
+        { name: activeSpace.name }
+      ));
+      if (!confirmed) return;
+      if (isRemoteSpace && this.sharedRemoteStatus?.connected) {
+        const result = exitAction.type === 'delete'
+          ? await window.TFRSharedSpacesClient.deleteSpace(activeSpace.id)
+          : await window.TFRSharedSpacesClient.leaveSpace(activeSpace.id);
+        if (!result.ok) {
+          this.sharedRemoteMessage = result.message;
+          this.render();
+          return;
+        }
+      }
+      if (exitAction.type === 'delete') await this.store.deleteSharedSpace?.(activeSpace.id);
+      else await this.store.leaveSharedSpace?.(activeSpace.id);
+      await this.refreshSharedRemote();
+    });
+    const canExport = activeSpace && (permissions.delete || activeSpace.settings?.allowMemberExport !== false);
+    const exportButton = document.createElement('button'); exportButton.type = 'button'; exportButton.className = 'tfr-button tfr-button--ghost';
+    exportButton.textContent = t('sharedSpaces.export'); exportButton.disabled = !canExport;
+    exportButton.title = canExport ? '' : t('sharedSpaces.exportBlocked');
+    exportButton.addEventListener('click', () => {
+      try {
+        const payload = this.store.getActiveSharedSpaceExportData();
+        const safeName = window.TFRBackupTools.slugify(payload.profile?.name, 'espace-partage');
+        this.downloadJson(payload, `twitch-favoris-espace-${safeName}.json`);
+      } catch { window.alert(t('sharedSpaces.exportBlocked')); }
+    });
+    actions.append(newButton, manageButton, exportButton, exitButton);
+
+    const members = document.createElement('div');
+    members.className = 'tfr-shared-members tfr-hidden';
+    const heading = document.createElement('div');
+    heading.className = 'tfr-shared-members__heading';
+    heading.innerHTML = `<strong>${t('sharedSpaces.members')}</strong><small>${t('sharedSpaces.localNotice')}</small>`;
+    members.appendChild(heading);
+    const memberGallery = window.TFRSharedSpacesView.renderMemberGallery({
+      space: activeSpace,
+      permissions,
+      t,
+      onRoleChange: async (member, role) => {
+        if (isRemoteSpace && this.sharedRemoteStatus?.connected) {
+          const result = await window.TFRSharedSpacesClient.setMemberRole(activeSpace.id, member.id, role);
+          if (result.ok) {
+            await this.store.importRemoteSharedSpace?.(result.data, { activate: true });
+            this.sharedRemoteMessage = t('sharedSpaces.roleUpdated');
+            await this.refreshSharedRemote();
+          }
+          else this.sharedRemoteMessage = result.message;
+        } else {
+          await this.store.setSharedSpaceMemberRole?.(member.id, role);
+        }
+      }
+    });
+    members.appendChild(memberGallery);
+    if (permissions.manageMembers && activeSpace) {
+      const exportRule = document.createElement('label'); exportRule.className = 'tfr-shared-members__rule';
+      const checkbox = document.createElement('input'); checkbox.type = 'checkbox'; checkbox.checked = activeSpace.settings?.allowMemberExport !== false;
+      const ruleText = document.createElement('span'); ruleText.textContent = t('sharedSpaces.allowMemberExport');
+      checkbox.addEventListener('change', () => this.store.setSharedSpaceMemberExportAllowed?.(checkbox.checked));
+      exportRule.append(checkbox, ruleText); members.appendChild(exportRule);
+    }
+    if (permissions.manageMembers && !isRemoteSpace) {
+      const addButton = document.createElement('button');
+      addButton.type = 'button';
+      addButton.className = 'tfr-button tfr-button--ghost';
+      addButton.textContent = t('sharedSpaces.addMember');
+      addButton.addEventListener('click', async () => {
+        const name = window.prompt(t('sharedSpaces.promptMember'));
+        if (!name?.trim()) return;
+        await this.store.addSharedSpaceMember?.(name.trim(), 'editor');
+      });
+      members.appendChild(addButton);
+    }
+    wrapper.append(label, summary, actions);
+    const creation = this.renderSharedSpaceCreation(state); if (creation) wrapper.appendChild(creation);
+    wrapper.append(members, this.renderSharedRemoteControls(activeSpace, permissions));
+    return wrapper;
+  }
+
+  renderSharedRemoteControls(activeSpace, permissions) {
+    const section = document.createElement('div');
+    section.className = 'tfr-shared-remote';
+    const status = this.sharedRemoteStatus;
+
+    const accountArea = document.createElement('div');
+    accountArea.className = 'tfr-shared-remote__account-area';
+    const description = document.createElement('p');
+    description.textContent = !status?.configured
+      ? t('sharedSpaces.remote.notConfigured')
+      : status.connected
+        ? t('sharedSpaces.remote.connected', { name: status.user?.displayName || status.user?.login || 'Twitch' })
+        : t('sharedSpaces.remote.disconnected');
+    const accountPanel = document.createElement('section');
+    accountPanel.className = 'tfr-shared-remote__panel tfr-shared-remote__panel--account';
+    const accountTitle = document.createElement('strong');
+    accountTitle.textContent = t('sharedSpaces.remote.accountTitle');
+    const accountHint = document.createElement('small');
+    accountHint.textContent = t('sharedSpaces.remote.accountHint');
+    const accountActions = document.createElement('div');
+    accountActions.className = 'tfr-shared-remote__actions';
+    accountPanel.append(accountTitle, description, accountHint, accountActions);
+
+    const spacePanel = document.createElement('section');
+    spacePanel.className = 'tfr-shared-remote__panel tfr-shared-remote__panel--space';
+    const spaceTitle = document.createElement('strong');
+    spaceTitle.textContent = t('sharedSpaces.remote.spaceTitle');
+    const spaceHint = document.createElement('small');
+    spaceHint.textContent = activeSpace
+      ? t('sharedSpaces.remote.spaceHint', { name: activeSpace.name })
+      : t('sharedSpaces.remote.noSpace');
+    const spaceActions = document.createElement('div');
+    spaceActions.className = 'tfr-shared-remote__actions';
+    spacePanel.append(spaceTitle, spaceHint, spaceActions);
+
+    section.appendChild(spacePanel);
+    accountArea.appendChild(accountPanel);
+    if (status?.configured && !status.connected) {
+      const connect = document.createElement('button');
+      connect.type = 'button'; connect.className = 'tfr-button'; connect.textContent = t('sharedSpaces.remote.connect');
+      connect.addEventListener('click', async () => {
+        const result = await window.TFRSharedSpacesClient.connect();
+        this.sharedRemoteMessage = result.ok
+          ? ''
+          : /authorization page could not be loaded/i.test(result.message || '')
+            ? t('sharedSpaces.remote.redirectError', { url: status.redirectUrl || '' })
+            : result.message;
+        await this.refreshSharedRemote();
+      });
+      accountActions.appendChild(connect);
+      if (status.redirectUrl) {
+        const redirect = document.createElement('small');
+        redirect.textContent = t('sharedSpaces.remote.redirectUrl', { url: status.redirectUrl });
+        accountPanel.appendChild(redirect);
+      }
+    } else if (status?.connected) {
+      const remoteMatch = this.remoteSharedSpaces.find((space) => space.id === activeSpace?.id);
+      const sync = document.createElement('button');
+      sync.type = 'button'; sync.className = 'tfr-button'; sync.disabled = !activeSpace;
+      sync.textContent = remoteMatch ? t('sharedSpaces.remote.push') : t('sharedSpaces.remote.publish');
+      sync.addEventListener('click', async () => {
+        const result = remoteMatch
+          ? await window.TFRSharedSpacesClient.pushSpace(activeSpace)
+          : await window.TFRSharedSpacesClient.createSpace(activeSpace);
+        if (!result.ok) this.sharedRemoteMessage = result.message;
+        else {
+          const remoteSpace = Array.isArray(result.data) ? result.data[0] : result.data;
+          if (remoteMatch) await this.store.importRemoteSharedSpace?.(remoteSpace, { activate: true });
+          else await this.store.replaceSharedSpaceId?.(activeSpace.id, remoteSpace);
+          this.sharedRemoteMessage = t('sharedSpaces.remote.synced');
+          await this.refreshSharedRemote();
+        }
+      });
+      const pull = document.createElement('button');
+      pull.type = 'button'; pull.className = 'tfr-button tfr-button--ghost'; pull.disabled = !remoteMatch;
+      pull.textContent = t('sharedSpaces.remote.pull');
+      pull.addEventListener('click', async () => {
+        const result = await window.TFRSharedSpacesClient.pullSpace(activeSpace.id);
+        if (!result.ok) this.sharedRemoteMessage = result.message;
+        else {
+          await this.store.importRemoteSharedSpace?.(result.data, { activate: true });
+          this.sharedRemoteMessage = t('sharedSpaces.remote.synced');
+        }
+        this.render();
+      });
+      const invite = document.createElement('button');
+      invite.type = 'button'; invite.className = 'tfr-button'; invite.disabled = !activeSpace || !permissions.invite;
+      invite.textContent = t('sharedSpaces.remote.inviteLogin');
+      invite.addEventListener('click', async () => {
+        const login = window.prompt(t('sharedSpaces.remote.promptLogin'))?.trim();
+        if (!login) return;
+        const requestedRole = window.confirm(t('sharedSpaces.remote.promptEditorRole')) ? 'editor' : 'viewer';
+        invite.disabled = true;
+        const prepared = await this.ensureRemoteSharedSpace(activeSpace);
+        if (!prepared.ok) {
+          this.sharedRemoteMessage = prepared.message;
+          this.render();
+          return;
+        }
+        const result = await window.TFRSharedSpacesClient.inviteByLogin(prepared.space.id, login, requestedRole);
+        this.sharedRemoteMessage = result.ok
+          ? t(result.data?.alreadyPending ? 'sharedSpaces.remote.invitationPending' : 'sharedSpaces.remote.invited')
+          : result.message;
+        this.render();
+      });
+      const link = document.createElement('button');
+      link.type = 'button'; link.className = 'tfr-button tfr-button--ghost'; link.disabled = !activeSpace || !permissions.invite;
+      link.textContent = t('sharedSpaces.remote.createCode');
+      link.addEventListener('click', async () => {
+        link.disabled = true;
+        const prepared = await this.ensureRemoteSharedSpace(activeSpace);
+        if (!prepared.ok) {
+          this.sharedRemoteMessage = prepared.message;
+          this.render();
+          return;
+        }
+        const result = await window.TFRSharedSpacesClient.createInviteLink(prepared.space.id, 'editor');
+        if (!result.ok) this.sharedRemoteMessage = result.message;
+        else {
+          const value = result.data?.inviteUrl || result.data?.token || '';
+          this.sharedRemoteMessage = value;
+          if (value) await navigator.clipboard?.writeText?.(value).catch(() => {});
+        }
+        this.render();
+      });
+      if (!remoteMatch && activeSpace) {
+        const publishHint = document.createElement('small');
+        publishHint.textContent = t('sharedSpaces.remote.autoPublishHint');
+        spacePanel.appendChild(publishHint);
+      }
+      const join = document.createElement('button');
+      join.type = 'button'; join.className = 'tfr-button tfr-button--ghost';
+      join.textContent = t('sharedSpaces.remote.joinCode');
+      join.addEventListener('click', async () => {
+        const token = window.prompt(t('sharedSpaces.remote.promptCode'))?.trim();
+        if (!token) return;
+        const result = await window.TFRSharedSpacesClient.joinByToken(token);
+        if (result.ok) {
+          await this.store.importRemoteSharedSpace?.(result.data, { activate: true });
+          this.sharedRemoteMessage = t('sharedSpaces.remote.joined');
+          await this.refreshSharedRemote();
+        } else {
+          this.sharedRemoteMessage = result.message;
+          this.render();
+        }
+      });
+      const disconnect = document.createElement('button');
+      disconnect.type = 'button'; disconnect.className = 'tfr-button tfr-button--ghost';
+      disconnect.textContent = t('sharedSpaces.remote.disconnect');
+      disconnect.addEventListener('click', async () => {
+        await window.TFRSharedSpacesClient.disconnect();
+        this.sharedRemoteMessage = '';
+        await this.refreshSharedRemote();
+      });
+      spaceActions.append(sync, pull, invite, link);
+      accountActions.append(join, disconnect);
+    }
+    if (this.sharedRemoteMessage) {
+      const feedback = document.createElement('small'); feedback.textContent = this.sharedRemoteMessage; section.appendChild(feedback);
+    }
+    if (status?.connected) {
+      const list = window.TFRSharedSpacesView.renderInvitationInbox({
+        invitations: this.sharedInvitations,
+        t,
+        onRefresh: () => this.refreshSharedRemote(),
+        onRespond: async (item, accept) => {
+            const response = await window.TFRSharedSpacesClient.respondToInvitation(item.id, accept);
+            if (response.ok && accept && response.data?.spaceId) {
+              const pulled = await window.TFRSharedSpacesClient.pullSpace(response.data.spaceId);
+              if (pulled.ok) await this.store.importRemoteSharedSpace?.(pulled.data, { activate: true });
+            }
+            if (!response.ok) this.sharedRemoteMessage = response.message;
+            await this.refreshSharedRemote();
+        }
+      });
+      accountArea.appendChild(list);
+    }
+    const missingRemoteSpaces = this.remoteSharedSpaces.filter((remote) => !this.store.getSharedSpaces?.().some((local) => local.id === remote.id));
+    if (missingRemoteSpaces.length) {
+      const available = document.createElement('div'); available.className = 'tfr-shared-available';
+      missingRemoteSpaces.forEach((remote) => {
+        const row = document.createElement('div'); row.className = 'tfr-shared-available__row';
+        const text = document.createElement('span'); text.textContent = remote.name;
+        const button = document.createElement('button'); button.type = 'button'; button.className = 'tfr-button tfr-button--ghost';
+        button.textContent = t('sharedSpaces.remote.download');
+        button.addEventListener('click', async () => {
+          const result = await window.TFRSharedSpacesClient.pullSpace(remote.id);
+          if (result.ok) await this.store.importRemoteSharedSpace?.(result.data, { activate: true });
+          else this.sharedRemoteMessage = result.message;
+          this.render();
+        });
+        row.append(text, button); available.appendChild(row);
+      }); accountArea.appendChild(available);
+    }
+    section.appendChild(accountArea);
+    return section;
   }
 
   downloadJson(payload, filename) {
@@ -3855,6 +4367,9 @@ class FavoritesOverlay {
 
   destroy() {
     this.unsubscribe?.();
+    this.unsubscribe = null;
+    this.sharedAutoSync?.dispose();
+    this.sharedAutoSync = null;
     this.close();
   }
 }

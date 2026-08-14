@@ -24,8 +24,9 @@
       const overlay = new types.FavoritesOverlay(store);
       const navigation = new types.TopNavManager(overlay);
       const updates = new types.UpdateNotifier();
-      instances.push(sidebar, favoriteButton, overlay, navigation, features, updates, store);
-      [features, sidebar, favoriteButton, navigation, updates].forEach((instance) => instance.init());
+      const viewerCardInvite = new types.ViewerCardSharedInvite();
+      instances.push(sidebar, favoriteButton, overlay, navigation, features, updates, viewerCardInvite, store);
+      [features, sidebar, favoriteButton, navigation, updates, viewerCardInvite].forEach((instance) => instance.init());
       focusHandler = () => store.refreshLiveData();
       window.addEventListener('focus', focusHandler);
       window.addEventListener('beforeunload', dispose, { once: true });

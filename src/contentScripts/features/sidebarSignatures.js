@@ -7,6 +7,12 @@
     (groups || []).forEach(walk);
   };
 
+  const getWorkspaceSignature = (state) => ({
+    mode: state.workspaceMode || 'personal',
+    profileId: state.activeProfileId || '',
+    sharedSpaceId: state.activeSharedSpaceId || ''
+  });
+
   const createSidebarSignatures = ({ getLiveDataEntry }) => ({
     render(state, liveData, groups, { isSidebarHovering = false, compactLevel = 0 } = {}) {
       const preferences = state.preferences || {};
@@ -27,6 +33,7 @@
         });
       });
       return JSON.stringify({
+        workspace: getWorkspaceSignature(state),
         enabled: preferences.liveFavoritesEnabled !== false,
         hover: Boolean(isSidebarHovering),
         compactLevel,
@@ -58,6 +65,7 @@
         ].join(':'));
       });
       return JSON.stringify({
+        workspace: getWorkspaceSignature(state),
         enabled: Boolean(preferences.autoCompactSidebarEnabled),
         streamerItemStyle: preferences.streamerItemStyle || '',
         autoCompactStreamerStyle: preferences.autoCompactStreamerStyle || '',
