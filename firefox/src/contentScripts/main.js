@@ -44,6 +44,7 @@
       moderationHistoryEnabled: true,
       sevenTvEmotesEnabled: false,
       betterTtvEmotesEnabled: false,
+      chatEmoteAutocompleteEnabled: false,
       playerLatencyEnabled: false,
       playerRecoveryEnabled: false,
       autoClaimChannelPointsEnabled: false,

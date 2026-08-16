@@ -3,7 +3,7 @@
   "name": "__MSG_extensionName__",
   "description": "__MSG_extensionDescription__",
   "default_locale": "en",
-  "version": "0.6.18",
+  "version": "0.6.19",
   "icons": {
     "16": "assets/icon16.png",
     "48": "assets/icon48.png",
@@ -40,6 +40,18 @@
         "https://www.twitch.tv/*",
         "https://twitch.tv/*"
       ],
+        "js": [
+          "src/contentScripts/page/deletedMessageBridge.js",
+          "src/contentScripts/page/chatEmoteInputBridge.js"
+      ],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": [
+        "https://www.twitch.tv/*",
+        "https://twitch.tv/*"
+      ],
       "js": [
         "src/contentScripts/performanceMonitor.js",
         "src/contentScripts/features/colorTools.js",
@@ -62,8 +74,11 @@
         "src/contentScripts/features/favoritesStorageGateway.js",
         "src/contentScripts/features/liveDataCache.js",
         "src/contentScripts/features/favoritesStore.js",
-        "src/contentScripts/features/locationWatcher.js",
-        "src/contentScripts/features/chatEmoteResolver.js",
+          "src/contentScripts/features/locationWatcher.js",
+          "src/contentScripts/features/chatEmoteResolver.js",
+          "src/contentScripts/features/chatEmoteCatalog.js",
+          "src/contentScripts/features/chatEmoteAutocomplete.js",
+        "src/contentScripts/features/chatEmoteTooltip.js",
         "src/contentScripts/features/chatDomTools.js",
         "src/contentScripts/features/domWorkScheduler.js",
         "src/contentScripts/features/moderationDurationTools.js",

@@ -29,7 +29,8 @@ class FeatureController {
         property: 'thirdPartyChatEmotes', Type: ThirdPartyChatEmotes, label: 'emote enhancement',
         selectPreferences: (prefs) => ({
           sevenTvEnabled: prefs.sevenTvEmotesEnabled === true,
-          betterTtvEnabled: prefs.betterTtvEmotesEnabled === true
+          betterTtvEnabled: prefs.betterTtvEmotesEnabled === true,
+          autocompleteEnabled: prefs.chatEmoteAutocompleteEnabled === true
         })
       },
       {

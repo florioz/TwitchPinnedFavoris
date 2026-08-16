@@ -6,6 +6,7 @@
       ['moderationHistoryEnabled', 'settings.moderation', 'setModerationHistoryEnabled'],
       ['sevenTvEmotesEnabled', 'settings.sevenTv', 'setSevenTvEmotesEnabled', false],
       ['betterTtvEmotesEnabled', 'settings.betterTtv', 'setBetterTtvEmotesEnabled', false],
+      ['chatEmoteAutocompleteEnabled', 'settings.emoteAutocomplete', 'setChatEmoteAutocompleteEnabled', false],
       ['playerLatencyEnabled', 'settings.playerLatency', 'setPlayerLatencyEnabled', false],
       ['playerRecoveryEnabled', 'settings.playerRecovery', 'setPlayerRecoveryEnabled', false],
       ['autoClaimChannelPointsEnabled', 'settings.autoClaimChannelPoints', 'setAutoClaimChannelPointsEnabled', false],
@@ -33,7 +34,7 @@
         keys: ['chatHistoryEnabled', 'moderationHistoryEnabled', 'chatFontEnabled', 'chatNoPaddingEnabled', 'showDeletedMessagesEnabled', 'showFullRepliesEnabled']
       },
       { id: 'mentions', keys: ['chatMentionHighlightEnabled'] },
-      { id: 'emotes', keys: ['sevenTvEmotesEnabled', 'betterTtvEmotesEnabled'] },
+      { id: 'emotes', keys: ['sevenTvEmotesEnabled', 'betterTtvEmotesEnabled', 'chatEmoteAutocompleteEnabled'] },
       {
         id: 'player',
         keys: ['liveFavoritesEnabled', 'playerLatencyEnabled', 'playerRecoveryEnabled', 'autoClaimChannelPointsEnabled', 'playerAudioCompressorEnabled', 'playerVolumeNormalizerEnabled', 'hideCollapsedGroupsUntilHover', 'autoCompactSidebarEnabled', 'liveHoverPreviewEnabled']

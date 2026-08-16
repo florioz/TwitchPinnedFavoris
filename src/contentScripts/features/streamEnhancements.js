@@ -8,6 +8,8 @@
       '[role="log"][aria-live="polite"]'
     ];
     const MESSAGE_SELECTOR = '[data-a-target="chat-line-message"], [data-test-selector="chat-line-message"], .chat-line__message';
+    const DELETED_NOTICE_SELECTOR = '.chat-line__message--deleted-notice';
+    const DELETED_TRACKING_SELECTOR = `${MESSAGE_SELECTOR}, ${DELETED_NOTICE_SELECTOR}`;
     const MESSAGE_BODY_SELECTOR = '[data-a-target="chat-message-text"], [data-a-target="chat-line-message-body"], [data-test-selector="chat-line-message-body"]';
     const CURRENT_USER_MENTION_SELECTOR = '[data-a-target="chat-message-mention"].mention-fragment--recipient';
     const CHAT_MENTION_SOUND_IDS = new Set(['soft', 'chime', 'arcade', 'pulse', 'alert']);
@@ -15,6 +17,10 @@
     const CHAT_SNAPSHOT_CACHE_LIMIT = 500;
     const audioEngineModule = window.TFRPlayerAudioEngine;
     if (!audioEngineModule?.PlayerAudioEngine) throw new Error('Player audio engine module is missing');
+    const EmoteAutocomplete = window.TFRChatEmoteAutocomplete?.ChatEmoteAutocomplete;
+    if (!EmoteAutocomplete) throw new Error('Chat emote autocomplete module is missing');
+    const emoteCatalog = window.TFRChatEmoteCatalog;
+    if (!emoteCatalog) throw new Error('Chat emote catalog module is missing');
     const {
       PlayerAudioEngine,
       PRESETS: AUDIO_COMPRESSOR_PRESETS,
@@ -72,7 +78,9 @@
       constructor() {
         this.enabledSevenTv = false;
         this.enabledBetterTtv = false;
+        this.autocompleteEnabled = false;
         this.emotes = new Map();
+        this.autocompleteEmotes = new Map();
         this.channelLogin = '';
         this.observer = null;
         this.container = null;
@@ -80,6 +88,8 @@
         this.pendingReplyContext = null;
         this.locationTimer = null;
         this.loadGeneration = 0;
+        this.tooltip = window.TFRChatEmoteTooltip.create(document, window);
+        this.autocomplete = new EmoteAutocomplete(document, window);
         this.renderScheduler = window.TFRDomWorkScheduler.create({
           process: (node) => this.scanNode(node),
           maxBatchSize: 10
@@ -102,15 +112,25 @@
         this.observer = null;
         this.locationTimer = null;
         this.emotes.clear();
+        this.autocompleteEmotes.clear();
         this.renderScheduler.dispose();
+        this.tooltip.dispose();
+        this.autocomplete.dispose();
       }
 
-      configure({ sevenTvEnabled, betterTtvEnabled }) {
+      configure({ sevenTvEnabled, betterTtvEnabled, autocompleteEnabled }) {
         const nextSevenTv = Boolean(sevenTvEnabled);
         const nextBetterTtv = Boolean(betterTtvEnabled);
-        if (nextSevenTv === this.enabledSevenTv && nextBetterTtv === this.enabledBetterTtv) return;
+        const nextAutocomplete = Boolean(autocompleteEnabled);
+        if (
+          nextSevenTv === this.enabledSevenTv
+          && nextBetterTtv === this.enabledBetterTtv
+          && nextAutocomplete === this.autocompleteEnabled
+        ) return;
         this.enabledSevenTv = nextSevenTv;
         this.enabledBetterTtv = nextBetterTtv;
+        this.autocompleteEnabled = nextAutocomplete;
+        this.autocomplete.setEnabled(nextAutocomplete);
         this.reload();
       }
 
@@ -118,16 +138,30 @@
         const generation = ++this.loadGeneration;
         this.channelLogin = currentLogin();
         this.emotes.clear();
+        this.autocompleteEmotes.clear();
+        this.autocomplete.setEmotes([]);
         this.observer?.disconnect();
         this.observer = null;
-        if (!this.enabledSevenTv && !this.enabledBetterTtv) return;
+        if (!this.enabledSevenTv && !this.enabledBetterTtv && !this.autocompleteEnabled) {
+          this.tooltip.bind(null);
+          return;
+        }
         const channelId = this.channelLogin ? await this.fetchTwitchUserId(this.channelLogin) : '';
-        const maps = await Promise.all([
-          this.enabledSevenTv ? this.fetchSevenTv(channelId) : new Map(),
-          this.enabledBetterTtv ? this.fetchBetterTtv(channelId) : new Map()
+        const [sevenTvEmotes, betterTtvEmotes] = await Promise.all([
+          (this.enabledSevenTv || this.autocompleteEnabled) ? this.fetchSevenTv(channelId) : new Map(),
+          (this.enabledBetterTtv || this.autocompleteEnabled) ? this.fetchBetterTtv(channelId) : new Map()
         ]);
         if (generation !== this.loadGeneration) return;
-        maps.forEach((map) => map.forEach((value, key) => this.emotes.set(key, value)));
+        this.autocompleteEmotes = emoteCatalog.merge(sevenTvEmotes, betterTtvEmotes);
+        this.emotes = emoteCatalog.merge(
+          this.enabledSevenTv ? sevenTvEmotes : null,
+          this.enabledBetterTtv ? betterTtvEmotes : null
+        );
+        this.autocomplete.setEmotes(this.autocompleteEmotes);
+        if (!this.enabledSevenTv && !this.enabledBetterTtv) {
+          this.tooltip.bind(null);
+          return;
+        }
         this.observeChat();
         this.renderExisting();
       }
@@ -154,32 +188,15 @@
         return payload?.data?.user?.id || '';
       }
 
-      addSevenTvEntries(target, payload) {
-        const entries = payload?.emotes || payload?.emote_set?.emotes || [];
-        entries.forEach((entry) => {
-          const id = entry?.id || entry?.data?.id;
-          const name = entry?.name || entry?.data?.name;
-          if (id && name) target.set(name, { name, provider: '7TV', url: `https://cdn.7tv.app/emote/${id}/2x.webp` });
-        });
-      }
-
       async fetchSevenTv(channelId) {
         const target = new Map();
         const [globalSet, channelSet] = await Promise.all([
           this.fetchJson('https://7tv.io/v3/emote-sets/global'),
           channelId ? this.fetchJson(`https://7tv.io/v3/users/twitch/${encodeURIComponent(channelId)}`) : null
         ]);
-        this.addSevenTvEntries(target, globalSet);
-        this.addSevenTvEntries(target, channelSet);
+        emoteCatalog.appendSevenTv(target, globalSet);
+        emoteCatalog.appendSevenTv(target, channelSet);
         return target;
-      }
-
-      addBetterTtvEntries(target, entries) {
-        (Array.isArray(entries) ? entries : []).forEach((entry) => {
-          if (entry?.id && entry?.code) {
-            target.set(entry.code, { name: entry.code, provider: 'BetterTTV', url: `https://cdn.betterttv.net/emote/${entry.id}/2x.webp` });
-          }
-        });
       }
 
       async fetchBetterTtv(channelId) {
@@ -188,9 +205,9 @@
           this.fetchJson('https://api.betterttv.net/3/cached/emotes/global'),
           channelId ? this.fetchJson(`https://api.betterttv.net/3/cached/users/twitch/${encodeURIComponent(channelId)}`) : null
         ]);
-        this.addBetterTtvEntries(target, globalEmotes);
-        this.addBetterTtvEntries(target, channel?.channelEmotes);
-        this.addBetterTtvEntries(target, channel?.sharedEmotes);
+        emoteCatalog.appendBetterTtv(target, globalEmotes);
+        emoteCatalog.appendBetterTtv(target, channel?.channelEmotes);
+        emoteCatalog.appendBetterTtv(target, channel?.sharedEmotes);
         return target;
       }
 
@@ -203,6 +220,7 @@
         }
         if (container === this.container && this.observer) return;
         this.container = container;
+        this.tooltip.bind(container);
         this.observer?.disconnect();
         this.observer = new MutationObserver((mutations) => {
           if (document.visibilityState === 'hidden') return;
@@ -249,7 +267,9 @@
           image.className = 'tfr-chat-emote';
           image.src = emote.url;
           image.alt = emote.name;
-          image.title = `${emote.name} · ${emote.provider}`;
+          image.dataset.tfrEmoteName = emote.name;
+          image.dataset.tfrEmoteProvider = emote.provider;
+          image.setAttribute('aria-label', `${emote.name}, ${emote.provider}`);
           image.loading = 'lazy';
           image.decoding = 'async';
           fragment.appendChild(image);
@@ -891,17 +911,28 @@
 
       configure(enabled) {
         this.enabled = Boolean(enabled);
-        if (this.enabled) this.observe();
-        else this.stop();
+        if (!this.enabled) {
+          this.stop();
+          return;
+        }
+        document.documentElement.classList.add('tfr-show-deleted-messages');
+        document.dispatchEvent(new Event('tfr:deleted-message:sync-state'));
+        this.observe();
       }
 
       dispose() { this.stop(); }
 
       stop() {
+        document.documentElement.classList.remove('tfr-show-deleted-messages');
+        document.dispatchEvent(new Event('tfr:deleted-message:sync-state'));
         this.observer?.disconnect();
         this.observer = null;
         clearChatRetry(this);
         deletedMessageView.clearAll();
+        document.querySelectorAll('.tfr-deleted-message-react-restored').forEach((message) => {
+          message.classList.remove('tfr-deleted-message-react-restored');
+          delete message.dataset.tfrDeletedRestoreRequested;
+        });
         this.snapshotsById.clear();
         this.snapshotsByKey.clear();
       }
@@ -913,12 +944,15 @@
           return;
         }
         this.container = container;
-        container.querySelectorAll(MESSAGE_SELECTOR).forEach((message) => this.processMessage(message));
+        container.querySelectorAll(DELETED_TRACKING_SELECTOR).forEach((message) => this.processMessage(message));
         this.observer?.disconnect();
         this.observer = new MutationObserver((mutations) => {
           if (!this.enabled || document.visibilityState === 'hidden') return;
           mutations.forEach((mutation) => {
-            const targetMessage = mutation.target instanceof Element ? mutation.target.closest(MESSAGE_SELECTOR) : null;
+            const targetMessage = mutation.target instanceof Element
+              ? mutation.target.closest(DELETED_TRACKING_SELECTOR)
+              : null;
+            if (targetMessage) this.captureRemovedSnapshot(targetMessage, mutation);
             if (targetMessage) this.processMessage(targetMessage);
             mutation.addedNodes.forEach((node) => this.scanNode(node));
           });
@@ -927,13 +961,15 @@
           childList: true,
           subtree: true,
           attributes: true,
+          characterData: true,
+          characterDataOldValue: true,
           attributeFilter: ['class', 'data-deleted', 'data-deleted-message']
         });
       }
 
       scanNode(node) {
         if (!(node instanceof Element) || node.classList.contains(deletedMessageView.RESTORED_CLASS)) return;
-        visitMatchingElements(node, MESSAGE_SELECTOR, (message) => this.processMessage(message));
+        visitMatchingElements(node, DELETED_TRACKING_SELECTOR, (message) => this.processMessage(message));
       }
 
       isDeleted(message) {
@@ -986,10 +1022,43 @@
           || this.snapshotsByKey.get(this.getMessageSnapshotKey(message));
       }
 
+      isDeletionPlaceholder(text) {
+        return /message\s+(?:supprim\u00e9|deleted)(?:\s+par\s+un\s+mod\u00e9rateur|\s+by\s+a\s+moderator)?/i
+          .test(String(text || '').trim());
+      }
+
+      captureRemovedSnapshot(message, mutation) {
+        const removedNodes = Array.from(mutation?.removedNodes || []);
+        const oldText = mutation?.type === 'characterData' ? String(mutation.oldValue || '').trim() : '';
+        const removedText = removedNodes.map((node) => String(node.textContent || '').trim())
+          .filter(Boolean)
+          .join(' ')
+          .trim();
+        const text = oldText || removedText;
+        if (!text || this.isDeletionPlaceholder(text)) return false;
+        const nodes = removedNodes
+          .filter((node) => typeof node.cloneNode === 'function')
+          .map((node) => node.cloneNode(true));
+        this.rememberSnapshot(message, { text, nodes });
+        return true;
+      }
+
+      requestNativeRestore(message) {
+        message.dataset.tfrDeletedLabel = t('settings.deletedMessages.badge');
+        const body = message.querySelector(MESSAGE_BODY_SELECTOR);
+        if (body) body.dataset.tfrDeletedLabel = message.dataset.tfrDeletedLabel;
+        if (message.dataset.tfrDeletedRestoreRequested === 'true') return;
+        message.dataset.tfrDeletedRestoreRequested = 'true';
+        message.dispatchEvent(new CustomEvent('tfr:deleted-message:restore-native', {
+          bubbles: true
+        }));
+      }
+
       processMessage(message) {
         if (!(message instanceof HTMLElement)) return;
         const existing = deletedMessageView.findRestored(message);
         if (!this.isDeleted(message)) {
+          if (message.classList.contains('tfr-deleted-message-react-restored')) return;
           deletedMessageView.clear(message);
           const body = message.querySelector(MESSAGE_BODY_SELECTOR);
           const text = body?.textContent?.trim();
@@ -1001,6 +1070,7 @@
           }
           return;
         }
+        this.requestNativeRestore(message);
         if (existing) return;
         const snapshot = this.findSnapshot(message);
         if (!snapshot?.text) return;
@@ -1145,14 +1215,38 @@
         this.container = container;
         container.querySelectorAll(MESSAGE_SELECTOR).forEach((message) => this.processMessage(message, false));
         this.observer?.disconnect();
-        this.observer = new MutationObserver((mutations) => mutations.forEach((mutation) =>
-          mutation.addedNodes.forEach((node) => this.scanNode(node))
-        ));
-        this.observer.observe(container, { childList: true, subtree: true });
+        this.observer = new MutationObserver((mutations) => mutations.forEach((mutation) => {
+          if (mutation.type === 'attributes') {
+            this.scanNode(mutation.target);
+            return;
+          }
+          mutation.addedNodes.forEach((node) => this.scanNode(node));
+        }));
+        this.observer.observe(container, {
+          childList: true,
+          subtree: true,
+          attributes: true,
+          attributeFilter: ['aria-label']
+        });
       }
 
       scanNode(node) {
         visitMatchingElements(node, MESSAGE_SELECTOR, (message) => this.processMessage(message, true));
+      }
+
+      isReplyToCurrentUser(message) {
+        if (!this.login) return false;
+        const label = String(message.getAttribute?.('aria-label') || '')
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .trim()
+          .toLowerCase();
+        if (!label) return false;
+        const escapedLogin = this.login.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        return new RegExp(
+          `^(?:(?:reponse|repond)\\s+a|replying\\s+to|reply\\s+to)\\s+@?${escapedLogin}(?=\\s*[,.:]|\\s*$)`,
+          'i'
+        ).test(label);
       }
 
       inspectMessage(message) {
@@ -1160,6 +1254,7 @@
         if (!body) return null;
         const normalizedText = String(body.textContent || '').toLowerCase();
         const nativeMention = Boolean(message.querySelector(CURRENT_USER_MENTION_SELECTOR));
+        const directReply = this.isReplyToCurrentUser(message);
         const identity = this.login || CHAT_MENTION_FALLBACK_IDENTITY;
         const escapedLogin = this.login.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
         const textMentionsLogin = this.login
@@ -1167,8 +1262,8 @@
           : false;
         return {
           identity,
-          mentioned: nativeMention || textMentionsLogin,
-          signature: `${identity}:${nativeMention ? 'native:' : ''}${normalizedText}`
+          mentioned: nativeMention || textMentionsLogin || directReply,
+          signature: `${identity}:${nativeMention ? 'native:' : ''}${directReply ? 'reply:' : ''}${normalizedText}`
         };
       }
 

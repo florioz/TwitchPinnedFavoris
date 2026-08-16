@@ -56,3 +56,36 @@ test('deleted message view restores cloned message nodes when available', () => 
   assert.deepEqual(appended, [{ cloned: true }]);
   assert.equal(restored.textContent, undefined);
 });
+
+test('deleted message view hides and restores Twitch native deletion markers', () => {
+  const markerClasses = createClassList();
+  const marker = { classList: markerClasses };
+  let restored = null;
+  const document = {
+    createElement: () => ({ setAttribute() {}, remove() { restored = null; } })
+  };
+  const window = {};
+  vm.runInNewContext(
+    fs.readFileSync(path.join(__dirname, '../src/contentScripts/features/deletedMessageView.js'), 'utf8'),
+    { window, document }
+  );
+  let removedLabel = false;
+  const labeledBody = { removeAttribute: () => { removedLabel = true; } };
+  const message = {
+    dataset: { tfrDeletedLabel: 'Supprimé' },
+    classList: createClassList(),
+    querySelector: (selector) => selector.includes('tfr-deleted-message-restored') ? restored : null,
+    querySelectorAll: (selector) => selector === '[data-tfr-deleted-label]'
+      ? [labeledBody]
+      : selector.includes('deleted-message') ? [marker] : []
+  };
+  const body = { appendChild: (node) => { restored = node; } };
+  const view = window.TFRDeletedMessageView.create(document);
+
+  assert.equal(view.reveal({ message, body, text: 'contenu original' }), true);
+  assert.equal(markerClasses.has(view.NATIVE_MARKER_CLASS), true);
+  view.clear(message);
+  assert.equal(markerClasses.has(view.NATIVE_MARKER_CLASS), false);
+  assert.equal(removedLabel, true);
+  assert.equal(message.dataset.tfrDeletedLabel, undefined);
+});

@@ -4,7 +4,7 @@
     'recentLiveEnabled', 'recentLiveCollapsed', 'hideCollapsedGroupsUntilHover',
     'autoCompactSidebarEnabled', 'toastEnabled', 'toastSoundEnabled',
     'chatHistoryEnabled', 'moderationHistoryEnabled', 'sevenTvEmotesEnabled',
-    'betterTtvEmotesEnabled', 'playerLatencyEnabled', 'playerAudioCompressorEnabled',
+    'betterTtvEmotesEnabled', 'chatEmoteAutocompleteEnabled', 'playerLatencyEnabled', 'playerAudioCompressorEnabled',
     'autoClaimChannelPointsEnabled',
     'playerVolumeNormalizerEnabled', 'chatFontEnabled',
     'chatNoPaddingEnabled', 'showDeletedMessagesEnabled', 'showFullRepliesEnabled',

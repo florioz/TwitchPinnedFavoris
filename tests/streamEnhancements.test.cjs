@@ -34,8 +34,11 @@ const loadFeatures = () => {
       visibilityState: 'visible',
       querySelector: () => null,
       querySelectorAll: () => [],
+      dispatchEvent: () => true,
       documentElement: {
         classList: {
+          add: (name) => classes.add(name),
+          contains: (name) => classes.has(name),
           toggle: (name, enabled) => enabled ? classes.add(name) : classes.delete(name),
           remove: (name) => classes.delete(name)
         },
@@ -48,6 +51,7 @@ const loadFeatures = () => {
     fetch: async () => ({ ok: false, json: async () => null }),
     console,
     Element: ElementMock,
+    Event: class EventMock {},
     Node: { ELEMENT_NODE: 1 },
     NodeFilter: { SHOW_TEXT: 4, FILTER_REJECT: 2, FILTER_ACCEPT: 1 },
     clearInterval: window.clearInterval,
@@ -59,6 +63,18 @@ const loadFeatures = () => {
   );
   vm.runInNewContext(
     fs.readFileSync(path.join(__dirname, '../src/contentScripts/features/domWorkScheduler.js'), 'utf8'),
+    context
+  );
+  vm.runInNewContext(
+    fs.readFileSync(path.join(__dirname, '../src/contentScripts/features/chatEmoteTooltip.js'), 'utf8'),
+    context
+  );
+  vm.runInNewContext(
+    fs.readFileSync(path.join(__dirname, '../src/contentScripts/features/chatEmoteCatalog.js'), 'utf8'),
+    context
+  );
+  vm.runInNewContext(
+    fs.readFileSync(path.join(__dirname, '../src/contentScripts/features/chatEmoteAutocomplete.js'), 'utf8'),
     context
   );
   vm.runInNewContext(
@@ -352,6 +368,53 @@ test('chat mentions use Twitch recipient markup when the account login is unavai
   assert.equal(message.dataset.tfrMentionNotified, 'twitch-current-user');
 });
 
+test('direct Twitch replies trigger the same highlight and sound as mentions', () => {
+  const { features } = loadFeatures();
+  const manager = new features.ChatMentionHighlighter();
+  manager.enabled = true;
+  manager.soundEnabled = true;
+  manager.login = 'nks_floriozz';
+  let highlighted = false;
+  let plays = 0;
+  manager.audio = { play: () => { plays += 1; } };
+  const body = { textContent: 'je te réponds sans écrire ton pseudo' };
+  const message = {
+    dataset: {},
+    getAttribute: (name) => name === 'aria-label'
+      ? 'Réponse à nks_floriozz, Envoyé à 01:44 et viewer : je te réponds'
+      : '',
+    querySelector: (selector) => selector.includes('chat-message-mention') ? null : body,
+    classList: { toggle: (_name, enabled) => { highlighted = enabled; } }
+  };
+
+  manager.processMessage(message, true);
+
+  assert.equal(highlighted, true);
+  assert.equal(plays, 1);
+  assert.match(message.dataset.tfrMentionText, /reply:/);
+});
+
+test('a reply quoting the current login does not alert unless addressed to it', () => {
+  const { features } = loadFeatures();
+  const manager = new features.ChatMentionHighlighter();
+  manager.enabled = true;
+  manager.login = 'nks_floriozz';
+  let highlighted = true;
+  const body = { textContent: 'réponse ordinaire sans mention directe' };
+  const message = {
+    dataset: {},
+    getAttribute: (name) => name === 'aria-label'
+      ? 'Réponse à autre_viewer, Envoyé à 01:44 et viewer : @nks_floriozz était dans le message cité'
+      : '',
+    querySelector: (selector) => selector.includes('chat-message-mention') ? null : body,
+    classList: { toggle: (_name, enabled) => { highlighted = enabled; } }
+  };
+
+  manager.processMessage(message, true);
+
+  assert.equal(highlighted, false);
+});
+
 test('chat padding can be removed and restored independently', () => {
   const { features, classes, styles } = loadFeatures();
   const manager = new features.ChatPaddingManager();
@@ -457,6 +520,43 @@ test('deleted messages are restored inside their original body without a duplica
   const css = fs.readFileSync(path.join(__dirname, '../styles/overlay.css'), 'utf8');
   assert.match(css, /\.tfr-deleted-message-revealed/);
   assert.match(css, /\.tfr-deleted-message-restored/);
+  assert.match(css, /attr\(data-tfr-deleted-label\)/);
+  assert.equal((css.match(/attr\(data-tfr-deleted-label\)/g) || []).length, 1);
+  assert.match(css, /chat-message-text"\]\[data-tfr-deleted-label\]/);
+  assert.doesNotMatch(css, /react-restored[\s\S]{0,250}::after\s*\{\s*content:\s*"\\00a0\(" attr\(aria-label\)/);
+  assert.match(css, /chat-deleted-message-attribution/);
+});
+
+test('deleted message viewer captures content removed by Twitch before restoring', () => {
+  const { features } = loadFeatures();
+  const viewer = new features.DeletedMessageViewer();
+  let remembered = null;
+  viewer.rememberSnapshot = (_message, snapshot) => { remembered = snapshot; };
+  const removed = {
+    textContent: 'le véritable message',
+    cloneNode: (deep) => ({ copied: deep })
+  };
+
+  assert.equal(viewer.captureRemovedSnapshot({}, {
+    type: 'childList',
+    removedNodes: [removed]
+  }), true);
+  assert.equal(remembered.text, 'le véritable message');
+  assert.deepEqual(Array.from(remembered.nodes, (node) => ({ ...node })), [{ copied: true }]);
+});
+
+test('deleted message viewer never snapshots Twitch deletion placeholders', () => {
+  const { features } = loadFeatures();
+  const viewer = new features.DeletedMessageViewer();
+  let remembered = false;
+  viewer.rememberSnapshot = () => { remembered = true; };
+
+  assert.equal(viewer.captureRemovedSnapshot({}, {
+    type: 'characterData',
+    oldValue: 'message supprimé par un modérateur.',
+    removedNodes: []
+  }), false);
+  assert.equal(remembered, false);
 });
 
 test('chat mutation traversal processes the same message only once', () => {

@@ -343,6 +343,7 @@
       this.normalizeBooleanPreferences({
         sevenTvEmotesEnabled: false,
         betterTtvEmotesEnabled: false,
+        chatEmoteAutocompleteEnabled: false,
         playerLatencyEnabled: false,
         playerRecoveryEnabled: false,
         autoClaimChannelPointsEnabled: false,
@@ -1514,6 +1515,10 @@
 
     async setBetterTtvEmotesEnabled(enabled) {
       await this.setBooleanPreference('betterTtvEmotesEnabled', enabled);
+    }
+
+    async setChatEmoteAutocompleteEnabled(enabled) {
+      await this.setBooleanPreference('chatEmoteAutocompleteEnabled', enabled);
     }
 
     async setPlayerLatencyEnabled(enabled) {

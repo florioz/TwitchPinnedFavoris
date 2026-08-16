@@ -13,7 +13,8 @@ test('extension styles remain scoped to extension-owned selectors', () => {
 });
 
 test('manifest loads helper modules before their consumers', () => {
-  const scripts = JSON.parse(read('manifest.json')).content_scripts[0].js;
+  const scripts = JSON.parse(read('manifest.json')).content_scripts
+    .find((entry) => entry.js?.includes('src/contentScripts/main.js')).js;
   const before = (dependency, consumer) => assert.ok(scripts.indexOf(dependency) < scripts.indexOf(consumer));
   before('src/contentScripts/features/preferenceSanitizers.js', 'src/contentScripts/features/favoritesStore.js');
   before('src/contentScripts/features/favoritesStorageGateway.js', 'src/contentScripts/features/favoritesStore.js');
@@ -21,6 +22,8 @@ test('manifest loads helper modules before their consumers', () => {
   before('src/contentScripts/features/sidebarGroupModel.js', 'src/contentScripts/features/sidebarRenderer.js');
   before('src/contentScripts/features/moderationDurationTools.js', 'src/contentScripts/features/chatModeration.js');
   before('src/contentScripts/features/deletedMessageView.js', 'src/contentScripts/features/streamEnhancements.js');
+  before('src/contentScripts/features/chatEmoteTooltip.js', 'src/contentScripts/features/streamEnhancements.js');
+  before('src/contentScripts/features/chatEmoteAutocomplete.js', 'src/contentScripts/features/streamEnhancements.js');
   before('src/contentScripts/features/domWorkScheduler.js', 'src/contentScripts/features/streamEnhancements.js');
   before('src/contentScripts/features/playerAudioEngine.js', 'src/contentScripts/features/streamEnhancements.js');
   before('src/contentScripts/features/sharedSpaceModel.js', 'src/contentScripts/features/favoritesStore.js');
