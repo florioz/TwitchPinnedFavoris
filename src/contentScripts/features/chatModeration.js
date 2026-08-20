@@ -1159,9 +1159,6 @@
       if (!action || !action.login) {
         return;
       }
-      if (this.isQuotedDeletionOnly(element)) {
-        return;
-      }
       const signature = [action.type, action.login, action.duration || '', action.isPermanent ? '1' : '0', action.message || ''].join('|');
       if (dataset.tfrModerationSignature === signature) return;
       dataset.tfrModerationSignature = signature;
@@ -1199,52 +1196,6 @@
           this.recordDeletionEvidence(entry);
         }
       }
-    }
-
-    isQuotedDeletionOnly(element) {
-      const root = this.historyTracker?.getMessageRoot?.(element) || element;
-      if (!(root instanceof HTMLElement)) return false;
-
-      const dataset = root.dataset || {};
-      const hasRootDeletionState = [
-        dataset.deleted,
-        dataset.deletedMessage,
-        dataset.deletedMsg,
-        dataset.deletedBy,
-        dataset.isDeleted
-      ].some((value) => this.isTruthy(value)) ||
-        root.classList?.contains('chat-line__message--deleted') ||
-        root.classList?.contains('is-deleted');
-      if (hasRootDeletionState) return false;
-
-      const body = this.historyTracker?.getMessageContainer?.(root) || null;
-      if (!(body instanceof HTMLElement) || body === root) return false;
-
-      const deletionSelector = [
-        '[data-a-target="deleted-message"]',
-        '[data-test-selector="chat-line-message-deleted"]',
-        '[data-test-selector="chat-deleted-message"]',
-        'span[data-a-target="deleted-message"]'
-      ].join(', ');
-      if (body.matches?.(deletionSelector) || body.querySelector?.(deletionSelector)) {
-        return false;
-      }
-
-      const bodyText = this.normalizeText(body.textContent || '');
-      if (this.isModerationPlaceholder(bodyText)) return false;
-
-      const replySelector = '.reply-line, [data-a-target="chat-line-reply"], .tfr-custom-reply-context';
-      const replyContexts = Array.from(root.querySelectorAll?.(replySelector) || []);
-      const deletionNodes = Array.from(root.querySelectorAll?.(deletionSelector) || []);
-      const deletionOnlyInReply = deletionNodes.length > 0 && deletionNodes.every((node) => (
-        replyContexts.some((context) => context === node || context.contains?.(node))
-      ));
-      if (deletionOnlyInReply) return true;
-
-      const rootText = this.normalizeText(root.textContent || '');
-      const hasDeletionText = /(?:message\s+)?(?:supprime|efface|deleted|removed)\s+(?:par\s+un\s+moderateur|by\s+a\s+moderator)/.test(rootText);
-      const isReply = replyContexts.length > 0 || /^(?:repond|reponse|reply)\b/.test(this.normalizeText(root.getAttribute?.('aria-label') || ''));
-      return isReply && hasDeletionText && !this.isModerationPlaceholder(bodyText);
     }
 
     addAction(entry) {
