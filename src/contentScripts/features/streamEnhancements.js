@@ -1416,6 +1416,130 @@
 
     }
 
+    const CHAT_COPY_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill-rule="evenodd" d="M7 3a2 2 0 0 0-2 2v10h2V5h10V3H7Zm3 4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h9a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-9Zm0 2h9v10h-9V9Z" clip-rule="evenodd"></path></svg>';
+    const CHAT_COPY_SUCCESS_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9.5 16.2-4-4L7 10.8l2.5 2.5L17 5.8l1.5 1.4-9 9Z"></path></svg>';
+
+    class ChatMessageCopyAction {
+      constructor() {
+        this.observer = null;
+        this.container = null;
+        this.retryTimer = null;
+        this.feedbackTimers = new Map();
+      }
+
+      init() {
+        this.observe();
+      }
+
+      configure() {}
+
+      dispose() {
+        this.observer?.disconnect();
+        this.observer = null;
+        clearChatRetry(this);
+        this.feedbackTimers.forEach((timer) => window.clearTimeout(timer));
+        this.feedbackTimers.clear();
+        document.querySelectorAll('.tfr-chat-copy-button').forEach((button) => button.remove());
+      }
+
+      observe() {
+        const container = findChatContainer();
+        if (!container) {
+          scheduleChatRetry(this, () => this.observe());
+          return;
+        }
+        if (this.container === container && this.observer) return;
+        this.container = container;
+        this.scanNode(container);
+        this.observer?.disconnect();
+        this.observer = new MutationObserver((mutations) => {
+          mutations.forEach((mutation) => mutation.addedNodes.forEach((node) => this.scanNode(node)));
+        });
+        this.observer.observe(container, { childList: true, subtree: true });
+      }
+
+      scanNode(node) {
+        visitMatchingElements(node, MESSAGE_SELECTOR, (message) => this.mount(message));
+      }
+
+      mount(message) {
+        if (!(message instanceof Element)) return;
+        const icons = message.querySelector('.chat-line__icons');
+        let reply = icons?.querySelector('.chat-line__reply-icon, button[aria-label*="répond" i], button[aria-label*="reply" i]');
+        if (!icons || !reply || icons.querySelector('.tfr-chat-copy-button')) return;
+        while (reply.parentElement && reply.parentElement !== icons) reply = reply.parentElement;
+        if (reply.parentElement !== icons) return;
+
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'tfr-chat-copy-button';
+        button.title = t('chat.copyMessage.action');
+        button.setAttribute('aria-label', t('chat.copyMessage.action'));
+        button.innerHTML = CHAT_COPY_ICON;
+        button.addEventListener('click', async (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          const text = this.extractMessage(message);
+          if (!text) return;
+          const copied = await this.copyText(text);
+          if (!button.isConnected) return;
+          this.showCopyFeedback(button, copied);
+        });
+        icons.insertBefore(button, reply);
+      }
+
+      showCopyFeedback(button, copied) {
+        const previousTimer = this.feedbackTimers.get(button);
+        if (previousTimer) window.clearTimeout(previousTimer);
+        button.classList.toggle('is-copied', copied);
+        button.title = t(copied ? 'chat.copyMessage.success' : 'chat.copyMessage.error');
+        button.setAttribute('aria-label', button.title);
+        button.innerHTML = copied ? CHAT_COPY_SUCCESS_ICON : CHAT_COPY_ICON;
+        const timer = window.setTimeout(() => {
+          this.feedbackTimers.delete(button);
+          if (!button.isConnected) return;
+          button.classList.remove('is-copied');
+          button.title = t('chat.copyMessage.action');
+          button.setAttribute('aria-label', button.title);
+          button.innerHTML = CHAT_COPY_ICON;
+        }, 1200);
+        this.feedbackTimers.set(button, timer);
+      }
+
+      extractMessage(message) {
+        const body = message.querySelector(MESSAGE_BODY_SELECTOR);
+        if (!body) return '';
+        const collect = (node) => {
+          if (node.nodeType === 3) return node.nodeValue || '';
+          if (!(node instanceof Element)) return '';
+          if (node.matches('.tfr-custom-reply-content')) return '';
+          if (node.tagName === 'IMG') return node.getAttribute('alt') || '';
+          if (node.tagName === 'BR') return '\n';
+          return Array.from(node.childNodes || []).map(collect).join('');
+        };
+        return collect(body).replace(/[ \t]+\n/g, '\n').trim();
+      }
+
+      async copyText(text) {
+        try {
+          if (window.navigator?.clipboard?.writeText) {
+            await window.navigator.clipboard.writeText(text);
+            return true;
+          }
+          const field = document.createElement('textarea');
+          field.value = text;
+          field.className = 'tfr-clipboard-fallback';
+          document.body.appendChild(field);
+          field.select();
+          const copied = document.execCommand?.('copy') === true;
+          field.remove();
+          return copied;
+        } catch {
+          return false;
+        }
+      }
+    }
+
     return {
       ThirdPartyChatEmotes,
       PlayerLatencyIndicator,
@@ -1425,7 +1549,8 @@
       ChatPaddingManager,
       ChatMentionHighlighter,
       DeletedMessageViewer,
-      ReplyExpansionTracker
+      ReplyExpansionTracker,
+      ChatMessageCopyAction
     };
   };
 

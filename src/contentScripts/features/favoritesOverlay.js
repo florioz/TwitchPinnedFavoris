@@ -33,6 +33,10 @@ const favoritesDragDropModel = window.TFRFavoritesDragDropModel;
 if (!favoritesDragDropModel) {
   throw new Error('[TFR] favorites drag and drop model is missing');
 }
+const favoriteSearchTools = window.TFRFavoriteSearchTools;
+if (!favoriteSearchTools) {
+  throw new Error('[TFR] favorite search tools are missing');
+}
 class FavoritesOverlay {
   constructor(store) {
     this.store = store;
@@ -45,6 +49,8 @@ class FavoritesOverlay {
     this.openListeners = new Set();
     this.closeListeners = new Set();
     this.searchTerm = '';
+    this.pendingFavoriteNavigation = '';
+    this.favoriteNavigationTimer = null;
     this.sortMode = this.store.getState().preferences?.sortMode || 'viewersDesc';
     this.backupInput = null;
     this.isImportingBackup = false;
@@ -250,6 +256,10 @@ class FavoritesOverlay {
       window.clearTimeout(this.mentionTestTimer);
       this.mentionTestTimer = null;
     }
+    if (this.favoriteNavigationTimer) {
+      window.clearTimeout(this.favoriteNavigationTimer);
+      this.favoriteNavigationTimer = null;
+    }
     this.unsubscribe?.();
     this.unsubscribe = null;
     this.sharedAutoSync?.dispose();
@@ -326,7 +336,7 @@ class FavoritesOverlay {
     content.innerHTML = '';
 
     content.appendChild(this.renderProfileControls(state));
-    content.appendChild(this.renderManagerControls());
+    content.appendChild(this.renderManagerControls(state));
     this.appendIfPresent(content, this.renderFavoriteIssues(state));
     content.appendChild(this.renderDataTools());
     this.appendIfPresent(content, this.renderRecentLiveSettings(state));
@@ -348,6 +358,7 @@ class FavoritesOverlay {
         content.scrollLeft = previousScrollLeft;
       }
       this.restoreFocusSnapshot(focusSnapshot);
+      this.applyPendingFavoriteNavigation();
     });
   }
 
@@ -368,9 +379,48 @@ class FavoritesOverlay {
     return button;
   }
 
-  renderManagerControls() {
+  getFavoriteSearchSuggestions(state, term, limit = 8) {
+    return favoriteSearchTools.getSuggestions(state, term, limit);
+  }
+
+  navigateToFavorite(login) {
+    const normalized = String(login || '').trim().toLowerCase();
+    if (!normalized) return;
+    this.searchTerm = '';
+    this.pendingFavoriteNavigation = normalized;
+    this.render();
+  }
+
+  applyPendingFavoriteNavigation() {
+    const login = this.pendingFavoriteNavigation;
+    if (!login || !this.root?.isConnected) return;
+    const target = Array.from(this.root.querySelectorAll('[data-login]'))
+      .find((element) => String(element.dataset.login || '').toLowerCase() === login
+        && element.closest('.tfr-board'));
+    if (!target) return;
+    this.pendingFavoriteNavigation = '';
+    target.closest('.tfr-category-card')?.querySelectorAll('.tfr-category-card__body.is-hidden')
+      .forEach((body) => body.classList.remove('is-hidden'));
+    let ancestor = target.parentElement;
+    while (ancestor && ancestor !== this.root) {
+      if (ancestor.classList?.contains('tfr-category-card__body')) ancestor.classList.remove('is-hidden');
+      if (ancestor.classList?.contains('tfr-category-card')) ancestor.classList.remove('is-collapsed');
+      ancestor = ancestor.parentElement;
+    }
+    target.scrollIntoView?.({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+    target.classList.add('tfr-favorite-search-target');
+    if (this.favoriteNavigationTimer) window.clearTimeout(this.favoriteNavigationTimer);
+    this.favoriteNavigationTimer = window.setTimeout(() => {
+      target.classList.remove('tfr-favorite-search-target');
+      this.favoriteNavigationTimer = null;
+    }, 2600);
+  }
+
+  renderManagerControls(state) {
     const controls = document.createElement('div');
     controls.className = 'tfr-manager-controls';
+    const search = document.createElement('div');
+    search.className = 'tfr-manager-search';
     const searchInput = document.createElement('input');
     searchInput.type = 'search';
     searchInput.dataset.tfrFocusKey = 'manager-search';
@@ -380,6 +430,42 @@ class FavoritesOverlay {
       this.searchTerm = event.target.value;
       this.render();
     });
+    const suggestions = this.getFavoriteSearchSuggestions(state, this.searchTerm);
+    searchInput.setAttribute('aria-autocomplete', 'list');
+    searchInput.setAttribute('aria-controls', 'tfr-manager-search-suggestions');
+    searchInput.addEventListener('keydown', (event) => {
+      if (event.key !== 'Enter' || !suggestions.length) return;
+      event.preventDefault();
+      this.navigateToFavorite(suggestions[0].login);
+    });
+    search.appendChild(searchInput);
+    if (suggestions.length) {
+      const list = document.createElement('div');
+      list.id = 'tfr-manager-search-suggestions';
+      list.className = 'tfr-manager-search__suggestions';
+      list.setAttribute('role', 'listbox');
+      suggestions.forEach(({ favorite, name, login, category }) => {
+        const option = document.createElement('button');
+        option.type = 'button';
+        option.className = 'tfr-manager-search__option';
+        option.setAttribute('role', 'option');
+        const avatar = document.createElement('img');
+        avatar.src = favorite.avatarUrl || DEFAULT_AVATAR;
+        avatar.alt = '';
+        const identity = document.createElement('span');
+        identity.className = 'tfr-manager-search__identity';
+        const title = document.createElement('strong');
+        title.textContent = name;
+        const meta = document.createElement('small');
+        meta.textContent = `@${login}${category ? ` · ${category}` : ''}`;
+        identity.append(title, meta);
+        option.append(avatar, identity);
+        option.addEventListener('mousedown', (event) => event.preventDefault());
+        option.addEventListener('click', () => this.navigateToFavorite(login));
+        list.appendChild(option);
+      });
+      search.appendChild(list);
+    }
 
     const sortSelect = document.createElement('select');
     [
@@ -402,7 +488,7 @@ class FavoritesOverlay {
     const advancedTutorialButton = this.createTutorialLaunchButton(
       'advanced', 'onboarding.relaunchAdvanced'
     );
-    controls.append(searchInput, sortSelect, tutorialButton, advancedTutorialButton);
+    controls.append(search, sortSelect, tutorialButton, advancedTutorialButton);
     return controls;
   }
 

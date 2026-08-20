@@ -69,11 +69,11 @@ test('moderation history button stays immediately before chat settings', () => {
     appended = node;
     node.parentElement = toolbar;
   };
-  toolbar.contains = () => false;
+  toolbar.contains = (node) => node === toolbar || node === settingsSlot || node === anchor || node === button;
 
   const ui = Object.create(ModerationHistoryUI.prototype);
   ui.findControlsAnchor = () => anchor;
-  ui.findControlsContainer = () => null;
+  ui.findControlsContainer = () => toolbar;
   ui.ensureButton = () => button;
   ui.buttonAnchor = null;
   ui.mountButton();
@@ -97,10 +97,35 @@ test('moderation history anchors immediately before chat settings', () => {
     path.join(__dirname, '../src/contentScripts/features/chatModeration.js'),
     'utf8'
   );
-  const anchorMethod = source.match(/findControlsAnchor\(\)\s*\{([\s\S]*?)\n\s*findControlsContainer\(\)/)?.[1] || '';
+  const anchorStart = source.indexOf('    findControlsAnchor(');
+  const anchorEnd = source.indexOf('    isInsideChatControls(', anchorStart);
+  const anchorMethod = anchorStart >= 0 && anchorEnd > anchorStart
+    ? source.slice(anchorStart, anchorEnd)
+    : '';
 
   assert.match(anchorMethod, /chat-settings/);
+  assert.match(anchorMethod, /container\.querySelector/);
+  assert.doesNotMatch(anchorMethod, /document\.querySelector/);
   assert.doesNotMatch(anchorMethod, /emote-picker-button/);
+});
+
+test('moderation history never mounts when chat controls are unavailable', () => {
+  const button = new HTMLElementMock();
+  let removed = 0;
+  let closed = 0;
+  button.parentElement = { removeChild: () => { removed += 1; } };
+  const ui = Object.create(ModerationHistoryUI.prototype);
+  ui.isReplayPage = () => false;
+  ui.findControlsContainer = () => null;
+  ui.findControlsAnchor = () => { throw new Error('an anchor must not be searched outside chat'); };
+  ui.ensureButton = () => button;
+  ui.closePanel = () => { closed += 1; };
+  ui.clearButtonAnchor = () => {};
+
+  ui.mountButton();
+
+  assert.equal(removed, 1);
+  assert.equal(closed, 1);
 });
 
 test('moderation history stays hidden on Twitch replay pages', () => {
@@ -129,6 +154,36 @@ test('moderation history stays hidden on Twitch replay pages', () => {
   assert.equal(anchorCleared, 1);
 });
 
+test('moderation history locates only a message still owned by the current chat', () => {
+  const message = { isConnected: true };
+  const container = {
+    isConnected: true,
+    contains: (candidate) => candidate === message,
+    querySelectorAll: () => []
+  };
+  const ui = Object.create(ModerationHistoryUI.prototype);
+  ui.tracker = {
+    historyTracker: {
+      chatContainer: container,
+      getMessageRoot: (candidate) => candidate
+    }
+  };
+
+  assert.equal(ui.findMessageElement({ messageElement: message }), message);
+  assert.equal(ui.findMessageElement({ messageElement: { isConnected: true } }), null);
+});
+
+test('moderation navigation uses an external indicator instead of mutating Twitch messages', () => {
+  const source = fs.readFileSync(
+    path.join(__dirname, '../src/contentScripts/features/chatModeration.js'),
+    'utf8'
+  );
+  const locateMethod = source.match(/locateMessage\(entry, historyItem\)\s*\{([\s\S]*?)\n\s*showLocationFeedback/)?.[1] || '';
+  assert.match(locateMethod, /tfr-chat-location-indicator/);
+  assert.match(locateMethod, /document\.body\.appendChild\(indicator\)/);
+  assert.doesNotMatch(locateMethod, /message\.classList/);
+});
+
 test('viewer card observer ignores mutations created by its own history renderer', () => {
   const renderer = new ViewerCardHistoryRenderer({});
   const history = { id: 'tfr-viewer-history', closest: () => null };
@@ -139,6 +194,18 @@ test('viewer card observer ignores mutations created by its own history renderer
   assert.equal(renderer.isOwnHistoryMutation({ target: native, addedNodes: [history], removedNodes: [] }), true);
   assert.equal(renderer.isOwnHistoryMutation({ target: native, addedNodes: [native], removedNodes: [] }), false);
   assert.equal(renderer.isOwnHistoryMutation({ target: native, addedNodes: [history, native], removedNodes: [] }), false);
+});
+
+test('viewer card history resolves its mount point only inside the active card', () => {
+  const source = fs.readFileSync(
+    path.join(__dirname, '../src/contentScripts/features/chatModeration.js'),
+    'utf8'
+  );
+  const renderMethod = source.match(/renderHistory\(\)\s*\{([\s\S]*?)\n\s*renderMessageParts/)?.[1] || '';
+
+  assert.match(renderMethod, /this\.querySelectors\(\[this\.currentCard\]/);
+  assert.match(renderMethod, /this\.currentCard\.contains\(host\)/);
+  assert.doesNotMatch(renderMethod, /collectRelatedRoots\(this\.currentCard\)/);
 });
 
 test('generic Twitch deletion markers stay deletions instead of becoming timeouts', () => {

@@ -1,5 +1,6 @@
-const { cpSync, existsSync, mkdirSync, rmSync } = require('node:fs');
+const { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } = require('node:fs');
 const { join } = require('node:path');
+const { createFirefoxManifest } = require('./firefoxManifest');
 
 const root = join(__dirname, '..');
 
@@ -25,5 +26,6 @@ for (const [sourceRelative, targetRelative] of pairs) {
   console.log(`Synced ${sourceRelative} -> ${targetRelative}`);
 }
 
-cpSync(join(root, 'manifest.json'), join(root, 'firefox/manifest.json'));
-console.log('Synced manifest.json -> firefox/manifest.json');
+const manifest = createFirefoxManifest(JSON.parse(readFileSync(join(root, 'manifest.json'), 'utf8')));
+writeFileSync(join(root, 'firefox/manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
+console.log('Generated Firefox manifest -> firefox/manifest.json');

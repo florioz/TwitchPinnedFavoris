@@ -30,6 +30,10 @@ vm.runInContext(fs.readFileSync(
   'utf8'
 ), context);
 vm.runInContext(fs.readFileSync(
+  path.join(__dirname, '../src/contentScripts/features/favoriteSearchTools.js'),
+  'utf8'
+), context);
+vm.runInContext(fs.readFileSync(
   path.join(__dirname, '../src/contentScripts/features/favoritesOverlay.js'),
   'utf8'
 ), context);
@@ -59,6 +63,26 @@ test('chat padding values are normalized consistently for the settings UI', () =
   assert.equal(overlay.normalizeChatPaddingPx(-1), 0);
   assert.equal(overlay.normalizeChatPaddingPx(40), 20);
   assert.equal(overlay.normalizeChatPaddingPx('invalid'), 0);
+});
+
+test('favorite search suggestions prioritize prefix matches and expose their group', () => {
+  const overlay = Object.create(FavoritesOverlay.prototype);
+  const suggestions = overlay.getFavoriteSearchSuggestions({
+    categories: [{ id: 'group-a', name: 'FlashBack' }],
+    favorites: {
+      alpha: { login: 'alpha_tv', displayName: 'Alpha', categories: ['group-a'] },
+      beta: { login: 'the_alpha', displayName: 'Beta Alpha', categories: [] },
+      other: { login: 'other', displayName: 'Other', categories: [] }
+    }
+  }, 'alpha');
+
+  assert.deepEqual(JSON.parse(JSON.stringify(suggestions.map((entry) => ({
+    login: entry.login,
+    category: entry.category
+  })))), [
+    { login: 'alpha_tv', category: 'FlashBack' },
+    { login: 'the_alpha', category: '' }
+  ]);
 });
 
 test('mention test provides visual feedback and plays only an enabled sound', () => {

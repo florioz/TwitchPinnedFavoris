@@ -2,7 +2,6 @@
   const CARD_SELECTORS = [
     '[data-a-target="viewer-card"]',
     '[data-test-selector="viewer-card"]',
-    '[data-test-selector*="viewer-card"]',
     '.viewer-card',
     'aside.viewer-card'
   ];
@@ -18,6 +17,18 @@
     '[data-test-selector="viewer-card-user-name"]',
     '[data-a-target="viewer-card-channel-link"]',
     'a[data-test-selector="viewer-card-channel-link"]'
+  ];
+  const ACTION_HOST_SELECTORS = [
+    '[data-a-target="viewer-card-actions"]',
+    '[data-test-selector="viewer-card-actions"]',
+    '.viewer-card__actions',
+    '.viewer-card-actions'
+  ];
+  const ACTION_BUTTON_SELECTORS = [
+    'button[data-a-target="follow-button"]',
+    'button[data-test-selector="follow-button"]',
+    'button[data-a-target="viewer-card-whisper-button"]',
+    'button[data-test-selector="viewer-card-whisper-button"]'
   ];
 
   const create = ({ t }) => class ViewerCardSharedInvite {
@@ -78,19 +89,44 @@
       return card;
     }
 
+    findActionsHost(card) {
+      for (const selector of ACTION_HOST_SELECTORS) {
+        const host = card.querySelector(selector);
+        if (host) return host;
+      }
+      let actionButton = null;
+      for (const selector of ACTION_BUTTON_SELECTORS) {
+        actionButton = card.querySelector(selector);
+        if (actionButton) break;
+      }
+      let candidate = actionButton?.parentElement || null;
+      for (let depth = 0; candidate && candidate !== card && depth < 5; depth += 1) {
+        const buttons = candidate.querySelectorAll?.('button')?.length || 0;
+        if (buttons >= 2 && buttons <= 8) return candidate;
+        candidate = candidate.parentElement;
+      }
+      return null;
+    }
+
     sync() {
       this.findCards().forEach((card) => {
         if (card.querySelector(':scope .tfr-viewer-card-invite')) return;
         const login = this.extractLogin(card);
         if (!login) return;
-        const host = this.findHost(card);
+        const actionsHost = this.findActionsHost(card);
+        const host = actionsHost || this.findHost(card);
+        if (!card.contains(host)) return;
         const container = document.createElement('div');
         container.className = 'tfr-viewer-card-invite';
+        container.classList.toggle('is-actions', Boolean(actionsHost));
         container.dataset.login = login;
         const button = document.createElement('button');
         button.type = 'button';
         button.className = 'tfr-viewer-card-invite__button';
-        button.textContent = t('sharedSpaces.cardInvite.button');
+        button.textContent = actionsHost
+          ? t('sharedSpaces.cardInvite.shortButton')
+          : t('sharedSpaces.cardInvite.button');
+        button.title = t('sharedSpaces.cardInvite.button');
         button.addEventListener('click', () => this.toggleMenu(container, login));
         container.appendChild(button);
         host.appendChild(container);

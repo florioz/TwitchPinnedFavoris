@@ -31,7 +31,8 @@ const FeatureController = context.window.TFRFeatureController.create({
   ChatPaddingManager: Enhancement,
   ChatMentionHighlighter: Enhancement,
   DeletedMessageViewer: Enhancement,
-  ReplyExpansionTracker: Enhancement
+  ReplyExpansionTracker: Enhancement,
+  ChatMessageCopyAction: Enhancement
 });
 
 test('enhancement registry selects and propagates preferences', () => {

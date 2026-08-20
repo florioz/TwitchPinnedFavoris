@@ -15,6 +15,7 @@ import { createBadgeManager } from './badgeManager.mjs';
 import { createUpdateService } from './updateService.mjs';
 import { SHARED_SPACES_CONFIG, isSharedSpacesRemoteConfigured } from './sharedSpacesConfig.mjs';
 import { createSharedSpacesRemote } from './sharedSpacesRemote.mjs';
+import { createPanelLauncher } from './panelLauncher.mjs';
 
 const extensionApi = globalThis.chrome ?? globalThis.browser;
 
@@ -94,8 +95,6 @@ const UPDATE_REPO_API_URL = 'https://api.github.com/repos/florioz/TwitchPinnedFa
 const UPDATE_REPO_URL = 'https://github.com/florioz/TwitchPinnedFavoris';
 
 const overlayTabs = new Set();
-const SIDE_PANEL_PATH = 'panel/sidepanel.html';
-
 const { fetchStreamerLiveData } = createTwitchClient();
 const sharedSpacesRemote = createSharedSpacesRemote({
   extensionApi,
@@ -199,57 +198,7 @@ const getOverlayRecipients = async () => {
   };
 };
 
-const setSidePanelBehavior = () => {
-  try {
-    extensionApi.sidePanel?.setPanelBehavior?.({ openPanelOnActionClick: true });
-  } catch (error) {
-    console.warn('[TFR] unable to set side panel behavior', error);
-  }
-};
-
-const isSidePanelGestureError = (error) => {
-  const message = String(error?.message || error || '').toLowerCase();
-  return message.includes('user gesture') || message.includes('may only be called in response');
-};
-
-const openSidePanel = async (tab = null) => {
-  if (!extensionApi.sidePanel?.open) {
-    return false;
-  }
-  try {
-    const openOptions = Number.isInteger(tab?.windowId)
-      ? { windowId: tab.windowId }
-      : Number.isInteger(tab?.id)
-      ? { tabId: tab.id }
-      : {};
-    await extensionApi.sidePanel.open(openOptions);
-    return true;
-  } catch (error) {
-    if (!isSidePanelGestureError(error)) {
-      console.error('[TFR] side panel open failed', error);
-    }
-    return false;
-  }
-};
-
-const openInjectedPanel = async (tabId) => {
-  if (!Number.isInteger(tabId)) {
-    return false;
-  }
-  const result = await sendMessageToTab(tabId, { type: 'TFR_TOGGLE_PANEL' });
-  return Boolean(result?.ok);
-};
-
-const openPrimaryPanel = async (tab = null) => {
-  if (!Number.isInteger(tab?.id)) {
-    return;
-  }
-  const sidePanelOpened = await openSidePanel(tab);
-  if (sidePanelOpened) {
-    return;
-  }
-  await openInjectedPanel(tab.id);
-};
+const panelLauncher = createPanelLauncher({ extensionApi, sendMessageToTab });
 
 const broadcastOverlayState = (snapshot) => {
   overlayTabs.forEach((tabId) => sendMessageToTab(tabId, { type: 'TFR_STATE_PUSH', ...snapshot }));
@@ -844,21 +793,25 @@ const scheduleAlarm = () => {
 extensionApi.runtime.onInstalled.addListener(async () => {
   await seedDefaultStateIfNeeded();
   scheduleAlarm();
-  setSidePanelBehavior();
+  panelLauncher.configure();
   await updateService.check(true);
   await evaluateLiveStatus('install');
 });
 
 extensionApi.runtime.onStartup.addListener(async () => {
   scheduleAlarm();
-  setSidePanelBehavior();
-  await updateService.check(false);
-  await evaluateLiveStatus('startup');
+  panelLauncher.configure();
+  // Live state is user-facing startup data. Start it immediately and let the
+  // release check run alongside it instead of putting network latency in front.
+  await Promise.allSettled([
+    evaluateLiveStatus('startup'),
+    updateService.check(false)
+  ]);
 });
 
 if (actionApi?.onClicked) {
   actionApi.onClicked.addListener((tab) => {
-    openPrimaryPanel(tab ?? null);
+    panelLauncher.open(tab ?? null);
   });
 }
 

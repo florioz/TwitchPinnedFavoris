@@ -633,6 +633,7 @@
   const ChatMentionHighlighter = streamEnhancements?.ChatMentionHighlighter || NoopEnhancement;
   const DeletedMessageViewer = streamEnhancements?.DeletedMessageViewer || NoopEnhancement;
   const ReplyExpansionTracker = streamEnhancements?.ReplyExpansionTracker || NoopEnhancement;
+  const ChatMessageCopyAction = streamEnhancements?.ChatMessageCopyAction || NoopEnhancement;
   const UpdateNotifier = window.TFRUpdateNotifier?.create?.({
     UPDATE_STORAGE_KEY,
     UPDATE_REPO_API_URL,
@@ -703,7 +704,8 @@
     ChatPaddingManager,
     ChatMentionHighlighter,
     DeletedMessageViewer,
-    ReplyExpansionTracker
+    ReplyExpansionTracker,
+    ChatMessageCopyAction
   });
   if (!FeatureController) {
     throw new Error('[TFR] feature controller module is missing');

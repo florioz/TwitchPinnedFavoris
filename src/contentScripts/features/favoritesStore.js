@@ -150,6 +150,11 @@
       this.emitter.emit({ kind: CHANGE_KIND.STATE, state: this.getSnapshot() });
       if (Object.keys(this.liveData).length) {
         this.emitter.emit({ kind: CHANGE_KIND.LIVE, liveData: this.getLiveData() });
+        // Keep startup fast by painting the persisted snapshot first, then ask the
+        // background coordinator for a fresh one without delaying the UI bootstrap.
+        void this.refreshLiveData().catch((error) => {
+          console.warn('[TFR] initial live refresh failed', error);
+        });
       } else {
         await this.refreshLiveData();
       }

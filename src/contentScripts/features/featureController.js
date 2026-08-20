@@ -14,7 +14,8 @@
     ChatPaddingManager,
     ChatMentionHighlighter,
     DeletedMessageViewer,
-    ReplyExpansionTracker
+    ReplyExpansionTracker,
+    ChatMessageCopyAction
   }) => {
 class FeatureController {
   constructor(store) {
@@ -90,6 +91,10 @@ class FeatureController {
       {
         property: 'replyExpansionTracker', Type: ReplyExpansionTracker, label: 'reply expansion tracker',
         selectPreferences: (prefs) => prefs.showFullRepliesEnabled === true
+      },
+      {
+        property: 'chatMessageCopyAction', Type: ChatMessageCopyAction, label: 'chat message copy action',
+        selectPreferences: () => true
       }
     ];
     this.enhancementDefinitions.forEach(({ property }) => {

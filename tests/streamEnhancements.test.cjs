@@ -572,6 +572,26 @@ test('chat mutation traversal processes the same message only once', () => {
   assert.equal(visits, 1);
 });
 
+test('chat copy action preserves text and emote names from the complete message body', () => {
+  const { features, ElementMock } = loadFeatures();
+  const action = new features.ChatMessageCopyAction();
+  const text = { nodeType: 3, nodeValue: 'Hello ' };
+  const emote = new ElementMock();
+  emote.nodeType = 1;
+  emote.tagName = 'IMG';
+  emote.matches = () => false;
+  emote.getAttribute = (name) => name === 'alt' ? 'peepoHappy' : '';
+  const body = new ElementMock();
+  body.nodeType = 1;
+  body.tagName = 'SPAN';
+  body.matches = () => false;
+  body.childNodes = [text, emote];
+  const message = new ElementMock();
+  message.querySelector = () => body;
+
+  assert.equal(action.extractMessage(message), 'Hello peepoHappy');
+});
+
 test('chat font can be enabled, changed and fully removed', () => {
   const { features, classes, styles } = loadFeatures();
   const manager = new features.ChatFontManager();

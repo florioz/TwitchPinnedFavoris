@@ -110,6 +110,7 @@
         "src/contentScripts/features/appearanceWizardModel.js",
         "src/contentScripts/features/onboardingTutorial.js",
         "src/contentScripts/features/favoritesDragDropModel.js",
+        "src/contentScripts/features/favoriteSearchTools.js",
         "src/contentScripts/features/favoritesOverlay.js",
         "src/contentScripts/features/featureController.js",
         "src/contentScripts/contentI18nMessages.js",

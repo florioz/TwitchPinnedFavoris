@@ -1,5 +1,6 @@
 const { existsSync, readdirSync, readFileSync, statSync } = require('node:fs');
 const { join, relative } = require('node:path');
+const { createFirefoxManifest } = require('./firefoxManifest');
 
 const root = join(__dirname, '..');
 const pairs = [
@@ -7,8 +8,7 @@ const pairs = [
   ['assets', 'firefox/assets'],
   ['panel', 'firefox/panel'],
   ['src', 'firefox/src'],
-  ['styles', 'firefox/styles'],
-  ['manifest.json', 'firefox/manifest.json']
+  ['styles', 'firefox/styles']
 ];
 
 const collectFiles = (path, base = path) => {
@@ -43,6 +43,12 @@ for (const [sourceRelative, targetRelative] of pairs) {
       throw new Error(`Firefox copy is stale: ${targetRelative}/${file}. Run npm run sync:firefox.`);
     }
   });
+}
+
+const expectedManifest = createFirefoxManifest(JSON.parse(readFileSync(join(root, 'manifest.json'), 'utf8')));
+const actualManifest = JSON.parse(readFileSync(join(root, 'firefox/manifest.json'), 'utf8'));
+if (JSON.stringify(actualManifest) !== JSON.stringify(expectedManifest)) {
+  throw new Error('Firefox manifest is stale. Run npm run sync:firefox.');
 }
 
 console.log('Firefox copy matches the primary extension sources.');

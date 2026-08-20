@@ -1184,9 +1184,11 @@
         timestamp: action.timestamp,
         detectedAt: Date.now(),
         rawMessage: action.rawMessage,
+        messageId: action.messageId || lastMessage?.messageId || null,
         lastMessage: lastMessage?.text || null,
         offenseMessage: offenseMessage,
-        lastMessageTimestamp: lastMessage?.timestamp || null
+        lastMessageTimestamp: lastMessage?.timestamp || null,
+        messageElement: this.historyTracker?.getMessageRoot?.(element) || null
       };
       this.addAction(entry);
       if (entry.type === 'deletion') {
@@ -1979,6 +1981,16 @@
     }
   }
 
+  const CHAT_CONTROLS_SELECTORS = [
+    '[data-a-target="chat-input-buttons-container"]',
+    '[data-test-selector="chat-input-buttons-container"]',
+    '.chat-input__buttons-container',
+    '.chat-input__buttonsWrapper',
+    '.chat-input__buttons',
+    '.chat-input__toolbar',
+    '.chat-input__right-column'
+  ];
+
   class ModerationHistoryUI {
     constructor(tracker) {
       this.tracker = tracker;
@@ -1995,6 +2007,9 @@
       this.hasUnread = false;
       this.dragState = null;
       this.userPosition = null;
+      this.locationIndicator = null;
+      this.locationTimer = null;
+      this.feedbackTimer = null;
       this.handleDocumentClick = this.handleDocumentClick.bind(this);
       this.handleKeydown = this.handleKeydown.bind(this);
       this.handleResize = this.handleResize.bind(this);
@@ -2038,13 +2053,21 @@
       this.hasUnread = false;
       this.dragState = null;
       this.userPosition = null;
+      if (this.locationTimer) clearTimeout(this.locationTimer);
+      if (this.feedbackTimer) clearTimeout(this.feedbackTimer);
+      this.locationIndicator?.remove?.();
+      this.locationIndicator = null;
+      this.locationTimer = null;
+      this.feedbackTimer = null;
       document.removeEventListener('mousemove', this.handlePanelDragMove, true);
       document.removeEventListener('mouseup', this.handlePanelDragEnd, true);
     }
 
     observeControls() {
       this.containerObserver?.disconnect();
-      this.containerObserver = new MutationObserver(() => this.scheduleMount());
+      this.containerObserver = new MutationObserver(() => {
+        if (!this.button?.isConnected || !this.isInsideChatControls(this.button)) this.scheduleMount();
+      });
       this.containerObserver.observe(document.body, { childList: true, subtree: true });
     }
 
@@ -2063,12 +2086,13 @@
         this.unmountButton();
         return;
       }
-      const anchor = this.findControlsAnchor();
       const container = this.findControlsContainer();
+      const anchor = container ? this.findControlsAnchor(container) : null;
       const button = this.ensureButton();
-      const anchorToolbar = this.findAnchorToolbar(anchor);
+      const anchorToolbar = this.findAnchorToolbar(anchor, container);
       const mountContainer = anchorToolbar || container;
       if (!mountContainer) {
+        this.closePanel(true);
         if (button?.parentElement) {
           button.parentElement.removeChild(button);
         }
@@ -2116,18 +2140,20 @@
       button.style.top = `${Math.max(0, anchorRect.top - toolbarRect.top + (anchorRect.height - buttonHeight) / 2)}px`;
     }
 
-    findAnchorToolbar(anchor) {
+    findAnchorToolbar(anchor, boundary) {
       let candidate = anchor?.parentElement;
-      while (candidate instanceof HTMLElement) {
+      while (candidate instanceof HTMLElement && boundary?.contains(candidate)) {
         if (candidate.getBoundingClientRect().width >= 120) {
           return candidate;
         }
+        if (candidate === boundary) break;
         candidate = candidate.parentElement;
       }
       return null;
     }
 
-    findControlsAnchor() {
+    findControlsAnchor(container = this.findControlsContainer()) {
+      if (!(container instanceof HTMLElement)) return null;
       const selectors = [
         'button[data-a-target="chat-settings"]',
         'button[data-a-target="chat-settings-button"]',
@@ -2138,7 +2164,7 @@
       ];
       for (const selector of selectors) {
         try {
-          const anchor = document.querySelector(selector);
+          const anchor = container.querySelector(selector);
           if (anchor instanceof HTMLElement) return anchor;
         } catch {
           // Twitch can replace this toolbar while selectors are evaluated.
@@ -2147,22 +2173,26 @@
       return null;
     }
 
+    isInsideChatControls(element) {
+      if (!(element instanceof HTMLElement)) return false;
+      return CHAT_CONTROLS_SELECTORS.some((selector) => {
+        try { return Boolean(element.closest(selector)); } catch { return false; }
+      });
+    }
+
     findControlsContainer() {
       const selectors = [
-        '[data-a-target="chat-input-buttons-container"]',
-        '[data-test-selector="chat-input-buttons-container"]',
-        '.chat-input__buttons-container',
-        '.chat-input__buttonsWrapper',
-        '.chat-input__buttons',
-        '.chat-input__toolbar',
-        '.chat-input__right-column',
+        ...CHAT_CONTROLS_SELECTORS,
         '[data-a-target="chat-input"] [data-a-target="chat-input-buttons-container"]',
         '[data-test-selector="chat-input"] [data-test-selector="chat-input-buttons-container"]'
       ];
       for (const selector of selectors) {
         try {
           const candidate = document.querySelector(selector);
-          if (candidate instanceof HTMLElement) {
+          if (
+            candidate instanceof HTMLElement
+            && !candidate.closest('[data-a-target="video-player"], .video-player, .video-player__container')
+          ) {
             return candidate;
           }
         } catch {
@@ -2396,6 +2426,17 @@
         const messageToDisplay = offenseMessage || lastMessage;
         if (messageToDisplay) {
           message.textContent = this.truncate(messageToDisplay, 320);
+          message.tabIndex = 0;
+          message.setAttribute('role', 'button');
+          message.setAttribute('aria-label', t('moderation.history.locate.action'));
+          message.title = t('moderation.history.locate.action');
+          const locate = () => this.locateMessage(entry, item);
+          message.addEventListener('click', locate);
+          message.addEventListener('keydown', (event) => {
+            if (event.key !== 'Enter' && event.key !== ' ') return;
+            event.preventDefault();
+            locate();
+          });
         } else {
           message.textContent = t('moderation.history.lastMessage.none');
           message.classList.add('is-empty');
@@ -2415,6 +2456,82 @@
       requestAnimationFrame(() => {
         content.scrollTop = content.scrollHeight;
       });
+    }
+
+    findMessageElement(entry) {
+      const history = this.tracker?.historyTracker;
+      const container = history?.chatContainer?.isConnected
+        ? history.chatContainer
+        : history?.findMessagesContainer?.();
+      if (!container) return null;
+
+      const captured = history?.getMessageRoot?.(entry?.messageElement) || entry?.messageElement;
+      if (captured?.isConnected && container.contains?.(captured)) return captured;
+
+      const messages = Array.from(container.querySelectorAll?.(
+        '[data-a-target="chat-line-message"], [data-test-selector="chat-line-message"], .chat-line__message'
+      ) || []);
+      const messageId = String(entry?.messageId || '').trim();
+      if (messageId) {
+        const exact = messages.find((candidate) => history?.getMessageId?.(candidate) === messageId);
+        if (exact) return history?.getMessageRoot?.(exact) || exact;
+      }
+
+      const login = history?.normalizeLogin?.(entry?.login) || '';
+      const expectedText = String(entry?.offenseMessage || entry?.lastMessage || '')
+        .replace(/\s+/g, ' ').trim().toLowerCase();
+      if (!login || !expectedText) return null;
+      for (let index = messages.length - 1; index >= 0; index -= 1) {
+        const candidate = history?.getMessageRoot?.(messages[index]) || messages[index];
+        if (history?.normalizeLogin?.(history?.extractLogin?.(candidate)) !== login) continue;
+        const text = String(history?.extractMessageText?.(candidate) || '')
+          .replace(/\s+/g, ' ').trim().toLowerCase();
+        if (text === expectedText) return candidate;
+      }
+      return null;
+    }
+
+    locateMessage(entry, historyItem) {
+      const message = this.findMessageElement(entry);
+      if (!message?.isConnected) {
+        this.showLocationFeedback(historyItem);
+        return false;
+      }
+      if (this.locationTimer) clearTimeout(this.locationTimer);
+      this.locationIndicator?.remove?.();
+      this.closePanel();
+      message.scrollIntoView?.({ behavior: 'auto', block: 'center', inline: 'nearest' });
+      if (!message.isConnected) return false;
+
+      const rect = message.getBoundingClientRect?.();
+      if (!rect) return true;
+      const indicator = document.createElement('div');
+      indicator.className = 'tfr-chat-location-indicator';
+      indicator.setAttribute('aria-hidden', 'true');
+      indicator.style.left = `${Math.max(0, rect.left)}px`;
+      indicator.style.top = `${Math.max(0, rect.top)}px`;
+      indicator.style.width = `${Math.max(0, rect.width)}px`;
+      indicator.style.height = `${Math.max(0, rect.height)}px`;
+      document.body.appendChild(indicator);
+      this.locationIndicator = indicator;
+      this.locationTimer = setTimeout(() => {
+        indicator.remove();
+        if (this.locationIndicator === indicator) this.locationIndicator = null;
+        this.locationTimer = null;
+      }, 3000);
+      return true;
+    }
+
+    showLocationFeedback(historyItem) {
+      if (!historyItem) return;
+      if (this.feedbackTimer) clearTimeout(this.feedbackTimer);
+      historyItem.dataset.tfrNavigationFeedback = t('moderation.history.locate.unavailable');
+      historyItem.classList.add('is-location-unavailable');
+      this.feedbackTimer = setTimeout(() => {
+        historyItem.classList.remove('is-location-unavailable');
+        delete historyItem.dataset.tfrNavigationFeedback;
+        this.feedbackTimer = null;
+      }, 3000);
     }
     getEntryInfo(entry) {
       return historyPresenter.formatEntry(entry);
@@ -2700,11 +2817,9 @@
       const selectors = [
         '[data-a-target="viewer-card"]',
         '[data-test-selector="viewer-card"]',
-        '[data-test-selector*="viewer-card"]',
         '.viewer-card',
         'aside.viewer-card',
-        'div.viewer-card',
-        'div[class*="viewer-card"]'
+        'div.viewer-card'
       ];
       for (const selector of selectors) {
         try {
@@ -2788,19 +2903,21 @@
         return;
       }
       this.rendering = true;
-      const roots = this.collectRelatedRoots(this.currentCard);
       const host =
-        this.querySelectors(roots, [
+        this.querySelectors([this.currentCard], [
           '[data-test-selector="viewer-card-modal-body"]',
           '[data-test-selector="viewer-card-body"]',
           '[data-a-target="viewer-card-body"]',
           '.viewer-card__body',
           '.viewer-card-body'
         ]) || this.currentCard;
-      if (!this.isValidViewerCardHost(host)) {
+      if (!this.currentCard.contains(host) || !this.isValidViewerCardHost(host)) {
         this.rendering = false;
         return;
       }
+      document.querySelectorAll('#tfr-viewer-history').forEach((node) => {
+        if (!this.currentCard.contains(node)) node.remove();
+      });
       const history = this.tracker.getHistory(this.activeLogin);
       let container = host.querySelector('#tfr-viewer-history');
       const previousList = container?.querySelector('.tfr-viewer-history__list') || null;

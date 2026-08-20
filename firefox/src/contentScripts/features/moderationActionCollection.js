@@ -39,6 +39,14 @@
         updated = true;
       }
     });
+    if (source.messageId && target.messageId !== source.messageId) {
+      target.messageId = source.messageId;
+      updated = true;
+    }
+    if (source.messageElement?.isConnected && target.messageElement !== source.messageElement) {
+      target.messageElement = source.messageElement;
+      updated = true;
+    }
     target.detectedAt = Number(source.detectedAt) || Date.now();
     return updated;
   };
