@@ -2320,6 +2320,9 @@ class FavoritesOverlay {
     input.type = 'checkbox';
     input.checked = this.isFeatureEnabled(config, preferences);
     input.className = 'tfr-feature-toggle__input';
+    const dependencyMet = !config.requiresAny || config.requiresAny.some((key) => preferences[key] === true);
+    input.disabled = !dependencyMet;
+    item.classList.toggle('is-disabled', !dependencyMet);
     const body = document.createElement('span');
     body.className = 'tfr-feature-toggle__body';
     const label = document.createElement('strong');

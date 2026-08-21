@@ -7,6 +7,7 @@
       ['sevenTvEmotesEnabled', 'settings.sevenTv', 'setSevenTvEmotesEnabled', false],
       ['betterTtvEmotesEnabled', 'settings.betterTtv', 'setBetterTtvEmotesEnabled', false],
       ['chatEmoteAutocompleteEnabled', 'settings.emoteAutocomplete', 'setChatEmoteAutocompleteEnabled', false],
+      ['chatEmotePickerEnabled', 'settings.emotePicker', 'setChatEmotePickerEnabled', false, ['sevenTvEmotesEnabled', 'betterTtvEmotesEnabled']],
       ['playerLatencyEnabled', 'settings.playerLatency', 'setPlayerLatencyEnabled', false],
       ['playerRecoveryEnabled', 'settings.playerRecovery', 'setPlayerRecoveryEnabled', false],
       ['autoClaimChannelPointsEnabled', 'settings.autoClaimChannelPoints', 'setAutoClaimChannelPointsEnabled', false],
@@ -20,12 +21,13 @@
       ['hideCollapsedGroupsUntilHover', 'settings.collapsedGroups', 'setHideCollapsedGroupsUntilHover', false],
       ['autoCompactSidebarEnabled', 'settings.autoCompactSidebar', 'setAutoCompactSidebarEnabled', false],
       ['liveHoverPreviewEnabled', 'settings.livePreview', 'setLiveHoverPreviewEnabled', false]
-    ].map(([key, labelPrefix, setter, defaultEnabled]) => ({
+    ].map(([key, labelPrefix, setter, defaultEnabled, requiresAny]) => ({
       key,
       label: t(`${labelPrefix}.toggle`),
       description: t(`${labelPrefix}.description`),
       setter,
-      ...(defaultEnabled === false ? { defaultEnabled } : {})
+      ...(defaultEnabled === false ? { defaultEnabled } : {}),
+      ...(requiresAny ? { requiresAny } : {})
     }));
 
     const groups = [
@@ -34,7 +36,7 @@
         keys: ['chatHistoryEnabled', 'moderationHistoryEnabled', 'chatFontEnabled', 'chatNoPaddingEnabled', 'showDeletedMessagesEnabled', 'showFullRepliesEnabled']
       },
       { id: 'mentions', keys: ['chatMentionHighlightEnabled'] },
-      { id: 'emotes', keys: ['sevenTvEmotesEnabled', 'betterTtvEmotesEnabled', 'chatEmoteAutocompleteEnabled'] },
+      { id: 'emotes', keys: ['sevenTvEmotesEnabled', 'betterTtvEmotesEnabled', 'chatEmoteAutocompleteEnabled', 'chatEmotePickerEnabled'] },
       {
         id: 'player',
         keys: ['liveFavoritesEnabled', 'playerLatencyEnabled', 'playerRecoveryEnabled', 'autoClaimChannelPointsEnabled', 'playerAudioCompressorEnabled', 'playerVolumeNormalizerEnabled', 'hideCollapsedGroupsUntilHover', 'autoCompactSidebarEnabled', 'liveHoverPreviewEnabled']

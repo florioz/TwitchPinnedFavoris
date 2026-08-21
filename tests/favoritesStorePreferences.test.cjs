@@ -88,6 +88,21 @@ test('feature setters delegate to the normalized boolean mutation', async () => 
   assert.equal(getWrites(), 1);
 });
 
+test('emote picker can only be enabled while a visible third-party provider is active', async () => {
+  const { store } = createStore({
+    sevenTvEmotesEnabled: false,
+    betterTtvEmotesEnabled: false,
+    chatEmotePickerEnabled: false
+  });
+
+  await store.setChatEmotePickerEnabled(true);
+  assert.equal(store.state.preferences.chatEmotePickerEnabled, false);
+
+  store.state.preferences.sevenTvEmotesEnabled = true;
+  await store.setChatEmotePickerEnabled(true);
+  assert.equal(store.state.preferences.chatEmotePickerEnabled, true);
+});
+
 test('chat padding preference is rounded and clamped between zero and twenty pixels', async () => {
   const { store, getWrites } = createStore({ chatPaddingPx: 0 });
   assert.equal(await store.setChatPaddingPx(0), 0);

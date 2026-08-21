@@ -50,6 +50,7 @@ test('enhancement registry selects and propagates preferences', () => {
     moderationHistoryEnabled: false,
     sevenTvEmotesEnabled: true,
     chatEmoteAutocompleteEnabled: true,
+    chatEmotePickerEnabled: true,
     chatNoPaddingEnabled: true,
     chatPaddingPx: 12,
     chatMentionHighlightEnabled: true,
@@ -67,7 +68,7 @@ test('enhancement registry selects and propagates preferences', () => {
 
   assert.deepEqual(
     JSON.parse(JSON.stringify(controller.thirdPartyChatEmotes.value)),
-    { sevenTvEnabled: true, betterTtvEnabled: false, autocompleteEnabled: true }
+    { sevenTvEnabled: true, betterTtvEnabled: false, autocompleteEnabled: true, pickerEnabled: true }
   );
   assert.deepEqual(
     JSON.parse(JSON.stringify(controller.chatPaddingManager.value)),

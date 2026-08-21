@@ -140,6 +140,10 @@ test('feature settings config assigns every toggle to one dashboard group', () =
     featureSettingsConfig.toggles.find((toggle) => toggle.key === 'chatFontEnabled').defaultEnabled,
     false
   );
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(featureSettingsConfig.toggles.find((toggle) => toggle.key === 'chatEmotePickerEnabled').requiresAny)),
+    ['sevenTvEmotesEnabled', 'betterTtvEmotesEnabled']
+  );
 });
 
 test('optional overlay sections append only when they exist', () => {

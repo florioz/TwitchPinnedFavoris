@@ -1,0 +1,199 @@
+.tfr-chat-emote-picker-slot {
+  display: inline-flex;
+  width: 30px;
+  height: 30px;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 30px;
+  align-self: center;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  vertical-align: middle;
+}
+
+.tfr-chat-emote-picker-button {
+  display: inline-flex;
+  width: 30px;
+  height: 30px;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 30px;
+  align-self: center;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  color: #dedee3;
+  background: transparent;
+  cursor: pointer;
+}
+
+.tfr-chat-emote-picker-button:hover,
+.tfr-chat-emote-picker-button[aria-expanded="true"] {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.tfr-chat-emote-picker-button svg {
+  width: 20px;
+  height: 20px;
+  overflow: visible;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.6;
+}
+
+.tfr-chat-emote-picker {
+  position: fixed;
+  z-index: 2147483645;
+  display: grid;
+  grid-template-rows: auto auto auto minmax(0, 1fr) auto;
+  width: min(360px, calc(100vw - 16px));
+  max-height: min(480px, calc(100vh - 16px));
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid rgba(145, 71, 255, 0.5);
+  border-radius: 12px;
+  background: rgba(18, 13, 28, 0.98);
+  color: #efeff1;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(10px);
+}
+
+.tfr-chat-emote-picker > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  cursor: grab;
+  user-select: none;
+}
+
+.tfr-chat-emote-picker.is-dragging > header {
+  cursor: grabbing;
+}
+
+.tfr-chat-emote-picker > header strong {
+  font-size: 14px;
+}
+
+.tfr-chat-emote-picker__close {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  color: #adadb8;
+  background: transparent;
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.tfr-chat-emote-picker__close:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.tfr-chat-emote-picker__search {
+  width: 100%;
+  min-width: 0;
+  padding: 9px 11px;
+  border: 1px solid rgba(145, 71, 255, 0.42);
+  border-radius: 8px;
+  outline: none;
+  color: #fff;
+  background: #0e0917;
+}
+
+.tfr-chat-emote-picker__search:focus {
+  border-color: #a970ff;
+  box-shadow: 0 0 0 2px rgba(145, 71, 255, 0.22);
+}
+
+.tfr-chat-emote-picker__filters {
+  display: flex;
+  gap: 6px;
+}
+
+.tfr-chat-emote-picker__filters button {
+  flex: 1;
+  padding: 6px 8px;
+  border: 1px solid rgba(145, 71, 255, 0.32);
+  border-radius: 999px;
+  color: #c9c7d0;
+  background: transparent;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.tfr-chat-emote-picker__filters button.is-active {
+  border-color: #9147ff;
+  color: #fff;
+  background: #9147ff;
+}
+
+.tfr-chat-emote-picker__grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 5px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  max-height: 330px;
+  min-height: 54px;
+  padding-right: 3px;
+}
+
+.tfr-chat-emote-picker__emote {
+  display: grid;
+  min-width: 0;
+  height: 62px;
+  place-items: center;
+  gap: 3px;
+  padding: 5px 3px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: #dedee3;
+  background: rgba(255, 255, 255, 0.035);
+  cursor: pointer;
+}
+
+.tfr-chat-emote-picker__emote:hover,
+.tfr-chat-emote-picker__emote:focus-visible {
+  border-color: rgba(169, 112, 255, 0.7);
+  background: rgba(145, 71, 255, 0.18);
+}
+
+.tfr-chat-emote-picker__emote img {
+  width: auto;
+  max-width: 42px;
+  height: 36px;
+  object-fit: contain;
+}
+
+.tfr-chat-emote-picker__emote span {
+  overflow: hidden;
+  width: 100%;
+  font-size: 9px;
+  line-height: 1.1;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tfr-chat-emote-picker__empty {
+  margin: 8px 0;
+  color: #adadb8;
+  font-size: 12px;
+  text-align: center;
+}
+
+.tfr-chat-emote-picker__empty[hidden] {
+  display: none;
+}
+

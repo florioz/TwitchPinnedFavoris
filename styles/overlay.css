@@ -2444,6 +2444,16 @@
   line-height: 1.35;
 }
 
+.tfr-feature-toggle.is-disabled {
+  opacity: 0.52;
+  cursor: not-allowed;
+}
+
+.tfr-feature-toggle.is-disabled:hover {
+  border-color: rgba(145, 71, 255, 0.22);
+  background: rgba(18, 13, 28, 0.62);
+}
+
 .tfr-categories-section {
   display: flex;
   flex-direction: column;

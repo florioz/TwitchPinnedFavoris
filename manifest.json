@@ -3,7 +3,7 @@
   "name": "__MSG_extensionName__",
   "description": "__MSG_extensionDescription__",
   "default_locale": "en",
-  "version": "0.6.21",
+  "version": "0.6.22",
   "icons": {
     "16": "assets/icon16.png",
     "48": "assets/icon48.png",
@@ -78,6 +78,8 @@
           "src/contentScripts/features/chatEmoteResolver.js",
           "src/contentScripts/features/chatEmoteCatalog.js",
           "src/contentScripts/features/chatEmoteAutocomplete.js",
+          "src/contentScripts/features/chatEmotePickerModel.js",
+          "src/contentScripts/features/chatEmotePicker.js",
         "src/contentScripts/features/chatEmoteTooltip.js",
         "src/contentScripts/features/chatDomTools.js",
         "src/contentScripts/features/domWorkScheduler.js",
@@ -133,6 +135,7 @@
       "css": [
         "styles/sidebar.css",
         "styles/overlay.css",
+        "styles/chatEmotePicker.css",
         "styles/buttons.css",
         "styles/panelOverlay.css"
       ],

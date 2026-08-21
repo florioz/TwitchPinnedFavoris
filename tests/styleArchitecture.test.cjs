@@ -6,10 +6,15 @@ const assert = require('node:assert/strict');
 const read = (file) => fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
 
 test('extension styles remain scoped to extension-owned selectors', () => {
-  for (const file of ['styles/sidebar.css', 'styles/overlay.css', 'styles/buttons.css']) {
+  for (const file of ['styles/sidebar.css', 'styles/overlay.css', 'styles/chatEmotePicker.css', 'styles/buttons.css']) {
     const source = read(file);
     assert.equal(/(^|\n)\s*(html|body|button|input|select|textarea)\s*\{/m.test(source), false, `${file} contains an unscoped element rule`);
   }
+});
+
+test('chat emote picker styles stay isolated from the general overlay stylesheet', () => {
+  assert.match(read('styles/chatEmotePicker.css'), /\.tfr-chat-emote-picker/);
+  assert.doesNotMatch(read('styles/overlay.css'), /\.tfr-chat-emote-picker/);
 });
 
 test('manifest loads helper modules before their consumers', () => {
@@ -24,6 +29,8 @@ test('manifest loads helper modules before their consumers', () => {
   before('src/contentScripts/features/deletedMessageView.js', 'src/contentScripts/features/streamEnhancements.js');
   before('src/contentScripts/features/chatEmoteTooltip.js', 'src/contentScripts/features/streamEnhancements.js');
   before('src/contentScripts/features/chatEmoteAutocomplete.js', 'src/contentScripts/features/streamEnhancements.js');
+  before('src/contentScripts/features/chatEmotePickerModel.js', 'src/contentScripts/features/chatEmotePicker.js');
+  before('src/contentScripts/features/chatEmotePicker.js', 'src/contentScripts/features/streamEnhancements.js');
   before('src/contentScripts/features/domWorkScheduler.js', 'src/contentScripts/features/streamEnhancements.js');
   before('src/contentScripts/features/playerAudioEngine.js', 'src/contentScripts/features/streamEnhancements.js');
   before('src/contentScripts/features/sharedSpaceModel.js', 'src/contentScripts/features/favoritesStore.js');

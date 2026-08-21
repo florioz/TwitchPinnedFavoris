@@ -31,7 +31,8 @@ class FeatureController {
         selectPreferences: (prefs) => ({
           sevenTvEnabled: prefs.sevenTvEmotesEnabled === true,
           betterTtvEnabled: prefs.betterTtvEmotesEnabled === true,
-          autocompleteEnabled: prefs.chatEmoteAutocompleteEnabled === true
+          autocompleteEnabled: prefs.chatEmoteAutocompleteEnabled === true,
+          pickerEnabled: prefs.chatEmotePickerEnabled === true
         })
       },
       {

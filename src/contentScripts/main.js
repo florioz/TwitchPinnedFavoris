@@ -45,6 +45,7 @@
       sevenTvEmotesEnabled: false,
       betterTtvEmotesEnabled: false,
       chatEmoteAutocompleteEnabled: false,
+      chatEmotePickerEnabled: false,
       playerLatencyEnabled: false,
       playerRecoveryEnabled: false,
       autoClaimChannelPointsEnabled: false,

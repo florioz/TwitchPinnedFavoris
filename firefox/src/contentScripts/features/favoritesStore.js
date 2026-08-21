@@ -349,6 +349,7 @@
         sevenTvEmotesEnabled: false,
         betterTtvEmotesEnabled: false,
         chatEmoteAutocompleteEnabled: false,
+        chatEmotePickerEnabled: false,
         playerLatencyEnabled: false,
         playerRecoveryEnabled: false,
         autoClaimChannelPointsEnabled: false,
@@ -362,6 +363,9 @@
         showFullRepliesEnabled: false,
         liveHoverPreviewEnabled: false
       }, true);
+      if (!this.state.preferences.sevenTvEmotesEnabled && !this.state.preferences.betterTtvEmotesEnabled) {
+        this.state.preferences.chatEmotePickerEnabled = false;
+      }
       this.state.preferences.chatPaddingPx = this.sanitizeChatPaddingPx(
         this.state.preferences.chatPaddingPx
       );
@@ -1524,6 +1528,12 @@
 
     async setChatEmoteAutocompleteEnabled(enabled) {
       await this.setBooleanPreference('chatEmoteAutocompleteEnabled', enabled);
+    }
+
+    async setChatEmotePickerEnabled(enabled) {
+      const hasVisibleProvider = this.state.preferences?.sevenTvEmotesEnabled === true ||
+        this.state.preferences?.betterTtvEmotesEnabled === true;
+      await this.setBooleanPreference('chatEmotePickerEnabled', Boolean(enabled) && hasVisibleProvider);
     }
 
     async setPlayerLatencyEnabled(enabled) {

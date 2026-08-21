@@ -19,6 +19,8 @@
     if (!audioEngineModule?.PlayerAudioEngine) throw new Error('Player audio engine module is missing');
     const EmoteAutocomplete = window.TFRChatEmoteAutocomplete?.ChatEmoteAutocomplete;
     if (!EmoteAutocomplete) throw new Error('Chat emote autocomplete module is missing');
+    const ChatEmotePicker = window.TFRChatEmotePicker?.ChatEmotePicker;
+    if (!ChatEmotePicker) throw new Error('Chat emote picker module is missing');
     const emoteCatalog = window.TFRChatEmoteCatalog;
     if (!emoteCatalog) throw new Error('Chat emote catalog module is missing');
     const {
@@ -79,6 +81,7 @@
         this.enabledSevenTv = false;
         this.enabledBetterTtv = false;
         this.autocompleteEnabled = false;
+        this.pickerEnabled = false;
         this.emotes = new Map();
         this.autocompleteEmotes = new Map();
         this.channelLogin = '';
@@ -90,6 +93,7 @@
         this.loadGeneration = 0;
         this.tooltip = window.TFRChatEmoteTooltip.create(document, window);
         this.autocomplete = new EmoteAutocomplete(document, window);
+        this.picker = new ChatEmotePicker({ documentRef: document, windowRef: window, t });
         this.renderScheduler = window.TFRDomWorkScheduler.create({
           process: (node) => this.scanNode(node),
           maxBatchSize: 10
@@ -116,22 +120,29 @@
         this.renderScheduler.dispose();
         this.tooltip.dispose();
         this.autocomplete.dispose();
+        this.picker.dispose();
       }
 
-      configure({ sevenTvEnabled, betterTtvEnabled, autocompleteEnabled }) {
+      configure({ sevenTvEnabled, betterTtvEnabled, autocompleteEnabled, pickerEnabled }) {
         const nextSevenTv = Boolean(sevenTvEnabled);
         const nextBetterTtv = Boolean(betterTtvEnabled);
         const nextAutocomplete = Boolean(autocompleteEnabled);
+        const nextPicker = Boolean(pickerEnabled) && (nextSevenTv || nextBetterTtv);
+        const providersChanged = nextSevenTv !== this.enabledSevenTv || nextBetterTtv !== this.enabledBetterTtv;
+        const autocompleteChanged = nextAutocomplete !== this.autocompleteEnabled;
+        const pickerChanged = nextPicker !== this.pickerEnabled;
         if (
-          nextSevenTv === this.enabledSevenTv
-          && nextBetterTtv === this.enabledBetterTtv
-          && nextAutocomplete === this.autocompleteEnabled
+          !providersChanged
+          && !autocompleteChanged
+          && !pickerChanged
         ) return;
         this.enabledSevenTv = nextSevenTv;
         this.enabledBetterTtv = nextBetterTtv;
         this.autocompleteEnabled = nextAutocomplete;
+        this.pickerEnabled = nextPicker;
         this.autocomplete.setEnabled(nextAutocomplete);
-        this.reload();
+        this.picker.setEnabled(nextPicker);
+        if (providersChanged || autocompleteChanged) this.reload();
       }
 
       async reload() {
@@ -140,6 +151,7 @@
         this.emotes.clear();
         this.autocompleteEmotes.clear();
         this.autocomplete.setEmotes([]);
+        this.picker.setEmotes([]);
         this.observer?.disconnect();
         this.observer = null;
         if (!this.enabledSevenTv && !this.enabledBetterTtv && !this.autocompleteEnabled) {
@@ -158,6 +170,7 @@
           this.enabledBetterTtv ? betterTtvEmotes : null
         );
         this.autocomplete.setEmotes(this.autocompleteEmotes);
+        this.picker.setEmotes(this.emotes);
         if (!this.enabledSevenTv && !this.enabledBetterTtv) {
           this.tooltip.bind(null);
           return;

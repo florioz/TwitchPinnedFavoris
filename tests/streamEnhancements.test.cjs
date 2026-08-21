@@ -78,6 +78,14 @@ const loadFeatures = () => {
     context
   );
   vm.runInNewContext(
+    fs.readFileSync(path.join(__dirname, '../src/contentScripts/features/chatEmotePickerModel.js'), 'utf8'),
+    context
+  );
+  vm.runInNewContext(
+    fs.readFileSync(path.join(__dirname, '../src/contentScripts/features/chatEmotePicker.js'), 'utf8'),
+    context
+  );
+  vm.runInNewContext(
     fs.readFileSync(path.join(__dirname, '../src/contentScripts/features/playerAudioEngine.js'), 'utf8'),
     context
   );
