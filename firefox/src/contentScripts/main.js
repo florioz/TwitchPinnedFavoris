@@ -152,11 +152,6 @@
     navigator
   });
 
-  const RESERVED_PATHS = new Set([
-    '', 'directory', 'p', 'jobs', 'downloads', 'friends', 'messages', 'settings',
-    'logout', 'signup', 'products', 'store', 'turbo', 'videos', 'search'
-  ]);
-
   const CHANGE_KIND = { STATE: 'state', LIVE: 'live' };
   const POLL_INTERVAL_MS = 60000;
   const LOCATION_CHECK_INTERVAL = 500;
@@ -376,12 +371,8 @@
     return { visible: false, reason: `Caché : catégorie Twitch "${liveEntry.game}" hors filtre.` };
   };
 
-  const getChannelFromLocation = (locationLike = window.location) => {
-    const raw = (locationLike.pathname || '').split('/').filter(Boolean);
-    if (!raw.length) return null;
-    const candidate = raw[0].toLowerCase();
-    return RESERVED_PATHS.has(candidate) ? null : candidate;
-  };
+  const getChannelFromLocation = window.TFRChannelLocation?.getChannelFromLocation;
+  if (!getChannelFromLocation) throw new Error('[TFR] channel location module is missing');
 
   const getFirstText = (selectors) => {
     for (const selector of selectors) {

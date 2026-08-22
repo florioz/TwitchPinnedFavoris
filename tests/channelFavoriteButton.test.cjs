@@ -55,3 +55,25 @@ test('an attached favorite button keeps its slot during Twitch panel mutations',
 
   assert.match(button.markup, /tfr-inline-button__icon/);
 });
+
+test('favorite button mounting is skipped outside channel routes', () => {
+  const documentRef = {
+    body: { contains: () => false },
+    querySelectorAll: () => []
+  };
+  const ChannelFavoriteButton = loadChannelFavoriteButton(documentRef);
+  const instance = new ChannelFavoriteButton({
+    getState: () => ({ favorites: {} })
+  });
+  let anchorLookups = 0;
+  instance.currentLogin = null;
+  instance.findAnchor = () => {
+    anchorLookups += 1;
+    return null;
+  };
+
+  instance.scheduleMountButton();
+
+  assert.equal(anchorLookups, 0);
+  assert.equal(instance.mountFrame, null);
+});

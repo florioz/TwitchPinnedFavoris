@@ -51,6 +51,10 @@
       this.domObserver?.disconnect();
       this.domObserver = new MutationObserver((mutations) => {
         if (document.visibilityState === 'hidden') return;
+        if (!this.currentLogin) {
+          this.removeButton();
+          return;
+        }
         const followControlAdded = mutations.some((mutation) => Array.from(mutation.addedNodes).some((node) =>
           node instanceof Element && (node.matches?.(PRIMARY_FOLLOW_SELECTOR) || node.querySelector?.(PRIMARY_FOLLOW_SELECTOR))
         ));
@@ -61,9 +65,11 @@
     }
 
     scheduleMountButton() {
-      if (this.mountFrame) {
+      if (!this.currentLogin) {
+        this.removeButton();
         return;
       }
+      if (this.mountFrame) return;
       this.mountFrame = requestAnimationFrame(() => {
         this.mountFrame = null;
         this.tryMountButton();

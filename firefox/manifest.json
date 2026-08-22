@@ -3,7 +3,7 @@
   "name": "__MSG_extensionName__",
   "description": "__MSG_extensionDescription__",
   "default_locale": "en",
-  "version": "0.6.22",
+  "version": "0.6.23",
   "icons": {
     "16": "assets/icon16.png",
     "48": "assets/icon48.png",
@@ -73,6 +73,7 @@
         "src/contentScripts/features/favoritesStorageGateway.js",
         "src/contentScripts/features/liveDataCache.js",
         "src/contentScripts/features/favoritesStore.js",
+        "src/contentScripts/features/channelLocation.js",
         "src/contentScripts/features/locationWatcher.js",
         "src/contentScripts/features/chatEmoteResolver.js",
         "src/contentScripts/features/chatEmoteCatalog.js",
