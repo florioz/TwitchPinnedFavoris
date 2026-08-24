@@ -1,10 +1,17 @@
 (function (root, factory) {
-  const api = factory();
+  const visibilityTools = root.TFRFavoriteVisibilityTools
+    || (typeof module === 'object' && module.exports
+      ? require('./features/favoriteVisibilityTools.js')
+      : null);
+  const api = factory(visibilityTools);
   root.__TFR_PANEL_MODEL__ = api;
   if (typeof module === 'object' && module.exports) {
     module.exports = api;
   }
-})(typeof globalThis !== 'undefined' ? globalThis : this, function () {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (visibilityTools) {
+  if (!visibilityTools) throw new Error('[TFR] favorite visibility tools module is missing');
+  const { normalizeCategoryName, shouldDisplayFavorite } = visibilityTools;
+
   const escapeHtml = (value) =>
     String(value ?? '').replace(/[&<>"']/g, (char) => ({
       '&': '&amp;',
@@ -13,39 +20,6 @@
       '"': '&quot;',
       "'": '&#39;'
     }[char]));
-
-  const normalizeCategoryName = (value) => {
-    if (!value) return '';
-    let output = String(value).trim().toLocaleLowerCase();
-    if (typeof output.normalize === 'function') {
-      output = output.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-    }
-    return output;
-  };
-
-  const shouldDisplayFavorite = (favoriteEntry, liveEntry) => {
-    if (!liveEntry?.isLive) {
-      return false;
-    }
-    const filter = favoriteEntry?.categoryFilter;
-    if (!filter || !filter.enabled) {
-      return true;
-    }
-    const categories = Array.isArray(filter.categories)
-      ? filter.categories
-      : typeof filter.category === 'string'
-      ? [filter.category]
-      : [];
-    if (!categories.length) {
-      return true;
-    }
-    const requiredSet = new Set(categories.map(normalizeCategoryName).filter(Boolean));
-    if (!requiredSet.size) {
-      return true;
-    }
-    const currentCategory = normalizeCategoryName(liveEntry.game);
-    return Boolean(currentCategory && requiredSet.has(currentCategory));
-  };
 
   const formatNumber = (value) => (Number(value) || 0).toLocaleString('fr-FR');
 

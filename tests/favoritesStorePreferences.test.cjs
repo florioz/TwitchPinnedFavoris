@@ -6,6 +6,14 @@ const vm = require('node:vm');
 
 const context = vm.createContext({ window: {}, console });
 vm.runInContext(fs.readFileSync(
+  path.join(__dirname, '../src/contentScripts/features/colorTools.js'),
+  'utf8'
+), context);
+vm.runInContext(fs.readFileSync(
+  path.join(__dirname, '../src/contentScripts/features/eventEmitter.js'),
+  'utf8'
+), context);
+vm.runInContext(fs.readFileSync(
   path.join(__dirname, '../src/contentScripts/features/appearancePreferences.js'),
   'utf8'
 ), context);
@@ -114,6 +122,20 @@ test('chat padding preference is rounded and clamped between zero and twenty pix
   assert.equal(await store.setChatPaddingPx(-5), 0);
 });
 
+test('a single category can receive a random color without changing the others', async () => {
+  const { store } = createStore();
+  store.state.categories = [
+    { id: 'one', color: '#111111' },
+    { id: 'two', color: '#222222' }
+  ];
+
+  const color = await store.randomizeCategoryColor('one', () => 0.5);
+
+  assert.match(color, /^#[0-9a-f]{6}$/);
+  assert.equal(store.state.categories[0].color, color);
+  assert.equal(store.state.categories[1].color, '#222222');
+});
+
 test('bounded integer preferences share rounding, limits and invalid-value behavior', async () => {
   const { store, getWrites } = createStore({
     recentLiveThresholdMinutes: '10',
@@ -189,4 +211,21 @@ test('state integrity obtains missing preferences from DEFAULT_STATE', () => {
     { enabled: true }
   );
   assert.notEqual(store.state.preferences.futurePreference, defaults.preferences.futurePreference);
+});
+
+test('switching workspace forces and awaits fresh Twitch live data', async () => {
+  const store = Object.create(FavoritesStore.prototype);
+  const calls = [];
+  store.workspaceSwitchToken = 0;
+  store.state = { workspaceMode: 'personal', sharedSpaces: { shared_1: {} }, activeSharedSpaceId: 'shared_1' };
+  store.syncActiveProfile = () => {};
+  store.capturePersonalWorkspace = () => {};
+  store.applySharedWorkspaceToRoot = (draft) => { draft.workspaceMode = 'shared'; return true; };
+  store.applyPersonalWorkspaceToRoot = (draft) => { draft.workspaceMode = 'personal'; };
+  store.applyImmediateWorkspaceState = (mutator) => { mutator(store.state); return true; };
+  store.refreshLiveData = async (options) => calls.push(options);
+
+  assert.equal(await store.switchWorkspaceMode('shared'), true);
+  assert.equal(store.state.workspaceMode, 'shared');
+  assert.deepEqual(JSON.parse(JSON.stringify(calls)), [{ forceRefresh: true }]);
 });

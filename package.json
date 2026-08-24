@@ -1,6 +1,6 @@
 {
   "name": "twitch-pinned-favoris",
-  "version": "0.6.23",
+  "version": "0.6.24",
   "private": true,
   "description": "Twitch Favorites Sidebar browser extension.",
   "scripts": {
@@ -10,11 +10,15 @@
     "package:all": "node scripts/package-all.js",
     "check": "node scripts/check.js",
     "check:firefox-sync": "node scripts/check-firefox-sync.js",
+    "check:supabase": "node scripts/check-supabase-setup.js",
+    "validate": "npm test && npm run check && npm run check:firefox-sync && npm run check:supabase",
     "test": "node --test tests/*.test.mjs tests/*.test.cjs",
     "configure:mobile-oauth": "node scripts/configure-mobile-oauth.js",
     "configure:web-oauth": "node scripts/configure-web-oauth.js",
+    "show:drive-oauth": "node scripts/show-drive-oauth.js",
     "mobile:serve": "node scripts/serve-mobile.js",
-    "sync:firefox": "node scripts/sync-firefox.js"
+    "sync:firefox": "node scripts/sync-firefox.js",
+    "sync:supabase": "node scripts/supabaseSetup.js"
   },
   "devDependencies": {
     "@capacitor/android": "^8.4.0",

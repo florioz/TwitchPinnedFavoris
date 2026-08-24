@@ -157,6 +157,37 @@ test('optional overlay sections append only when they exist', () => {
   assert.deepEqual(appended, [section]);
 });
 
+test('workspace transition stays active until live and remote refreshes finish', async () => {
+  const overlay = Object.create(FavoritesOverlay.prototype);
+  let releaseSwitch;
+  let mode = 'personal';
+  const calls = [];
+  overlay.workspaceTransitionMode = '';
+  overlay.isOpen = true;
+  overlay.render = () => calls.push(['render', overlay.workspaceTransitionMode]);
+  overlay.store = {
+    getState: () => ({ workspaceMode: mode }),
+    switchWorkspaceMode: (nextMode) => new Promise((resolve) => {
+      calls.push(['switch', nextMode]);
+      releaseSwitch = () => { mode = nextMode; resolve(true); };
+    })
+  };
+  overlay.refreshSharedRemote = async () => calls.push(['remote']);
+
+  const transition = overlay.switchWorkspace('shared');
+  assert.equal(overlay.workspaceTransitionMode, 'shared');
+  assert.equal(await overlay.switchWorkspace('personal'), false);
+  releaseSwitch();
+  assert.equal(await transition, true);
+  assert.equal(overlay.workspaceTransitionMode, '');
+  assert.deepEqual(calls, [
+    ['render', 'shared'],
+    ['switch', 'shared'],
+    ['remote'],
+    ['render', '']
+  ]);
+});
+
 test('custom toast sound validation accepts supported audio files within one megabyte', () => {
   const overlay = Object.create(FavoritesOverlay.prototype);
   assert.equal(overlay.validateToastSoundFile({ name: 'alert.ogg', type: '', size: 1024 }), '');

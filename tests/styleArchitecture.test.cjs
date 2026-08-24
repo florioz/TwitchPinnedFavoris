@@ -17,6 +17,17 @@ test('chat emote picker styles stay isolated from the general overlay stylesheet
   assert.doesNotMatch(read('styles/overlay.css'), /\.tfr-chat-emote-picker/);
 });
 
+test('shared space chat expands to the manager overlay dimensions', () => {
+  const styles = read('styles/overlay.css');
+  const view = read('src/contentScripts/features/sharedSpaceChatView.js');
+  assert.match(styles, /\.tfr-shared-chat\.is-fullscreen\s*\{/);
+  assert.match(styles, /position:\s*fixed/);
+  assert.match(styles, /width:\s*min\(960px,\s*92vw\)/);
+  assert.match(styles, /height:\s*92vh/);
+  assert.match(view, /sharedSpaces\.chat\.fullscreen/);
+  assert.match(view, /onFullscreen\(!state\.fullscreen\)/);
+});
+
 test('manifest loads helper modules before their consumers', () => {
   const scripts = JSON.parse(read('manifest.json')).content_scripts
     .find((entry) => entry.js?.includes('src/contentScripts/main.js')).js;
@@ -24,6 +35,9 @@ test('manifest loads helper modules before their consumers', () => {
   before('src/contentScripts/features/preferenceSanitizers.js', 'src/contentScripts/features/favoritesStore.js');
   before('src/contentScripts/features/favoritesStorageGateway.js', 'src/contentScripts/features/favoritesStore.js');
   before('src/contentScripts/features/categoryMutationTools.js', 'src/contentScripts/features/favoritesStore.js');
+  before('src/contentScripts/features/colorTools.js', 'src/contentScripts/features/favoritesStore.js');
+  before('src/contentScripts/features/eventEmitter.js', 'src/contentScripts/features/favoritesStore.js');
+  before('src/contentScripts/features/eventEmitter.js', 'src/contentScripts/features/chatModeration.js');
   before('src/contentScripts/features/channelLocation.js', 'src/contentScripts/main.js');
   before('src/contentScripts/features/sidebarGroupModel.js', 'src/contentScripts/features/sidebarRenderer.js');
   before('src/contentScripts/features/moderationDurationTools.js', 'src/contentScripts/features/chatModeration.js');
@@ -36,8 +50,13 @@ test('manifest loads helper modules before their consumers', () => {
   before('src/contentScripts/features/playerAudioEngine.js', 'src/contentScripts/features/streamEnhancements.js');
   before('src/contentScripts/features/sharedSpaceModel.js', 'src/contentScripts/features/favoritesStore.js');
   before('src/contentScripts/features/sharedWorkspaceTransitions.js', 'src/contentScripts/features/favoritesStore.js');
+  before('src/contentScripts/features/sharedWorkspaceIntegrity.js', 'src/contentScripts/features/favoritesStore.js');
   before('src/contentScripts/features/viewerCardSharedInvite.js', 'src/contentScripts/main.js');
   before('src/contentScripts/features/sharedSpacesRemoteState.js', 'src/contentScripts/features/favoritesOverlay.js');
+  before('src/contentScripts/features/sharedSpaceChat.js', 'src/contentScripts/features/sharedSpacesView.js');
+  before('src/contentScripts/features/sharedSpacesView.js', 'src/contentScripts/features/favoritesOverlay.js');
+  before('src/contentScripts/features/sharedSpacesView.js', 'src/contentScripts/features/sharedSpaceChatView.js');
+  before('src/contentScripts/features/sharedSpaceChatView.js', 'src/contentScripts/features/favoritesOverlay.js');
   before('src/contentScripts/contentI18nMessages.js', 'src/contentScripts/main.js');
   before('src/contentScripts/extensionI18n.js', 'src/contentScripts/main.js');
   before('src/contentScripts/appBootstrap.js', 'src/contentScripts/main.js');

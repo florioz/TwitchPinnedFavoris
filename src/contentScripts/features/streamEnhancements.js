@@ -463,6 +463,7 @@
           onWorkletLevel: () => this.updateVolumeNormalization(true)
         });
         this.enabled = false;
+        this.controlsEnabled = false;
         this.preset = 'balanced';
         this.normalizerEnabled = false;
         this.targetDb = -16;
@@ -506,8 +507,20 @@
         this.updatePreference = updatePreference;
       }
 
-      configure({ enabled, preset, normalizerEnabled, targetDb, maxReductionDb }) {
+      closePanel() {
+        this.panel?.remove();
+        this.panel = null;
+      }
+
+      removeControls() {
+        this.closePanel();
+        this.button?.remove();
+        this.button = null;
+      }
+
+      configure({ controlsEnabled, enabled, preset, normalizerEnabled, targetDb, maxReductionDb }) {
         const panelWasOpen = Boolean(this.panel?.isConnected);
+        this.controlsEnabled = Boolean(controlsEnabled);
         this.enabled = Boolean(enabled);
         this.preset = this.normalizePreset(preset);
         this.normalizerEnabled = Boolean(normalizerEnabled);
@@ -521,9 +534,9 @@
           maxReductionDb: this.maxReductionDb
         });
         this.syncRuntimeActivity();
-        this.panel?.remove();
+        this.closePanel();
         this.refresh();
-        if (panelWasOpen) this.togglePanel();
+        if (panelWasOpen && this.controlsEnabled) this.togglePanel();
       }
 
       normalizePreset(preset) {
@@ -634,13 +647,16 @@
       }
 
       ensureButton() {
+        if (!this.controlsEnabled) {
+          this.removeControls();
+          return;
+        }
         const volumeButton = document.querySelector(
           '[data-a-target="player-mute-unmute-button"], [data-a-target="player-volume-button"]'
         );
         const controls = volumeButton?.parentElement;
         if (!controls) {
-          this.button?.remove();
-          this.button = null;
+          this.removeControls();
           return;
         }
         if (!this.button) {
@@ -715,8 +731,9 @@
       }
 
       togglePanel() {
+        if (!this.controlsEnabled || !this.button) return;
         if (this.panel?.isConnected) {
-          this.panel.remove();
+          this.closePanel();
           return;
         }
         this.engine.resume();
@@ -845,10 +862,7 @@
         clearInterval(this.meterTimer);
         this.timer = null;
         this.meterTimer = null;
-        this.panel?.remove();
-        this.button?.remove();
-        this.panel = null;
-        this.button = null;
+        this.removeControls();
         document.removeEventListener?.('pointerdown', this.resumeAudio, true);
         document.removeEventListener?.('keydown', this.resumeAudio, true);
         this.bindVideoEvents(null);

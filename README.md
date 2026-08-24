@@ -5,7 +5,7 @@ Twitch Favorites Sidebar is a browser extension and companion mobile app for peo
 
 The extension rebuilds the Twitch followed-channels sidebar with custom pinned favorites, nested groups, live filters, profile sync, VOD planning, and chat/moderation tools. The mobile app focuses on the same core library of groups, streamers, profiles, and VODs in a phone-friendly interface.
 
-Current release: v0.6.23
+Current release: v0.6.24
 
 ## English
 
@@ -72,6 +72,7 @@ The APK is built from the Capacitor project in `mobile/` and `android/`.
 #### v0.6.1
 
 - Improved the Chrome side panel startup by showing the last cached live snapshot immediately, then refreshing Twitch data in the background.
+- Added an optional anonymous counter showing extension installations active during the last two minutes.
 - Reduced sidebar rendering cost when multiple Twitch windows are open by skipping unchanged renders.
 - Reduced Twitch DOM observer work so chat/player mutations no longer trigger expensive sidebar checks.
 - Limited sidebar animations and layout measurements to real streamer list changes.
@@ -179,6 +180,8 @@ The APK is built from the Capacitor project in `mobile/` and `android/`.
 2. Install it on your Android device.
 3. If Android blocks the install, allow installs from your browser or file manager.
 4. Configure Google Drive sync in the app if you want profile synchronization.
+
+For Drive OAuth diagnostics, run `npm run show:drive-oauth`. The development extension uses the Web OAuth flow, while the Store extension keeps the native Chrome OAuth flow. Both redirect URIs must be authorized on the displayed Web OAuth client.
 
 ## Francais
 
@@ -342,6 +345,8 @@ L'application mobile permet de retrouver :
 2. Installe-le sur ton telephone Android.
 3. Si Android bloque l'installation, autorise les installations depuis ton navigateur ou gestionnaire de fichiers.
 4. Configure Google Drive dans l'application si tu veux synchroniser tes profils.
+
+Pour diagnostiquer OAuth Drive, lance `npm run show:drive-oauth`. L'extension de développement utilise le flux OAuth Web, tandis que la version Store conserve le flux OAuth Chrome natif. Les deux URI de redirection doivent être autorisées sur le client OAuth Web affiché.
 
 ## Development
 

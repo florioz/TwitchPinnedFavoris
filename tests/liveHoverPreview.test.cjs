@@ -46,3 +46,9 @@ test('live hover preview replaces only live native tooltips while enabled', () =
   preview.configure(false);
   assert.equal(live.title, 'Live details');
 });
+
+test('live preview stylesheet expands the stream title on hover', () => {
+  const css = fs.readFileSync(path.join(__dirname, '../styles/sidebar.css'), 'utf8');
+  assert.match(css, /\.tfr-live-hover-preview__title:hover[\s\S]*?white-space:\s*normal/);
+  assert.match(css, /\.tfr-live-hover-preview\s*\{[\s\S]*?pointer-events:\s*auto/);
+});

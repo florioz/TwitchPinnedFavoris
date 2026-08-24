@@ -10,12 +10,13 @@
       ['chatEmotePickerEnabled', 'settings.emotePicker', 'setChatEmotePickerEnabled', false, ['sevenTvEmotesEnabled', 'betterTtvEmotesEnabled']],
       ['playerLatencyEnabled', 'settings.playerLatency', 'setPlayerLatencyEnabled', false],
       ['playerRecoveryEnabled', 'settings.playerRecovery', 'setPlayerRecoveryEnabled', false],
+      ['playerResetButtonEnabled', 'settings.playerResetButton', 'setPlayerResetButtonEnabled', false],
       ['autoClaimChannelPointsEnabled', 'settings.autoClaimChannelPoints', 'setAutoClaimChannelPointsEnabled', false],
-      ['playerAudioCompressorEnabled', 'settings.audioCompressor', 'setPlayerAudioCompressorEnabled', false],
-      ['playerVolumeNormalizerEnabled', 'settings.volumeNormalizer', 'setPlayerVolumeNormalizerEnabled', false],
+      ['playerAudioControlsEnabled', 'settings.audioControls', 'setPlayerAudioControlsEnabled', false],
       ['chatFontEnabled', 'settings.chatFont', 'setChatFontEnabled', false],
       ['chatNoPaddingEnabled', 'settings.chatPadding', 'setChatNoPaddingEnabled', false],
       ['chatMentionHighlightEnabled', 'settings.chatMentions', 'setChatMentionHighlightEnabled', false],
+      ['communityBadgeEnabled', 'settings.communityBadge', 'setCommunityBadgeEnabled', false],
       ['showDeletedMessagesEnabled', 'settings.deletedMessages', 'setShowDeletedMessagesEnabled', false],
       ['showFullRepliesEnabled', 'settings.fullReplies', 'setShowFullRepliesEnabled', false],
       ['hideCollapsedGroupsUntilHover', 'settings.collapsedGroups', 'setHideCollapsedGroupsUntilHover', false],
@@ -33,13 +34,13 @@
     const groups = [
       {
         id: 'chat',
-        keys: ['chatHistoryEnabled', 'moderationHistoryEnabled', 'chatFontEnabled', 'chatNoPaddingEnabled', 'showDeletedMessagesEnabled', 'showFullRepliesEnabled']
+        keys: ['chatHistoryEnabled', 'moderationHistoryEnabled', 'communityBadgeEnabled', 'chatFontEnabled', 'chatNoPaddingEnabled', 'showDeletedMessagesEnabled', 'showFullRepliesEnabled']
       },
       { id: 'mentions', keys: ['chatMentionHighlightEnabled'] },
       { id: 'emotes', keys: ['sevenTvEmotesEnabled', 'betterTtvEmotesEnabled', 'chatEmoteAutocompleteEnabled', 'chatEmotePickerEnabled'] },
       {
         id: 'player',
-        keys: ['liveFavoritesEnabled', 'playerLatencyEnabled', 'playerRecoveryEnabled', 'autoClaimChannelPointsEnabled', 'playerAudioCompressorEnabled', 'playerVolumeNormalizerEnabled', 'hideCollapsedGroupsUntilHover', 'autoCompactSidebarEnabled', 'liveHoverPreviewEnabled']
+        keys: ['liveFavoritesEnabled', 'playerLatencyEnabled', 'playerRecoveryEnabled', 'playerResetButtonEnabled', 'autoClaimChannelPointsEnabled', 'playerAudioControlsEnabled', 'hideCollapsedGroupsUntilHover', 'autoCompactSidebarEnabled', 'liveHoverPreviewEnabled']
       }
     ].map((group) => ({
       ...group,

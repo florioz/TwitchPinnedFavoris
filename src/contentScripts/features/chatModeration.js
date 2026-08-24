@@ -16,6 +16,7 @@
   const actionCollection = window.TFRModerationActionCollection;
   const moderationTextTools = window.TFRModerationTextTools;
   const panelGeometry = window.TFRModerationPanelGeometry;
+  const createEventEmitter = window.TFREventEmitter.create;
   if (!chatDomTools) throw new Error('[TFR] chat DOM tools are missing');
   if (!durationTools) throw new Error('[TFR] moderation duration tools are missing');
 
@@ -26,7 +27,9 @@
       this.chatObserver = null;
       this.chatContainer = null;
       this.retryTimer = null;
-      this.listeners = new Set();
+      this.events = createEventEmitter({
+        onListenerError: (error) => console.error('[TFR] chat history listener failed', error)
+      });
       this.containerCheckTimer = null;
       this.pendingNodes = [];
       this.pendingFrame = null;
@@ -79,7 +82,7 @@
       this.messageSnapshotsById.clear();
       this.recentMessages = [];
       this.history.clear();
-      this.listeners.clear();
+      this.events.clear();
     }
 
     handleVisibilityChange() {
@@ -92,23 +95,13 @@
     }
 
     subscribe(listener) {
-      if (typeof listener !== 'function') {
-        return () => {};
-      }
-      this.listeners.add(listener);
-      return () => this.listeners.delete(listener);
+      return this.events.subscribe(listener);
     }
 
     emit(login) {
       const normalized = this.normalizeLogin(login);
       const snapshot = this.getHistory(normalized);
-      this.listeners.forEach((listener) => {
-        try {
-          listener(normalized, snapshot);
-        } catch (error) {
-          console.error('[TFR] chat history listener failed', error);
-        }
-      });
+      this.events.emit(normalized, snapshot);
     }
 
     getHistory(login) {
@@ -739,7 +732,9 @@
       this.observer = null;
       this.container = null;
       this.retryTimer = null;
-      this.listeners = new Set();
+      this.events = createEventEmitter({
+        onListenerError: (error) => console.error('[TFR] moderation tracker listener failed', error)
+      });
       this.containerCheckTimer = null;
       this.mutationFrame = null;
       this.messageSelector = CHAT_MESSAGE_SELECTOR;
@@ -788,7 +783,7 @@
       this.actionKeys.clear();
       this.deletionEvidence.clear();
       this.pendingStatuses.clear();
-      this.listeners.clear();
+      this.events.clear();
     }
 
     handleVisibilityChange() {
@@ -802,22 +797,12 @@
     }
 
     subscribe(listener) {
-      if (typeof listener !== 'function') {
-        return () => {};
-      }
-      this.listeners.add(listener);
-      return () => this.listeners.delete(listener);
+      return this.events.subscribe(listener);
     }
 
     emit() {
       const snapshot = this.getActions();
-      this.listeners.forEach((listener) => {
-        try {
-          listener(snapshot);
-        } catch (error) {
-          console.error('[TFR] moderation tracker listener failed', error);
-        }
-      });
+      this.events.emit(snapshot);
     }
 
     getActions() {

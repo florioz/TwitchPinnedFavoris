@@ -30,6 +30,7 @@ const FeatureController = context.window.TFRFeatureController.create({
   ChatFontManager: Enhancement,
   ChatPaddingManager: Enhancement,
   ChatMentionHighlighter: Enhancement,
+  CommunityChatBadge: Enhancement,
   DeletedMessageViewer: Enhancement,
   ReplyExpansionTracker: Enhancement,
   ChatMessageCopyAction: Enhancement
@@ -57,7 +58,11 @@ test('enhancement registry selects and propagates preferences', () => {
     chatMentionHighlightColor: '#123456',
     chatMentionSoundEnabled: true,
     chatMentionSoundId: 'chime',
+    communityBadgeEnabled: true,
+    playerAudioControlsEnabled: true,
     playerAudioCompressorEnabled: true,
+    playerRecoveryEnabled: false,
+    playerResetButtonEnabled: true,
     autoClaimChannelPointsEnabled: true,
     playerAudioCompressorPreset: 'strong',
     playerVolumeNormalizerEnabled: true,
@@ -69,6 +74,11 @@ test('enhancement registry selects and propagates preferences', () => {
   assert.deepEqual(
     JSON.parse(JSON.stringify(controller.thirdPartyChatEmotes.value)),
     { sevenTvEnabled: true, betterTtvEnabled: false, autocompleteEnabled: true, pickerEnabled: true }
+  );
+  assert.equal(controller.communityChatBadge.value, true);
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(controller.playerRecovery.value)),
+    { automaticEnabled: false, buttonEnabled: true }
   );
   assert.deepEqual(
     JSON.parse(JSON.stringify(controller.chatPaddingManager.value)),
@@ -82,7 +92,7 @@ test('enhancement registry selects and propagates preferences', () => {
   assert.equal(controller.autoClaimChannelPoints.value, true);
   assert.deepEqual(
     JSON.parse(JSON.stringify(controller.playerAudioCompressor.value)),
-    { enabled: true, preset: 'strong', normalizerEnabled: true, targetDb: -18, maxReductionDb: -36 }
+    { controlsEnabled: true, enabled: true, preset: 'strong', normalizerEnabled: true, targetDb: -18, maxReductionDb: -36 }
   );
 });
 

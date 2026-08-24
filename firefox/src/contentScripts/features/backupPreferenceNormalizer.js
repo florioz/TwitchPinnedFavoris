@@ -4,11 +4,13 @@
     'recentLiveEnabled', 'recentLiveCollapsed', 'hideCollapsedGroupsUntilHover',
     'autoCompactSidebarEnabled', 'toastEnabled', 'toastSoundEnabled',
     'chatHistoryEnabled', 'moderationHistoryEnabled', 'sevenTvEmotesEnabled',
-    'betterTtvEmotesEnabled', 'chatEmoteAutocompleteEnabled', 'chatEmotePickerEnabled', 'playerLatencyEnabled', 'playerAudioCompressorEnabled',
+    'betterTtvEmotesEnabled', 'chatEmoteAutocompleteEnabled', 'chatEmotePickerEnabled', 'playerLatencyEnabled',
+    'playerRecoveryEnabled', 'playerResetButtonEnabled', 'playerAudioControlsEnabled', 'playerAudioCompressorEnabled',
     'autoClaimChannelPointsEnabled',
     'playerVolumeNormalizerEnabled', 'chatFontEnabled',
     'chatNoPaddingEnabled', 'showDeletedMessagesEnabled', 'showFullRepliesEnabled',
     'liveHoverPreviewEnabled', 'chatMentionHighlightEnabled', 'chatMentionSoundEnabled',
+    'communityBadgeEnabled',
     'onboardingTutorialDismissed'
   ];
 

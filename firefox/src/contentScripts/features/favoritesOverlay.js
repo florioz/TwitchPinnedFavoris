@@ -38,8 +38,9 @@ if (!favoriteSearchTools) {
   throw new Error('[TFR] favorite search tools are missing');
 }
 class FavoritesOverlay {
-  constructor(store) {
+  constructor(store, usagePresence = null) {
     this.store = store;
+    this.usagePresence = usagePresence;
     this.appearanceWizardModel = window.TFRAppearanceWizardModel?.create?.({ t, store });
     if (!this.appearanceWizardModel) {
       throw new Error('[TFR] appearance wizard model is missing');
@@ -68,6 +69,10 @@ class FavoritesOverlay {
       store: this.store,
       remoteState: this.sharedRemote
     });
+    this.sharedChat = window.TFRSharedSpaceChat.create({
+      client: window.TFRSharedSpacesClient,
+      onChange: () => { if (this.isOpen) this.render(); }
+    });
     this.sharedAutoSync = window.TFRSharedSpacesAutoSync.create({
       store: this.store,
       client: window.TFRSharedSpacesClient,
@@ -93,6 +98,7 @@ class FavoritesOverlay {
     this.sharedCreationOpen = false;
     this.sharedCreationImport = null;
     this.sharedCreationSource = '';
+    this.workspaceTransitionMode = '';
     this.featureCardsOpen = new Set();
     this.openFromTutorial = () => this.open();
     this.closeFromTutorial = () => this.close();
@@ -115,9 +121,17 @@ class FavoritesOverlay {
         this.render();
       }
     });
+    this.unsubscribePresence = this.usagePresence?.subscribe?.(() => {
+      if (this.isOpen) this.render();
+    }) || null;
     this.handleEscapeKeydown = (event) => {
       if (event.key === 'Escape' && this.isOpen) {
-        this.close();
+        if (this.sharedChat?.snapshot().fullscreen) {
+          event.preventDefault();
+          this.sharedChat.setFullscreen(false);
+        } else {
+          this.close();
+        }
       }
     };
     this.handleOverlayKeyboardEvent = (event) => {
@@ -130,7 +144,8 @@ class FavoritesOverlay {
       }
       if (event.type === 'keydown' && event.key === 'Escape') {
         event.preventDefault();
-        this.close();
+        if (this.sharedChat?.snapshot().fullscreen) this.sharedChat.setFullscreen(false);
+        else this.close();
       }
     };
     document.addEventListener('keydown', this.handleEscapeKeydown);
@@ -187,13 +202,20 @@ class FavoritesOverlay {
     const title = document.createElement('h2');
     title.className = 'tfr-overlay-title';
     title.textContent = t('manager.title');
+    const heading = document.createElement('div');
+    heading.className = 'tfr-overlay-heading';
+    const presenceCounter = document.createElement('span');
+    presenceCounter.className = 'tfr-presence-counter';
+    presenceCounter.setAttribute('role', 'status');
+    presenceCounter.setAttribute('aria-live', 'polite');
+    heading.append(title, presenceCounter);
     const closeButton = document.createElement('button');
     closeButton.type = 'button';
     closeButton.className = 'tfr-overlay-close';
     closeButton.setAttribute('aria-label', t('common.closeAction'));
     closeButton.textContent = '\u00D7';
     closeButton.addEventListener('click', () => this.close());
-    header.appendChild(title);
+    header.appendChild(heading);
     header.appendChild(closeButton);
     const content = document.createElement('div');
     content.className = 'tfr-overlay-content';
@@ -201,6 +223,22 @@ class FavoritesOverlay {
     panel.appendChild(content);
     backdrop.appendChild(panel);
     this.root = backdrop;
+    this.updatePresenceCounter();
+  }
+
+  updatePresenceCounter() {
+    const counter = this.root?.querySelector('.tfr-presence-counter');
+    if (!counter) return;
+    const presence = this.usagePresence?.snapshot?.() || { status: 'unavailable', enabled: false, count: null };
+    counter.dataset.status = presence.status;
+    if (presence.status === 'loading' && presence.count == null) {
+      counter.textContent = t('presence.loading');
+    } else if (presence.status === 'unavailable') {
+      counter.textContent = t('presence.unavailable');
+    } else {
+      counter.textContent = t('presence.active', { count: Math.max(0, Number(presence.count) || 0) });
+    }
+    counter.title = presence.enabled ? t('presence.title') : t('presence.disabledTitle');
   }
 
   open() {
@@ -235,6 +273,7 @@ class FavoritesOverlay {
       return;
     }
     this.isOpen = false;
+    this.sharedChat?.setSpace('');
     this.root?.remove();
     this.backupInput = null;
     this.draggedLogin = null;
@@ -262,8 +301,12 @@ class FavoritesOverlay {
     }
     this.unsubscribe?.();
     this.unsubscribe = null;
+    this.unsubscribePresence?.();
+    this.unsubscribePresence = null;
     this.sharedAutoSync?.dispose();
     this.sharedAutoSync = null;
+    this.sharedChat?.dispose();
+    this.sharedChat = null;
     document.removeEventListener('keydown', this.handleEscapeKeydown);
     document.removeEventListener('tfr:favorites-manager:open', this.openFromTutorial);
     document.removeEventListener('tfr:favorites-manager:close', this.closeFromTutorial);
@@ -328,6 +371,7 @@ class FavoritesOverlay {
     const state = this.store.getState();
     const liveData = this.store.getLiveData();
     this.sortMode = state.preferences?.sortMode || this.sortMode;
+    this.updatePresenceCounter();
 
     const content = this.root.querySelector('.tfr-overlay-content');
     const previousScrollTop = content.scrollTop;
@@ -503,9 +547,30 @@ class FavoritesOverlay {
     summary.textContent = t('backup.tools');
     const body = document.createElement('div');
     body.className = 'tfr-data-tools__body';
-    body.append(this.renderBackupControls(), this.renderDriveControls());
+    body.append(this.renderBackupControls(), this.renderDriveControls(), this.renderPresencePrivacyControl());
     tools.append(summary, body);
     return tools;
+  }
+
+  renderPresencePrivacyControl() {
+    const presence = this.usagePresence?.snapshot?.() || { enabled: false, status: 'unavailable' };
+    const control = document.createElement('label');
+    control.className = 'tfr-presence-privacy';
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.checked = presence.enabled === true;
+    checkbox.disabled = presence.status === 'loading' || !this.usagePresence;
+    const copy = document.createElement('span');
+    const title = document.createElement('strong');
+    title.textContent = t('presence.privacyLabel');
+    const description = document.createElement('small');
+    description.textContent = t('presence.privacyDescription');
+    copy.append(title, description);
+    control.append(checkbox, copy);
+    checkbox.addEventListener('change', () => {
+      void this.usagePresence?.setEnabled?.(checkbox.checked);
+    });
+    return control;
   }
 
   renderFavoriteIssues(state) {
@@ -565,6 +630,9 @@ class FavoritesOverlay {
   renderProfileControls(state) {
     const container = document.createElement('section');
     container.className = 'tfr-workspace-switcher';
+    const isSwitching = Boolean(this.workspaceTransitionMode);
+    container.classList.toggle('is-switching', isSwitching);
+    container.setAttribute('aria-busy', String(isSwitching));
     const tabs = document.createElement('div');
     tabs.className = 'tfr-workspace-switcher__tabs';
     [['personal', 'sharedSpaces.personal'], ['shared', 'sharedSpaces.shared']].forEach(([mode, labelKey]) => {
@@ -573,25 +641,51 @@ class FavoritesOverlay {
       button.className = 'tfr-workspace-switcher__tab';
       button.dataset.tfrWorkspaceMode = mode;
       button.classList.toggle('is-active', (state.workspaceMode || 'personal') === mode);
+      button.classList.toggle('is-loading', this.workspaceTransitionMode === mode);
+      button.disabled = isSwitching;
       button.textContent = t(labelKey);
-      button.addEventListener('click', async () => {
-        button.disabled = true;
-        try {
-          const applied = await this.store.switchWorkspaceMode?.(mode);
-          if (applied && mode === 'shared' && this.store.getState().workspaceMode === 'shared') {
-            await this.refreshSharedRemote();
-          }
-        } finally {
-          if (button.isConnected) button.disabled = false;
-        }
-      });
+      button.addEventListener('click', () => this.switchWorkspace(mode));
       tabs.appendChild(button);
     });
     container.appendChild(tabs);
+    if (isSwitching) {
+      const feedback = document.createElement('div');
+      feedback.className = 'tfr-workspace-switcher__feedback';
+      feedback.setAttribute('role', 'status');
+      feedback.setAttribute('aria-live', 'polite');
+      const spinner = document.createElement('span');
+      spinner.className = 'tfr-workspace-switcher__spinner';
+      spinner.setAttribute('aria-hidden', 'true');
+      const copy = document.createElement('span');
+      const title = document.createElement('strong');
+      title.textContent = t('sharedSpaces.switching.title');
+      const hint = document.createElement('small');
+      hint.textContent = t('sharedSpaces.switching.hint');
+      copy.append(title, hint);
+      feedback.append(spinner, copy);
+      container.appendChild(feedback);
+    }
     container.appendChild(state.workspaceMode === 'shared'
       ? this.renderSharedSpaceControls(state)
       : this.renderPersonalProfileControls(state));
     return container;
+  }
+
+  async switchWorkspace(mode) {
+    const nextMode = mode === 'shared' ? 'shared' : 'personal';
+    if (this.workspaceTransitionMode || this.store.getState().workspaceMode === nextMode) return false;
+    this.workspaceTransitionMode = nextMode;
+    if (this.isOpen) this.render();
+    try {
+      const applied = await this.store.switchWorkspaceMode?.(nextMode);
+      if (applied && nextMode === 'shared' && this.store.getState().workspaceMode === 'shared') {
+        await this.refreshSharedRemote();
+      }
+      return Boolean(applied);
+    } finally {
+      this.workspaceTransitionMode = '';
+      if (this.isOpen) this.render();
+    }
   }
 
   async createSharedSpaceFromPrompt() {
@@ -943,7 +1037,40 @@ class FavoritesOverlay {
     }
     wrapper.append(label, summary, actions);
     const creation = this.renderSharedSpaceCreation(state); if (creation) wrapper.appendChild(creation);
-    wrapper.append(members, this.renderSharedRemoteControls(activeSpace, permissions));
+    const chatSpaceId = isRemoteSpace && this.sharedRemoteStatus?.connected ? activeSpace?.id : '';
+    this.sharedChat?.setSpace(chatSpaceId);
+    wrapper.append(members);
+    if (chatSpaceId) {
+      wrapper.appendChild(window.TFRSharedSpaceChatView.render({
+        state: this.sharedChat.snapshot(),
+        t,
+        onToggle: (expanded) => this.sharedChat.setExpanded(expanded),
+        onFullscreen: (fullscreen) => this.sharedChat.setFullscreen(fullscreen),
+        onLoadOlder: () => this.sharedChat.loadOlder(),
+        onSearch: (value) => this.sharedChat.setQuery(value),
+        onDraft: (value) => this.sharedChat.setDraft(value),
+        onSend: () => this.sharedChat.send(),
+        onReply: (message) => this.sharedChat.setReplyTo(message),
+        onDelete: (message) => {
+          if (window.confirm(t('sharedSpaces.chat.confirmDelete'))) this.sharedChat.remove(message.id);
+        },
+        onReport: (message) => {
+          if (window.confirm(t('sharedSpaces.chat.confirmReport'))) this.sharedChat.report(message.id);
+        },
+        onBlock: (message) => {
+          if (window.confirm(t('sharedSpaces.chat.confirmBlock', { name: message.author?.displayName || message.author?.login || '' }))) {
+            this.sharedChat.block(message.author);
+          }
+        },
+        onUnblock: (user) => this.sharedChat.unblock(user.id),
+        onReact: (message, emoji) => this.sharedChat.react(message.id, emoji),
+        onEdit: (message) => this.sharedChat.startEditing(message),
+        onEditDraft: (value) => this.sharedChat.setEditDraft(value),
+        onSaveEdit: () => this.sharedChat.edit(),
+        onCancelEdit: () => this.sharedChat.cancelEditing()
+      }));
+    }
+    wrapper.appendChild(this.renderSharedRemoteControls(activeSpace, permissions));
     return wrapper;
   }
 
@@ -2822,10 +2949,11 @@ class FavoritesOverlay {
     const grid = document.createElement('div');
     grid.className = 'tfr-free-grid';
 
+    const validCategoryIds = new Set((state.categories || []).map((category) => category?.id).filter(Boolean));
     const freeFavorites = Object.values(state.favorites)
       .filter((fav) => {
         const categoryId = Array.isArray(fav.categories) && fav.categories.length ? fav.categories[0] : null;
-        if (categoryId) {
+        if (categoryId && validCategoryIds.has(categoryId)) {
           return false;
         }
         if (!term) {
@@ -3210,11 +3338,32 @@ class FavoritesOverlay {
       label: t('categories.color.label'),
       currentColor: node.color,
       onApply: (nextColor) => this.store.setCategoryColor(node.id, nextColor),
-      onClear: () => this.store.setCategoryColor(node.id, '')
+      onClear: () => this.store.setCategoryColor(node.id, ''),
+      onRandomize: () => this.store.randomizeCategoryColor(node.id)
     });
   }
 
-  renderCategoryColorPickerControl({ label: labelText, currentColor: rawColor, onApply, onClear }) {
+  createCategoryColorAction({ className = '', labelKey, titleKey = '', onActivate }) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = ['tfr-chip-action', className].filter(Boolean).join(' ');
+    button.textContent = t(labelKey);
+    if (titleKey) button.title = t(titleKey);
+    button.addEventListener('click', async (event) => {
+      event.stopPropagation();
+      await onActivate();
+      this.render();
+    });
+    return button;
+  }
+
+  renderCategoryColorPickerControl({
+    label: labelText,
+    currentColor: rawColor,
+    onApply,
+    onClear,
+    onRandomize = null
+  }) {
     const wrapper = document.createElement('div');
     wrapper.className = 'tfr-category-color-picker';
 
@@ -3248,6 +3397,15 @@ class FavoritesOverlay {
     value.className = 'tfr-category-color-picker__value';
     value.textContent = currentColor || t('categories.color.none');
     options.appendChild(value);
+
+    if (onRandomize) {
+      options.appendChild(this.createCategoryColorAction({
+        className: 'tfr-category-color-randomize',
+        labelKey: 'categories.color.randomizeOne',
+        titleKey: 'categories.color.randomizeOneDescription',
+        onActivate: onRandomize
+      }));
+    }
 
     const palette = document.createElement('div');
     palette.className = 'tfr-category-color-popover';
@@ -3295,27 +3453,15 @@ class FavoritesOverlay {
     });
     palette.appendChild(wheel);
 
-    const applyButton = document.createElement('button');
-    applyButton.type = 'button';
-    applyButton.className = 'tfr-chip-action tfr-chip-action--primary';
-    applyButton.textContent = t('categories.color.apply');
-    applyButton.addEventListener('click', async (event) => {
-      event.stopPropagation();
-      await onApply(pendingColor);
-      this.render();
-    });
-    palette.appendChild(applyButton);
-
-    const clearButton = document.createElement('button');
-    clearButton.type = 'button';
-    clearButton.className = 'tfr-chip-action';
-    clearButton.textContent = t('categories.color.clear');
-    clearButton.addEventListener('click', async (event) => {
-      event.stopPropagation();
-      await onClear();
-      this.render();
-    });
-    palette.appendChild(clearButton);
+    palette.appendChild(this.createCategoryColorAction({
+      className: 'tfr-chip-action--primary',
+      labelKey: 'categories.color.apply',
+      onActivate: () => onApply(pendingColor)
+    }));
+    palette.appendChild(this.createCategoryColorAction({
+      labelKey: 'categories.color.clear',
+      onActivate: onClear
+    }));
     options.appendChild(palette);
 
     wrapper.appendChild(options);
@@ -3577,6 +3723,8 @@ class FavoritesOverlay {
       const value = document.createElement('code');
       value.textContent = [
         `Extension ID: ${this.driveStatus.extensionId || ''}`,
+        `OAuth environment: ${this.driveStatus.oauthEnvironment || ''}`,
+        `Preferred auth: ${this.driveStatus.preferredAuthMode || ''}`,
         `Chrome OAuth client: ${this.driveStatus.chromeOAuthClientId || ''}`,
         `Web OAuth client: ${this.driveStatus.webAuthClientId || ''}`,
         `Redirect URI: ${this.driveStatus.webAuthRedirectUri || ''}`
@@ -4512,8 +4660,12 @@ class FavoritesOverlay {
   destroy() {
     this.unsubscribe?.();
     this.unsubscribe = null;
+    this.unsubscribePresence?.();
+    this.unsubscribePresence = null;
     this.sharedAutoSync?.dispose();
     this.sharedAutoSync = null;
+    this.sharedChat?.dispose();
+    this.sharedChat = null;
     this.close();
   }
 }

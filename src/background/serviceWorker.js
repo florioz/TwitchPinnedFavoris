@@ -16,8 +16,13 @@ import { createUpdateService } from './updateService.mjs';
 import { SHARED_SPACES_CONFIG, isSharedSpacesRemoteConfigured } from './sharedSpacesConfig.mjs';
 import { createSharedSpacesRemote } from './sharedSpacesRemote.mjs';
 import { createPanelLauncher } from './panelLauncher.mjs';
+import { resolveDriveOAuthProfile } from './driveOAuthConfig.mjs';
+import { createDriveWebAuthUrl, parseDriveWebAuthRedirect } from './driveWebOAuth.mjs';
+import { createDriveBackupClient } from './driveBackupClient.mjs';
+import { createUsagePresenceRemote } from './usagePresenceRemote.mjs';
 
 const extensionApi = globalThis.chrome ?? globalThis.browser;
+const driveOAuthProfile = resolveDriveOAuthProfile(extensionApi.runtime?.id);
 
 const actionApi = extensionApi.action ?? extensionApi.browserAction ?? null;
 const STORAGE_KEY = 'tfr_state';
@@ -67,20 +72,17 @@ const DEFAULT_STATE = {
     chatMentionHighlightColor: '#9147ff',
     chatMentionSoundEnabled: false,
     chatMentionSoundId: 'soft',
+    communityBadgeEnabled: false,
+    playerAudioControlsEnabled: false,
     liveHoverPreviewEnabled: false,
     liveHoverPreviewMode: 'image'
   }
 };
 
 const DEFAULT_AVATAR = 'https://static-cdn.jtvnw.net/jtv_user_pictures/404_user_70x70.png';
-const DRIVE_BACKUP_FILE_NAME = 'twitch-favorites-sidebar-profiles.json';
-const DRIVE_FILE_SPACE = 'drive';
-const DRIVE_LEGACY_APPDATA_SPACE = 'appDataFolder';
 const DRIVE_SYNC_STATE_KEY = 'tfr_drive_sync_state';
 const WEB_AUTH_DRIVE_TOKEN_KEY = 'tfr_web_auth_drive_token';
 const DRIVE_AUTH_MODE_KEY = 'tfr_drive_auth_mode';
-const WEB_AUTH_CLIENT_ID = '242719267292-3ndk2kr40kplv9n8ldqslcmbkthpvk1b.apps.googleusercontent.com';
-const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.file';
 const POLL_ALARM = 'tfr_live_poll';
 const UPDATE_ALARM = 'tfr_update_check';
 const POLL_INTERVAL_MINUTES = 2;
@@ -100,6 +102,13 @@ const sharedSpacesRemote = createSharedSpacesRemote({
   extensionApi,
   config: SHARED_SPACES_CONFIG,
   isConfigured: isSharedSpacesRemoteConfigured
+});
+const driveBackupClient = createDriveBackupClient();
+const usagePresenceRemote = createUsagePresenceRemote({
+  extensionApi,
+  config: SHARED_SPACES_CONFIG,
+  isConfigured: isSharedSpacesRemoteConfigured,
+  environment: driveOAuthProfile.environment
 });
 
 const sendMessageToTab = (tabId, payload) =>
@@ -261,7 +270,7 @@ const getChromeOAuthClientId = () => {
 
 const isWebAuthFlowAvailable = () => Boolean(extensionApi.identity?.launchWebAuthFlow && extensionApi.identity?.getRedirectURL);
 
-const getWebAuthClientId = () => WEB_AUTH_CLIENT_ID.trim();
+const getWebAuthClientId = () => driveOAuthProfile.webClientId.trim();
 
 const getWebAuthRedirectUri = () => {
   if (!extensionApi.identity?.getRedirectURL) {
@@ -322,11 +331,6 @@ const clearDriveAuthMode = async () => {
   await extensionApi.storage.local.remove(DRIVE_AUTH_MODE_KEY);
 };
 
-const parseHashParams = (url) => {
-  const hash = new URL(url).hash.replace(/^#/, '');
-  return new URLSearchParams(hash);
-};
-
 const getWebAuthDriveToken = async (interactive = false, options = {}) => {
   const stored = await getStoredWebAuthDriveToken();
   if (stored?.accessToken) {
@@ -341,22 +345,18 @@ const getWebAuthDriveToken = async (interactive = false, options = {}) => {
   }
   const clientId = getWebAuthClientId();
   if (!clientId) {
-    throw new Error('Brave OAuth fallback is not configured. Create a Web application OAuth Client ID and set WEB_AUTH_CLIENT_ID in src/background/serviceWorker.js.');
+    throw new Error('Web OAuth is not configured. Set DEFAULT_WEB_AUTH_CLIENT_ID in src/background/driveOAuthConfig.mjs.');
   }
   const redirectUri = getWebAuthRedirectUri();
   console.info('[TFR] Google web auth redirect URI', redirectUri);
-  const authUrl = new URL('https://accounts.google.com/o/oauth2/v2/auth');
-  authUrl.searchParams.set('client_id', clientId);
-  authUrl.searchParams.set('response_type', 'token');
-  authUrl.searchParams.set('redirect_uri', redirectUri);
-  authUrl.searchParams.set('scope', DRIVE_SCOPE);
-  authUrl.searchParams.set('include_granted_scopes', 'true');
-  if (options.forceAccountChoice) {
-    authUrl.searchParams.set('prompt', 'select_account consent');
-  }
+  const authUrl = createDriveWebAuthUrl({
+    clientId,
+    redirectUri,
+    forceAccountChoice: options.forceAccountChoice
+  });
 
   const redirectUrl = await new Promise((resolve, reject) => {
-    extensionApi.identity.launchWebAuthFlow({ url: authUrl.toString(), interactive: true }, (resultUrl) => {
+    extensionApi.identity.launchWebAuthFlow({ url: authUrl, interactive: true }, (resultUrl) => {
       const error = extensionApi.runtime?.lastError;
       if (error) {
         reject(new Error(`${error.message || 'Google web auth failed'} Web client ID: ${clientId} Redirect URI: ${redirectUri}`));
@@ -369,15 +369,10 @@ const getWebAuthDriveToken = async (interactive = false, options = {}) => {
       resolve(resultUrl);
     });
   });
-  const params = parseHashParams(redirectUrl);
-  const accessToken = params.get('access_token');
-  if (!accessToken) {
-    throw new Error(params.get('error_description') || params.get('error') || 'Google web auth returned no token');
-  }
-  const expiresIn = Number(params.get('expires_in')) || 3600;
+  const { accessToken, expiresInSeconds } = parseDriveWebAuthRedirect(redirectUrl);
   await saveWebAuthDriveToken({
     accessToken,
-    expiresAt: Date.now() + expiresIn * 1000
+    expiresAt: Date.now() + expiresInSeconds * 1000
   });
   await setDriveAuthMode('web');
   return accessToken;
@@ -393,6 +388,10 @@ const getDriveToken = async (interactive = false) => {
   if (webToken?.accessToken) {
     await setDriveAuthMode('web');
     return webToken.accessToken;
+  }
+
+  if (driveOAuthProfile.preferredAuthMode === 'web') {
+    return getWebAuthDriveToken(interactive);
   }
 
   try {
@@ -432,56 +431,6 @@ const revokeGoogleToken = async () => {
   return revoked;
 };
 
-const driveFetch = async (token, url, options = {}) => {
-  const response = await fetch(url, {
-    ...options,
-    headers: {
-      Authorization: `Bearer ${token}`,
-      ...(options.headers || {})
-    }
-  });
-  if (!response.ok) {
-    const message = await response.text().catch(() => '');
-    throw new Error(`Google Drive ${response.status}${message ? `: ${message.slice(0, 180)}` : ''}`);
-  }
-  return response;
-};
-
-const findDriveBackupFileInSpace = async (token, space = DRIVE_FILE_SPACE) => {
-  const query = encodeURIComponent(`name='${DRIVE_BACKUP_FILE_NAME}' and trashed=false`);
-  const url = `https://www.googleapis.com/drive/v3/files?spaces=${space}&q=${query}&fields=files(id,name,modifiedTime,size)`;
-  const response = await driveFetch(token, url);
-  const payload = await response.json();
-  return Array.isArray(payload.files) && payload.files.length ? payload.files[0] : null;
-};
-
-const findDriveBackupFile = async (token) => findDriveBackupFileInSpace(token, DRIVE_FILE_SPACE);
-
-const findLegacyAppDataBackupFile = async (token) => {
-  try {
-    return await findDriveBackupFileInSpace(token, DRIVE_LEGACY_APPDATA_SPACE);
-  } catch (error) {
-    console.warn('[TFR] legacy Drive appData lookup skipped', error);
-    return null;
-  }
-};
-
-const createDriveMultipartBody = (metadata, jsonPayload) => {
-  const boundary = `tfr_drive_${Date.now()}_${Math.random().toString(16).slice(2)}`;
-  const body = [
-    `--${boundary}`,
-    'Content-Type: application/json; charset=UTF-8',
-    '',
-    JSON.stringify(metadata),
-    `--${boundary}`,
-    'Content-Type: application/json; charset=UTF-8',
-    '',
-    JSON.stringify(jsonPayload),
-    `--${boundary}--`
-  ].join('\r\n');
-  return { boundary, body };
-};
-
 const saveDriveSyncState = async (patch = {}) => {
   const previous = await extensionApi.storage.local.get(DRIVE_SYNC_STATE_KEY);
   const current = previous?.[DRIVE_SYNC_STATE_KEY] && typeof previous[DRIVE_SYNC_STATE_KEY] === 'object'
@@ -500,6 +449,8 @@ const getDriveSyncStatus = async () => {
     configured: chromeIdentityConfigured || webAuthAvailable,
     chromeIdentityConfigured,
     extensionId: extensionApi.runtime?.id || '',
+    oauthEnvironment: driveOAuthProfile.environment,
+    preferredAuthMode: driveOAuthProfile.preferredAuthMode,
     chromeOAuthClientId: getChromeOAuthClientId(),
     webAuthClientId: getWebAuthClientId(),
     webAuthAvailable,
@@ -524,24 +475,7 @@ const connectGoogleDrive = async () => {
 
 const pushBackupToDrive = async (backupPayload) => {
   const token = await getDriveTokenForSync();
-  const existing = await findDriveBackupFile(token);
-  const payload = {
-    ...backupPayload,
-    driveSyncedAt: new Date().toISOString()
-  };
-  const metadata = { name: DRIVE_BACKUP_FILE_NAME };
-  const { boundary, body } = createDriveMultipartBody(metadata, payload);
-  const url = existing
-    ? `https://www.googleapis.com/upload/drive/v3/files/${existing.id}?uploadType=multipart`
-    : 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart';
-  const response = await driveFetch(token, url, {
-    method: existing ? 'PATCH' : 'POST',
-    headers: {
-      'Content-Type': `multipart/related; boundary=${boundary}`
-    },
-    body
-  });
-  const file = await response.json();
+  const { existing, file } = await driveBackupClient.push(token, backupPayload);
   const syncState = await saveDriveSyncState({
     connectedAt: Date.now(),
     lastPushAt: Date.now(),
@@ -553,12 +487,7 @@ const pushBackupToDrive = async (backupPayload) => {
 
 const pullBackupFromDrive = async () => {
   const token = await getDriveTokenForSync();
-  const file = await findDriveBackupFile(token) || await findLegacyAppDataBackupFile(token);
-  if (!file?.id) {
-    throw new Error('No Drive backup found yet.');
-  }
-  const response = await driveFetch(token, `https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`);
-  const payload = await response.json();
+  const { file, payload } = await driveBackupClient.pull(token);
   const syncState = await saveDriveSyncState({
     connectedAt: Date.now(),
     lastPullAt: Date.now(),
@@ -839,6 +768,42 @@ extensionApi.storage.onChanged.addListener((changes, areaName) => {
 });
 
 extensionApi.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message?.type === 'TFR_USAGE_PRESENCE_REFRESH') {
+    usagePresenceRemote.refresh()
+      .then((data) => sendResponse({ ok: true, data }))
+      .catch((error) => sendResponse({ ok: false, message: error?.message || 'Presence refresh failed' }));
+    return true;
+  }
+  if (message?.type === 'TFR_USAGE_PRESENCE_SET_ENABLED') {
+    usagePresenceRemote.setEnabled(message.enabled)
+      .then((data) => sendResponse({ ok: true, data }))
+      .catch((error) => sendResponse({ ok: false, message: error?.message || 'Presence preference failed' }));
+    return true;
+  }
+  if (message?.type === 'TFR_COMMUNITY_BADGE_LOOKUP') {
+    const logins = [...new Set((Array.isArray(message.logins) ? message.logins : [])
+      .map((login) => String(login || '').trim().toLowerCase())
+      .filter((login) => /^[a-z0-9_]{2,25}$/.test(login)))]
+      .slice(0, 60);
+    sharedSpacesRemote.lookupCommunityBadgeLogins(logins)
+      .then((data) => sendResponse({ ok: true, data: Array.isArray(data) ? data : [] }))
+      .catch((error) => sendResponse({ ok: false, message: error?.message || 'Community lookup failed' }));
+    return true;
+  }
+  if (message?.type === 'TFR_COMMUNITY_BADGE_SET') {
+    const enabled = message.enabled === true;
+    (async () => {
+      let status = await sharedSpacesRemote.getStatus();
+      if (!status.connected) {
+        status = await sharedSpacesRemote.connect();
+      }
+      const data = await sharedSpacesRemote.setCommunityBadgeEnabled(enabled);
+      return { ...data, user: status.user || null };
+    })()
+      .then((data) => sendResponse({ ok: true, data }))
+      .catch((error) => sendResponse({ ok: false, message: error?.message || 'Community preference failed' }));
+    return true;
+  }
   if (message?.type?.startsWith?.('TFR_SHARED_')) {
     const operations = {
       TFR_SHARED_STATUS: () => sharedSpacesRemote.getStatus(),
@@ -855,7 +820,15 @@ extensionApi.runtime.onMessage.addListener((message, sender, sendResponse) => {
       TFR_SHARED_JOIN_TOKEN: () => sharedSpacesRemote.joinByToken(message.token),
       TFR_SHARED_SET_MEMBER_ROLE: () => sharedSpacesRemote.setMemberRole(message.spaceId, message.userId, message.role),
       TFR_SHARED_DELETE_SPACE: () => sharedSpacesRemote.deleteSpace(message.spaceId),
-      TFR_SHARED_LEAVE_SPACE: () => sharedSpacesRemote.leaveSpace(message.spaceId)
+      TFR_SHARED_LEAVE_SPACE: () => sharedSpacesRemote.leaveSpace(message.spaceId),
+      TFR_SHARED_CHAT_LIST: () => sharedSpacesRemote.listMessages(message.spaceId, message.before, message.limit),
+      TFR_SHARED_CHAT_SEND: () => sharedSpacesRemote.sendMessage(message.spaceId, message.body, message.replyToId),
+      TFR_SHARED_CHAT_DELETE: () => sharedSpacesRemote.deleteMessage(message.messageId),
+      TFR_SHARED_CHAT_REPORT: () => sharedSpacesRemote.reportMessage(message.messageId, message.reason),
+      TFR_SHARED_CHAT_BLOCK: () => sharedSpacesRemote.setChatBlock(message.userId, message.blocked),
+      TFR_SHARED_CHAT_META: () => sharedSpacesRemote.getChatMeta(message.spaceId),
+      TFR_SHARED_CHAT_REACT: () => sharedSpacesRemote.toggleMessageReaction(message.messageId, message.emoji),
+      TFR_SHARED_CHAT_EDIT: () => sharedSpacesRemote.editMessage(message.messageId, message.body)
     };
     const operation = operations[message.type];
     if (!operation) return false;

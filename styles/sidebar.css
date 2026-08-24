@@ -1787,7 +1787,7 @@ nav[data-a-target="side-nav"] * {
   background: rgba(14, 9, 24, 0.97);
   box-shadow: 0 14px 36px rgba(0, 0, 0, 0.48);
   color: #f7f7f8;
-  pointer-events: none;
+  pointer-events: auto;
   animation: tfr-live-preview-enter 0.16s ease-out both;
 }
 
@@ -1833,6 +1833,19 @@ nav[data-a-target="side-nav"] * {
 .tfr-live-hover-preview__body small {
   color: #c8c8d0;
   font-size: 11px;
+}
+
+.tfr-live-hover-preview__title {
+  cursor: default;
+}
+
+.tfr-live-hover-preview__title:hover,
+.tfr-live-hover-preview__title:focus-visible {
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  outline: none;
 }
 
 @keyframes tfr-live-preview-enter {

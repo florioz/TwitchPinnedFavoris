@@ -1,33 +1,28 @@
-const { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } = require('node:fs');
-const { execFileSync } = require('node:child_process');
+const { writeFileSync } = require('node:fs');
 const { join } = require('node:path');
 const { createFirefoxManifest } = require('./firefoxManifest');
+const { BROWSER_PACKAGE_ENTRIES, PROJECT_ROOT } = require('./projectPaths');
+const {
+  copyRequiredEntries,
+  createZipArchive,
+  readJson,
+  recreateDirectory
+} = require('./packageTools');
 
-const root = join(__dirname, '..');
-const distDir = join(root, 'dist');
-const buildDir = join(distDir, 'firefox-store');
-const manifestSource = join(root, 'manifest.json');
-const sourceManifest = JSON.parse(readFileSync(manifestSource, 'utf8'));
+const distDirectory = join(PROJECT_ROOT, 'dist');
+const buildDirectory = join(distDirectory, 'firefox-store');
+const sourceManifest = readJson(join(PROJECT_ROOT, 'manifest.json'));
 const manifest = createFirefoxManifest(sourceManifest);
-const zipPath = join(distDir, `TwitchFavoritesSidebar-v${sourceManifest.version}-firefox.zip`);
-const include = ['_locales', 'assets', 'panel', 'src', 'styles', 'PRIVACY.md', 'LICENSE'];
+const packageEntries = [...BROWSER_PACKAGE_ENTRIES, 'manifest.json'];
+const zipPath = join(distDirectory, `TwitchFavoritesSidebar-v${sourceManifest.version}-firefox.zip`);
 
-rmSync(buildDir, { recursive: true, force: true });
-mkdirSync(buildDir, { recursive: true });
-
-include.forEach((entry) => {
-  const source = join(root, entry);
-  if (!existsSync(source)) throw new Error(`Missing required package entry: ${entry}`);
-  cpSync(source, join(buildDir, entry), { recursive: true });
+recreateDirectory(buildDirectory);
+copyRequiredEntries({
+  root: PROJECT_ROOT,
+  destination: buildDirectory,
+  entries: BROWSER_PACKAGE_ENTRIES
 });
-
-writeFileSync(join(buildDir, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
-
-rmSync(zipPath, { force: true });
-if (process.platform === 'win32') {
-  execFileSync('tar.exe', ['-a', '-c', '-f', zipPath, '-C', buildDir, ...include, 'manifest.json'], { stdio: 'inherit' });
-} else {
-  execFileSync('zip', ['-qr', zipPath, '.'], { cwd: buildDir, stdio: 'inherit' });
-}
+writeFileSync(join(buildDirectory, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
+createZipArchive({ sourceDirectory: buildDirectory, destination: zipPath, entries: packageEntries });
 
 console.log(`Firefox package ready: ${zipPath}`);

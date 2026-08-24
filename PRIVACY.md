@@ -1,6 +1,6 @@
 # Privacy Policy / Politique de confidentialite
 
-Last updated: July 7, 2026
+Last updated: August 25, 2026
 
 ## English
 
@@ -30,14 +30,21 @@ The extension contacts these services only for extension features:
 - Google APIs: optional Google Drive sync.
 - GitHub API: update checks.
 - 7TV: optional emote metadata for chat history rendering.
+- Supabase: shared spaces, community chat, and the anonymous active-installation counter.
+
+### Anonymous active-installation counter
+
+When enabled, the extension sends a heartbeat every 60 seconds while a Twitch tab is visible. The server receives only a SHA-256 fingerprint derived from a random identifier stored locally, the extension version, the extension environment, and the last activity time. It does not receive a Twitch username or browsing history for this counter.
+
+The counter treats an installation as active for two minutes. Presence rows older than seven days are automatically removed. Participation can be disabled from the global backup and privacy section; disabling it immediately removes the installation fingerprint from the counter.
 
 ### Data sharing
 
-This project does not sell personal data and does not include analytics or advertising trackers.
+This project does not sell personal data and does not include advertising trackers. The anonymous counter described above is limited to measuring currently active extension installations.
 
 ### Data removal
 
-You can remove local extension data by deleting profiles inside the extension, clearing the extension storage from your browser, or uninstalling the extension. You can remove synced backups directly from your Google Drive.
+You can remove local extension data by deleting profiles inside the extension, clearing the extension storage from your browser, or uninstalling the extension. You can remove synced backups directly from your Google Drive. Disabling the anonymous counter removes its server-side installation fingerprint immediately.
 
 ### Contact
 
@@ -73,14 +80,21 @@ L'extension contacte ces services uniquement pour ses fonctionnalites :
 - Google APIs : synchronisation Google Drive optionnelle.
 - GitHub API : verification des mises a jour.
 - 7TV : donnees d'emotes optionnelles pour l'historique du chat.
+- Supabase : espaces partages, chat communautaire et compteur anonyme d'installations actives.
+
+### Compteur anonyme d'installations actives
+
+Lorsque cette option est activee, l'extension envoie un signal toutes les 60 secondes pendant qu'un onglet Twitch est visible. Le serveur recoit uniquement une empreinte SHA-256 derivee d'un identifiant aleatoire conserve localement, la version et l'environnement de l'extension, ainsi que la derniere heure d'activite. Aucun pseudo Twitch ni historique de navigation n'est transmis pour ce compteur.
+
+Une installation est consideree active pendant deux minutes. Les presences datant de plus de sept jours sont automatiquement supprimees. La participation peut etre desactivee dans la section de sauvegarde globale et confidentialite ; la desactivation supprime immediatement l'empreinte du compteur.
 
 ### Partage de donnees
 
-Le projet ne vend pas de donnees personnelles et n'integre pas d'analytics ou de trackers publicitaires.
+Le projet ne vend pas de donnees personnelles et n'integre pas de trackers publicitaires. Le compteur anonyme decrit ci-dessus sert uniquement a mesurer les installations actuellement actives.
 
 ### Suppression des donnees
 
-Tu peux supprimer les donnees locales en supprimant les profils dans l'extension, en vidant le stockage de l'extension depuis le navigateur, ou en desinstallant l'extension. Les sauvegardes synchronisees peuvent etre supprimees directement depuis Google Drive.
+Tu peux supprimer les donnees locales en supprimant les profils dans l'extension, en vidant le stockage de l'extension depuis le navigateur, ou en desinstallant l'extension. Les sauvegardes synchronisees peuvent etre supprimees directement depuis Google Drive. Desactiver le compteur anonyme supprime immediatement son empreinte cote serveur.
 
 ### Contact
 

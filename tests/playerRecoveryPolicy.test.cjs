@@ -27,4 +27,11 @@ test('player recovery selectors target only video error controls', () => {
   assert.match(policy.SELECTORS.error, /player-error-message/);
   assert.match(policy.SELECTORS.retry, /player-error-retry-button/);
   assert.doesNotMatch(policy.SELECTORS.retry, /content-gate|mature/);
+  assert.equal(policy.RECOVERABLE_ERROR_PATTERN.test('Erreur réseau (Erreur #2000)'), true);
+  assert.equal(policy.RECOVERABLE_ERROR_PATTERN.test('Error 4000: format not supported'), true);
+  assert.equal(policy.RECOVERABLE_ERROR_PATTERN.test('Une erreur est survenue pendant la lecture'), true);
+  assert.equal(policy.RECOVERABLE_ERROR_PATTERN.test('Unable to play this video'), true);
+  assert.equal(policy.RECOVERABLE_ERROR_PATTERN.test('2 000 spectateurs'), false);
+  assert.equal(policy.RECOVERABLE_ERROR_PATTERN.test('Cette chaîne est hors ligne'), false);
+  assert.equal(policy.RETRY_LABEL_PATTERN.test('Recharger le lecteur'), true);
 });

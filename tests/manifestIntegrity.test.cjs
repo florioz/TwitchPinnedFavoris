@@ -2,6 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const { isConflictArtifact } = require('../scripts/projectPaths');
 
 const root = path.join(__dirname, '..');
 const manifest = JSON.parse(fs.readFileSync(path.join(root, 'manifest.json'), 'utf8'));
@@ -27,15 +28,34 @@ test('manifest references existing scripts, styles, pages and icons without dupl
 test('manifest content scripts load every JavaScript feature exactly once', () => {
   const loaded = new Set((manifest.content_scripts || []).flatMap((entry) => entry.js || []));
   const featureFiles = fs.readdirSync(path.join(root, 'src/contentScripts/features'))
-    .filter((filename) => filename.endsWith('.js'))
+    .filter((filename) => filename.endsWith('.js') && !isConflictArtifact(filename))
     .map((filename) => `src/contentScripts/features/${filename}`);
   featureFiles.forEach((file) => assert.equal(loaded.has(file), true, `feature is not loaded: ${file}`));
+});
+
+test('side panel scripts exist and load favorite visibility before the panel model', () => {
+  const panelPath = path.join(root, manifest.side_panel.default_path);
+  const panelSource = fs.readFileSync(panelPath, 'utf8');
+  const scriptPaths = Array.from(panelSource.matchAll(/<script\s+src="([^"]+)"/g), (match) => match[1]);
+  scriptPaths.forEach((relativePath) => {
+    assert.equal(
+      fs.existsSync(path.resolve(path.dirname(panelPath), relativePath)),
+      true,
+      `missing side panel script: ${relativePath}`
+    );
+  });
+
+  const visibilityIndex = scriptPaths.indexOf('../src/contentScripts/features/favoriteVisibilityTools.js');
+  const panelModelIndex = scriptPaths.indexOf('../src/contentScripts/panelModel.js');
+  assert.notEqual(visibilityIndex, -1, 'favorite visibility tools are missing from the side panel');
+  assert.equal(visibilityIndex < panelModelIndex, true, 'favorite visibility tools must load before panelModel');
 });
 
 test('Chrome and Firefox source trees remain byte-for-byte synchronized', () => {
   const sourceFiles = [];
   const visit = (directory, prefix = '') => {
     fs.readdirSync(directory, { withFileTypes: true }).forEach((entry) => {
+      if (isConflictArtifact(entry.name)) return;
       const relative = path.join(prefix, entry.name);
       if (entry.isDirectory()) visit(path.join(directory, entry.name), relative);
       else sourceFiles.push(relative);

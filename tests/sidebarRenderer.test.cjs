@@ -57,6 +57,29 @@ const loadSidebarRenderer = (windowRef, documentRef) => {
   });
 };
 
+test('workspace changes cancel stale sidebar work and render immediately', () => {
+  const SidebarRenderer = loadSidebarRenderer(
+    {},
+    { body: { contains: () => true }, hidden: false }
+  );
+  const renderer = Object.create(SidebarRenderer.prototype);
+  const calls = [];
+  renderer.store = { getState: () => ({ workspaceMode: 'shared', activeSharedSpaceId: 'space_1' }) };
+  renderer.workspaceRenderKey = 'personal:profile_1:';
+  renderer.invalidateStateRenderCache = () => calls.push('invalidate');
+  renderer.cancelPendingRender = () => calls.push('cancel');
+  renderer.render = () => calls.push('render');
+  renderer.scheduleRender = () => calls.push('schedule');
+
+  renderer.handleStoreUpdate({
+    kind: 'state',
+    state: { workspaceMode: 'shared', activeProfileId: 'profile_1', activeSharedSpaceId: 'space_1' }
+  });
+
+  assert.equal(renderer.workspaceRenderKey, 'shared:profile_1:space_1');
+  assert.deepEqual(calls, ['invalidate', 'cancel', 'render']);
+});
+
 test('auto compact is immediately remeasured after crossing its release threshold', () => {
   const block = {
     dataset: { totalEntries: '20', groupId: 'large-group' },

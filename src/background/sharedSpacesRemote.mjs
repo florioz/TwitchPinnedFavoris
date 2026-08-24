@@ -1,3 +1,6 @@
+import { createSupabasePublicClient } from './supabasePublicClient.mjs';
+import { createSupabaseAuthenticatedClient } from './supabaseAuthenticatedClient.mjs';
+
 const SESSION_KEY = 'tfr_shared_spaces_session';
 
 const parseAuthFragment = (redirectUrl) => {
@@ -14,6 +17,12 @@ const parseAuthFragment = (redirectUrl) => {
 
 export const createSharedSpacesRemote = ({ extensionApi, config, isConfigured, fetchImpl = fetch }) => {
   const storage = extensionApi.storage.local;
+  const publicClient = createSupabasePublicClient({
+    config,
+    isConfigured,
+    fetchImpl,
+    notConfiguredMessage: 'La communauté TwitchPinnedFavoris n’est pas configurée'
+  });
   const readSession = async () => (await storage.get(SESSION_KEY))?.[SESSION_KEY] || null;
   const saveSession = async (session) => storage.set({ [SESSION_KEY]: session });
   const clearSession = async () => storage.remove(SESSION_KEY);
@@ -44,41 +53,16 @@ export const createSharedSpacesRemote = ({ extensionApi, config, isConfigured, f
     return refreshSession(session);
   };
 
-  const request = async (path, { method = 'GET', body, token } = {}) => {
-    if (!isConfigured(config)) throw new Error('La synchronisation des espaces partagés n’est pas configurée');
-    const session = token ? { accessToken: token } : await getValidSession();
-    if (!session?.accessToken) throw new Error('Connectez votre compte Twitch');
-    let response = await fetchImpl(`${config.supabaseUrl}/rest/v1/${path}`, {
-      method,
-      headers: {
-        apikey: config.publishableKey,
-        Authorization: `Bearer ${session.accessToken}`,
-        'Content-Type': 'application/json',
-        Prefer: 'return=representation'
-      },
-      body: body === undefined ? undefined : JSON.stringify(body)
-    });
-    if (response.status === 401 && !token) {
-      const refreshed = await refreshSession(await readSession());
-      if (refreshed) {
-        response = await fetchImpl(`${config.supabaseUrl}/rest/v1/${path}`, {
-          method,
-          headers: {
-            apikey: config.publishableKey,
-            Authorization: `Bearer ${refreshed.accessToken}`,
-            'Content-Type': 'application/json',
-            Prefer: 'return=representation'
-          },
-          body: body === undefined ? undefined : JSON.stringify(body)
-        });
-      }
-    }
-    const payload = response.status === 204 ? null : await response.json().catch(() => null);
-    if (!response.ok) throw new Error(payload?.message || payload?.hint || `Supabase ${response.status}`);
-    return payload;
-  };
-
-  const rpc = (name, parameters = {}) => request(`rpc/${name}`, { method: 'POST', body: parameters });
+  const authenticatedClient = createSupabaseAuthenticatedClient({
+    config,
+    isConfigured,
+    fetchImpl,
+    getSession: getValidSession,
+    refreshSession: async () => refreshSession(await readSession()),
+    notConfiguredMessage: 'La synchronisation des espaces partagés n’est pas configurée',
+    missingSessionMessage: 'Connectez votre compte Twitch'
+  });
+  const rpc = authenticatedClient.rpc;
 
   const connect = async () => {
     if (!isConfigured(config)) throw new Error('Configurez Supabase avant de connecter Twitch');
@@ -159,6 +143,40 @@ export const createSharedSpacesRemote = ({ extensionApi, config, isConfigured, f
       target_space_id: spaceId, target_user_id: userId, target_role: role
     }),
     deleteSpace: (spaceId) => rpc('tfr_delete_space', { target_space_id: spaceId }),
-    leaveSpace: (spaceId) => rpc('tfr_leave_space', { target_space_id: spaceId })
+    leaveSpace: (spaceId) => rpc('tfr_leave_space', { target_space_id: spaceId }),
+    listMessages: (spaceId, before = null, limit = 50) => rpc('tfr_list_space_messages', {
+      target_space_id: spaceId,
+      before_created_at: before || null,
+      requested_limit: Math.min(100, Math.max(1, Number(limit) || 50))
+    }),
+    sendMessage: (spaceId, body, replyToId = null) => rpc('tfr_send_space_message', {
+      target_space_id: spaceId,
+      message_body: String(body || ''),
+      reply_to_message_id: replyToId || null
+    }),
+    deleteMessage: (messageId) => rpc('tfr_delete_space_message', { target_message_id: messageId }),
+    reportMessage: (messageId, reason) => rpc('tfr_report_space_message', {
+      target_message_id: messageId,
+      report_reason: String(reason || 'inappropriate')
+    }),
+    setChatBlock: (userId, blocked) => rpc('tfr_set_space_chat_block', {
+      target_user_id: userId,
+      should_block: Boolean(blocked)
+    }),
+    getChatMeta: (spaceId) => rpc('tfr_get_space_chat_meta', { target_space_id: spaceId }),
+    toggleMessageReaction: (messageId, emoji) => rpc('tfr_toggle_space_message_reaction', {
+      target_message_id: messageId,
+      target_emoji: String(emoji || '')
+    }),
+    editMessage: (messageId, body) => rpc('tfr_edit_space_message', {
+      target_message_id: messageId,
+      message_body: String(body || '')
+    }),
+    setCommunityBadgeEnabled: (enabled) => rpc('tfr_set_community_badge_enabled', {
+      should_enable: Boolean(enabled)
+    }),
+    lookupCommunityBadgeLogins: (logins) => publicClient.rpc('tfr_lookup_community_badges', {
+      requested_logins: Array.isArray(logins) ? logins : []
+    })
   });
 };

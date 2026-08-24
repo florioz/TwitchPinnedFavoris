@@ -19,25 +19,10 @@
     'gradient', 'solid', 'stripe', 'glow', 'glass', 'outline', 'minimal', 'dot', 'rail',
     'double', 'soft-card', 'soft-neon', 'ribbon', 'count-badge', 'ink', 'compact', 'parent-accent'
   ]);
+  const CATEGORY_HUE_STEP = 137.508;
   const categoryMutations = window.TFRCategoryMutationTools;
-  class EventEmitter {
-    constructor() {
-      this.listeners = new Set();
-    }
-    subscribe(callback) {
-      this.listeners.add(callback);
-      return () => this.listeners.delete(callback);
-    }
-    emit(payload) {
-      this.listeners.forEach((cb) => {
-        try {
-          cb(payload);
-        } catch (error) {
-          console.error('[TFR] Listener error', error);
-        }
-      });
-    }
-  }
+  const colorTools = window.TFRColorTools;
+  const createEventEmitter = window.TFREventEmitter.create;
 
   const LEGACY_CATEGORY_COLORS = {
     purple: '#9147ff',
@@ -65,6 +50,7 @@
       this.sharedSpaceModel = window.TFRSharedSpaceModel;
       this.sharedProfileCatalog = window.TFRSharedProfileCatalog;
       this.sharedWorkspaceTransitions = window.TFRSharedWorkspaceTransitions;
+      this.sharedWorkspaceIntegrity = window.TFRSharedWorkspaceIntegrity;
       this.liveDataCache = window.TFRLiveDataCache;
       this.backupNormalizer = window.TFRBackupNormalizer.create({
         defaultAvatar: DEFAULT_AVATAR,
@@ -96,7 +82,9 @@
         playerVolumeMaxReductionDb: (value) => this.sanitizePlayerVolumeMaxReductionDb(value)
       });
       this.liveData = {};
-      this.emitter = new EventEmitter();
+      this.emitter = createEventEmitter({
+        onListenerError: (error) => console.error('[TFR] Listener error', error)
+      });
       this.pollTimer = null;
       this.isRefreshing = false;
       this.lastLiveRefreshAt = 0;
@@ -146,7 +134,8 @@
         this.liveData = { ...stored[LIVE_CACHE_KEY] };
         this.lastLiveStorageAt = Date.now();
       }
-      this.ensureStateIntegrity();
+      const repairedPersonalLeak = this.ensureStateIntegrity();
+      if (repairedPersonalLeak) await this.persistState();
       this.emitter.emit({ kind: CHANGE_KIND.STATE, state: this.getSnapshot() });
       if (Object.keys(this.liveData).length) {
         this.emitter.emit({ kind: CHANGE_KIND.LIVE, liveData: this.getLiveData() });
@@ -352,13 +341,16 @@
         chatEmotePickerEnabled: false,
         playerLatencyEnabled: false,
         playerRecoveryEnabled: false,
+        playerResetButtonEnabled: false,
         autoClaimChannelPointsEnabled: false,
         playerAudioCompressorEnabled: false,
+        playerAudioControlsEnabled: false,
         playerVolumeNormalizerEnabled: false,
         chatFontEnabled: false,
         chatNoPaddingEnabled: false,
         chatMentionHighlightEnabled: false,
         chatMentionSoundEnabled: false,
+        communityBadgeEnabled: false,
         showDeletedMessagesEnabled: false,
         showFullRepliesEnabled: false,
         liveHoverPreviewEnabled: false
@@ -517,7 +509,9 @@
         normalizedFavorites[normalizedLogin] = fav;
       });
       this.state.favorites = normalizedFavorites;
+      const repairedPersonalLeak = this.sharedWorkspaceIntegrity?.repairPersonalFavoriteLeak(this.state) || false;
       this.syncActiveProfile(this.state);
+      return repairedPersonalLeak;
     }
 
     startPolling() {
@@ -579,7 +573,7 @@
         if (shouldApply && !shouldApply()) return false;
         if (!optimistic) {
           const persisted = await this.storageGateway.readState();
-          if (persisted) {
+          if (persisted && Number(persisted.revision || 0) > Number(this.state.revision || 0)) {
             this.state = deepCopy({ ...DEFAULT_STATE, ...persisted });
             this.ensureStateIntegrity();
           }
@@ -659,7 +653,7 @@
     const nextMode = mode === 'shared' ? 'shared' : 'personal';
     ++this.workspaceSwitchToken;
     if (nextMode === this.state.workspaceMode) return true;
-    return this.applyImmediateWorkspaceState((draft) => {
+    const applied = this.applyImmediateWorkspaceState((draft) => {
       this.syncActiveProfile(draft);
       if (nextMode === 'shared') {
         if (draft.workspaceMode !== 'shared') this.capturePersonalWorkspace(draft);
@@ -671,6 +665,8 @@
         this.applyPersonalWorkspaceToRoot(draft);
       }
     });
+    if (applied) await this.refreshLiveData({ forceRefresh: true });
+    return applied;
   }
 
   async createSharedSpace(name, { sourceProfileId = '', importedProfile = null } = {}) {
@@ -1374,45 +1370,33 @@
       });
     }
 
+    generateRandomCategoryHue(random = Math.random) {
+      return colorTools.randomHue(random);
+    }
+
+    categoryColorFromHue(hue) {
+      return colorTools.categoryColorFromHue(hue);
+    }
+
+    generateRandomCategoryColor(random = Math.random) {
+      return this.categoryColorFromHue(this.generateRandomCategoryHue(random));
+    }
+
+    async randomizeCategoryColor(categoryId, random = Math.random) {
+      const color = this.generateRandomCategoryColor(random);
+      await this.setCategoryColor(categoryId, color);
+      return color;
+    }
+
     hslToHex(hue, saturation, lightness) {
-      const s = Math.max(0, Math.min(1, saturation));
-      const l = Math.max(0, Math.min(1, lightness));
-      const c = (1 - Math.abs(2 * l - 1)) * s;
-      const x = c * (1 - Math.abs(((hue / 60) % 2) - 1));
-      const m = l - c / 2;
-      let r = 0;
-      let g = 0;
-      let b = 0;
-      if (hue < 60) {
-        r = c;
-        g = x;
-      } else if (hue < 120) {
-        r = x;
-        g = c;
-      } else if (hue < 180) {
-        g = c;
-        b = x;
-      } else if (hue < 240) {
-        g = x;
-        b = c;
-      } else if (hue < 300) {
-        r = x;
-        b = c;
-      } else {
-        r = c;
-        b = x;
-      }
-      return `#${[r, g, b]
-        .map((channel) => Math.round((channel + m) * 255).toString(16).padStart(2, '0'))
-        .join('')}`;
+      return colorTools.hslToHex(hue, saturation, lightness);
     }
 
     async randomizeCategoryColors() {
-      const offset = Math.floor(Math.random() * 360);
+      const offset = this.generateRandomCategoryHue();
       await this.updateState((draft) => {
         draft.categories.forEach((category, index) => {
-          const hue = (offset + index * 137.508) % 360;
-          category.color = this.hslToHex(hue, 0.72, 0.58);
+          category.color = this.categoryColorFromHue(offset + index * CATEGORY_HUE_STEP);
         });
       });
     }
@@ -1544,12 +1528,20 @@
       await this.setBooleanPreference('playerRecoveryEnabled', enabled);
     }
 
+    async setPlayerResetButtonEnabled(enabled) {
+      await this.setBooleanPreference('playerResetButtonEnabled', enabled);
+    }
+
     async setAutoClaimChannelPointsEnabled(enabled) {
       await this.setBooleanPreference('autoClaimChannelPointsEnabled', enabled);
     }
 
     async setPlayerAudioCompressorEnabled(enabled) {
       await this.setBooleanPreference('playerAudioCompressorEnabled', enabled);
+    }
+
+    async setPlayerAudioControlsEnabled(enabled) {
+      await this.setBooleanPreference('playerAudioControlsEnabled', enabled);
     }
 
     sanitizePlayerAudioCompressorPreset(preset) {
@@ -1653,6 +1645,28 @@
 
     async setChatMentionHighlightEnabled(enabled) {
       await this.setBooleanPreference('chatMentionHighlightEnabled', enabled);
+    }
+
+    async setCommunityBadgeEnabled(enabled) {
+      const nextEnabled = enabled === true;
+      const response = await sendExtensionMessage({
+        type: 'TFR_COMMUNITY_BADGE_SET',
+        enabled: nextEnabled
+      });
+      if (!response?.ok) {
+        console.warn('[TFR] community badge preference failed', response?.message || 'unknown error');
+        return false;
+      }
+      await this.updateState((draft) => {
+        (draft.preferences || (draft.preferences = {})).communityBadgeEnabled = nextEnabled;
+        Object.values(draft.profiles || {}).forEach((profile) => {
+          (profile.preferences || (profile.preferences = {})).communityBadgeEnabled = nextEnabled;
+        });
+        if (draft.personalWorkspaceSnapshot?.preferences) {
+          draft.personalWorkspaceSnapshot.preferences.communityBadgeEnabled = nextEnabled;
+        }
+      });
+      return true;
     }
 
     async setChatMentionHighlightColor(color) {

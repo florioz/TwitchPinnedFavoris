@@ -22,3 +22,11 @@ test('color tools convert and clamp HSV values', () => {
   assert.equal(colors.hsvToHex(120, 1, 1), '#00ff00');
   assert.equal(colors.hsvToHex(360, 2, 2), '#ff0000');
 });
+
+test('color tools normalize HSL hues and random category colors', () => {
+  assert.equal(colors.hslToHex(0, 1, 0.5), '#ff0000');
+  assert.equal(colors.hslToHex(360, 1, 0.5), '#ff0000');
+  assert.equal(colors.randomHue(() => 0.5), 180);
+  assert.equal(colors.randomHue(() => 2), 359);
+  assert.match(colors.categoryColorFromHue(-30), /^#[0-9a-f]{6}$/);
+});

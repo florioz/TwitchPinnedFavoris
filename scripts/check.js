@@ -1,72 +1,13 @@
 const { spawnSync } = require('node:child_process');
-const { existsSync, readdirSync } = require('node:fs');
-const { join } = require('node:path');
+const { relative } = require('node:path');
+const { collectJavaScriptFiles, PROJECT_ROOT } = require('./projectPaths');
 
-const root = join(__dirname, '..');
-const files = [
-  'src/background/serviceWorker.js',
-  'src/background/liveState.mjs',
-  'src/background/liveSnapshotCoordinator.mjs',
-  'src/background/liveNotificationService.mjs',
-  'src/background/panelLauncher.mjs',
-  'src/background/badgeManager.mjs',
-  'src/background/twitchClient.mjs',
-  'src/background/updateService.mjs',
-  'src/background/sharedSpacesConfig.mjs',
-  'src/background/sharedSpacesRemote.mjs',
-  'src/contentScripts/main.js',
-  'src/contentScripts/page/moderationEventBridge.js',
-  'src/contentScripts/extensionI18n.js',
-  'src/contentScripts/panelModel.js',
-  'src/contentScripts/toastPreferences.js',
-  'src/contentScripts/toastAudio.js',
-  'src/contentScripts/toastStack.js',
-  'src/contentScripts/panelRenderer.js',
-  'src/contentScripts/panelView.js',
-  'src/contentScripts/panelLifecycle.js',
-  'src/contentScripts/panelSnapshotController.js',
-  'src/contentScripts/panelSnapshotPresenter.js',
-  'src/contentScripts/extensionRuntimeClient.js',
-  'src/contentScripts/worklets/audioLevelProcessor.js',
-  'src/contentScripts/panelMessageRouter.js',
-  'src/contentScripts/overlayPanel.js',
-  'panel/bootstrap.js',
-  'panel/vods.js',
-  'mobile/app.js',
-  'scripts/serve-mobile.js',
-  'scripts/configure-mobile-oauth.js',
-  'scripts/configure-web-oauth.js',
-  'scripts/check-firefox-sync.js',
-  'scripts/build-chrome.js',
-  'scripts/build-firefox.js',
-  'scripts/build-android.js',
-  'scripts/package-all.js',
-  'firefox/src/background/serviceWorker.js',
-  'firefox/src/contentScripts/main.js',
-  'firefox/src/contentScripts/worklets/audioLevelProcessor.js',
-  'firefox/src/contentScripts/overlayPanel.js',
-  'firefox/panel/bootstrap.js',
-  'firefox/panel/vods.js'
-];
-
-for (const featureRoot of [
-  'src/contentScripts/features',
-  'firefox/src/contentScripts/features'
-]) {
-  const directory = join(root, featureRoot);
-  if (!existsSync(directory)) continue;
-  for (const entry of readdirSync(directory)) {
-    if (entry.endsWith('.js')) {
-      files.push(`${featureRoot}/${entry}`);
-    }
-  }
-}
-
+const files = collectJavaScriptFiles();
 for (const file of files) {
-  const fullPath = join(root, file);
-  if (!existsSync(fullPath)) continue;
-  const result = spawnSync(process.execPath, ['--check', fullPath], { stdio: 'inherit' });
+  const result = spawnSync(process.execPath, ['--check', file], { stdio: 'inherit' });
+  if (result.error) throw result.error;
   if (result.status !== 0) {
+    console.error(`Syntax check failed: ${relative(PROJECT_ROOT, file)}`);
     process.exit(result.status || 1);
   }
 }

@@ -20,6 +20,14 @@ test('panel category filter is accent-insensitive', () => {
   assert.equal(shouldDisplayFavorite(favorite, { isLive: false, game: 'Pokemon' }), false);
 });
 
+test('panel keeps inferred live favorites visible while Twitch category data is unavailable', () => {
+  const favorite = {
+    categoryFilter: { enabled: true, categories: ['Pokémon'] }
+  };
+  assert.equal(shouldDisplayFavorite(favorite, { isLive: true, game: '', fetchFailed: true }), true);
+  assert.equal(shouldDisplayFavorite(favorite, { isLive: true, game: '' }), false);
+});
+
 test('nested categories are flattened in sort order with depth', () => {
   const result = buildCategoryOrder([
     { id: 'child', name: 'Child', parentId: 'parent', sortOrder: 1 },

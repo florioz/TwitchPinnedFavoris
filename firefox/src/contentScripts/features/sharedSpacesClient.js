@@ -25,6 +25,14 @@
     joinByToken: (token) => send({ type: 'TFR_SHARED_JOIN_TOKEN', token }),
     setMemberRole: (spaceId, userId, role) => send({ type: 'TFR_SHARED_SET_MEMBER_ROLE', spaceId, userId, role }),
     deleteSpace: (spaceId) => send({ type: 'TFR_SHARED_DELETE_SPACE', spaceId }),
-    leaveSpace: (spaceId) => send({ type: 'TFR_SHARED_LEAVE_SPACE', spaceId })
+    leaveSpace: (spaceId) => send({ type: 'TFR_SHARED_LEAVE_SPACE', spaceId }),
+    listMessages: (spaceId, before = null, limit = 50) => send({ type: 'TFR_SHARED_CHAT_LIST', spaceId, before, limit }),
+    sendMessage: (spaceId, body, replyToId = null) => send({ type: 'TFR_SHARED_CHAT_SEND', spaceId, body, replyToId }),
+    deleteMessage: (messageId) => send({ type: 'TFR_SHARED_CHAT_DELETE', messageId }),
+    reportMessage: (messageId, reason) => send({ type: 'TFR_SHARED_CHAT_REPORT', messageId, reason }),
+    setChatBlock: (userId, blocked) => send({ type: 'TFR_SHARED_CHAT_BLOCK', userId, blocked }),
+    getChatMeta: (spaceId) => send({ type: 'TFR_SHARED_CHAT_META', spaceId }),
+    toggleMessageReaction: (messageId, emoji) => send({ type: 'TFR_SHARED_CHAT_REACT', messageId, emoji }),
+    editMessage: (messageId, body) => send({ type: 'TFR_SHARED_CHAT_EDIT', messageId, body })
   });
 })();

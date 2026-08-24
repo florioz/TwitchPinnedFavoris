@@ -13,6 +13,10 @@ const context = vm.createContext({
   HTMLElement: HTMLElementMock
 });
 vm.runInContext(fs.readFileSync(
+  path.join(__dirname, '../src/contentScripts/features/eventEmitter.js'),
+  'utf8'
+), context);
+vm.runInContext(fs.readFileSync(
   path.join(__dirname, '../src/contentScripts/features/chatDomTools.js'),
   'utf8'
 ), context);

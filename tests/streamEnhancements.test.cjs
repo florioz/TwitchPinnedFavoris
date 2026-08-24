@@ -245,6 +245,37 @@ test('volume meter timer runs only while normalization is enabled', () => {
   assert.equal(activeIntervals.size, 0);
 });
 
+test('audio button is removed when sound management controls are disabled', () => {
+  const { features } = loadFeatures();
+  const manager = new features.PlayerAudioCompressor();
+  let buttonRemovals = 0; let panelRemovals = 0;
+  manager.button = {
+    remove: () => { buttonRemovals += 1; },
+    classList: { toggle: () => {} },
+    setAttribute: () => {}
+  };
+  manager.panel = { remove: () => { panelRemovals += 1; }, isConnected: false };
+  manager.configure({ controlsEnabled: false, enabled: true, normalizerEnabled: true, targetDb: -16 });
+  assert.equal(buttonRemovals, 1);
+  assert.equal(panelRemovals, 1);
+  assert.equal(manager.button, null);
+  assert.equal(manager.panel, null);
+});
+
+test('audio player controls have an independent visibility preference', () => {
+  const { features } = loadFeatures();
+  const manager = new features.PlayerAudioCompressor();
+  manager.configure({
+    controlsEnabled: true,
+    enabled: false,
+    normalizerEnabled: false,
+    targetDb: -16
+  });
+  assert.equal(manager.controlsEnabled, true);
+  assert.equal(manager.enabled, false);
+  assert.equal(manager.normalizerEnabled, false);
+});
+
 test('fresh AudioWorklet events avoid duplicate timer processing', () => {
   const { features } = loadFeatures();
   const manager = new features.PlayerAudioCompressor();

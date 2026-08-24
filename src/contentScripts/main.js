@@ -48,8 +48,10 @@
       chatEmotePickerEnabled: false,
       playerLatencyEnabled: false,
       playerRecoveryEnabled: false,
+      playerResetButtonEnabled: false,
       autoClaimChannelPointsEnabled: false,
       playerAudioCompressorEnabled: false,
+      playerAudioControlsEnabled: false,
       playerAudioCompressorPreset: 'balanced',
       playerVolumeNormalizerEnabled: false,
       playerVolumeTargetDb: -16,
@@ -67,6 +69,7 @@
       chatMentionHighlightColor: '#9147ff',
       chatMentionSoundEnabled: false,
       chatMentionSoundId: 'soft',
+      communityBadgeEnabled: false,
       showDeletedMessagesEnabled: false,
       showFullRepliesEnabled: false,
       liveHoverPreviewEnabled: false,
@@ -269,71 +272,14 @@
     }
   };
 
-  const normalizeCategoryName = (value) => {
-    if (!value) return '';
-    let output = String(value).trim().toLocaleLowerCase();
-    if (typeof output.normalize === 'function') {
-      output = output.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-    }
-    return output;
-  };
-
-  const sanitizeCategoryList = (values) => {
-    if (!Array.isArray(values)) {
-      return [];
-    }
-    const seen = new Set();
-    const sanitized = [];
-    values.forEach((value) => {
-      if (typeof value !== 'string') return;
-      const raw = value.trim();
-      if (!raw) return;
-      const key = normalizeCategoryName(raw);
-      if (!key || seen.has(key)) return;
-      seen.add(key);
-      sanitized.push(raw);
-    });
-    return sanitized;
-  };
-
-  const shouldDisplayFavorite = (favoriteEntry, liveEntry) => {
-    if (!liveEntry || !liveEntry.isLive) {
-      return false;
-    }
-    const filter = favoriteEntry?.categoryFilter;
-    if (!filter || !filter.enabled) {
-      return true;
-    }
-    const categories = Array.isArray(filter.categories)
-      ? filter.categories
-      : typeof filter.category === 'string'
-      ? [filter.category]
-      : [];
-    if (!categories.length) {
-      return true;
-    }
-    const requiredSet = new Set();
-    categories.forEach((category) => {
-      const normalized = normalizeCategoryName(category);
-      if (normalized) {
-        requiredSet.add(normalized);
-      }
-    });
-    if (!requiredSet.size) {
-      return true;
-    }
-    const currentCategory = normalizeCategoryName(liveEntry.game);
-    if (!currentCategory) {
-      return Boolean(liveEntry.fetchFailed || liveEntry.inferredFromPage);
-    }
-    return requiredSet.has(currentCategory);
-  };
-
-  const getLiveDataEntry = (liveData, favOrLogin) => {
-    const login = typeof favOrLogin === 'string' ? favOrLogin : favOrLogin?.login;
-    const normalized = String(login || '').toLowerCase();
-    return normalized ? liveData?.[normalized] || liveData?.[login] || null : null;
-  };
+  const favoriteVisibilityTools = window.TFRFavoriteVisibilityTools;
+  if (!favoriteVisibilityTools) throw new Error('[TFR] favorite visibility tools module is missing');
+  const {
+    getLiveDataEntry,
+    normalizeCategoryName,
+    sanitizeCategoryList,
+    shouldDisplayFavorite
+  } = favoriteVisibilityTools;
 
   const getSidebarVisibilityInfo = (favoriteEntry, liveEntry) => {
     if (!favoriteEntry) {
@@ -617,12 +563,21 @@
   }
   const ThirdPartyChatEmotes = streamEnhancements?.ThirdPartyChatEmotes || NoopEnhancement;
   const PlayerLatencyIndicator = streamEnhancements?.PlayerLatencyIndicator || NoopEnhancement;
-  const PlayerRecovery = window.TFRPlayerRecovery?.PlayerRecovery || NoopEnhancement;
+  const BasePlayerRecovery = window.TFRPlayerRecovery?.PlayerRecovery;
+  const PlayerRecovery = BasePlayerRecovery
+    ? class extends BasePlayerRecovery { constructor() { super({ t }); } }
+    : NoopEnhancement;
   const AutoClaimChannelPoints = streamEnhancements?.AutoClaimChannelPoints || NoopEnhancement;
   const PlayerAudioCompressor = streamEnhancements?.PlayerAudioCompressor || NoopEnhancement;
   const ChatFontManager = streamEnhancements?.ChatFontManager || NoopEnhancement;
   const ChatPaddingManager = streamEnhancements?.ChatPaddingManager || NoopEnhancement;
   const ChatMentionHighlighter = streamEnhancements?.ChatMentionHighlighter || NoopEnhancement;
+  const CommunityChatBadge = window.TFRCommunityChatBadge?.create?.({
+    documentRef: document,
+    windowRef: window,
+    sendExtensionMessage,
+    t
+  }) || NoopEnhancement;
   const DeletedMessageViewer = streamEnhancements?.DeletedMessageViewer || NoopEnhancement;
   const ReplyExpansionTracker = streamEnhancements?.ReplyExpansionTracker || NoopEnhancement;
   const ChatMessageCopyAction = streamEnhancements?.ChatMessageCopyAction || NoopEnhancement;
@@ -673,6 +628,10 @@
   if (!OnboardingTutorial) {
     throw new Error('[TFR] onboarding tutorial module is missing');
   }
+  const UsagePresence = window.TFRUsagePresence?.create?.({ sendExtensionMessage });
+  if (!UsagePresence) {
+    throw new Error('[TFR] usage presence module is missing');
+  }
   const TopNavManager = window.TFRTopNav?.create?.({
     t,
     sendExtensionMessage,
@@ -695,6 +654,7 @@
     ChatFontManager,
     ChatPaddingManager,
     ChatMentionHighlighter,
+    CommunityChatBadge,
     DeletedMessageViewer,
     ReplyExpansionTracker,
     ChatMessageCopyAction
@@ -705,7 +665,7 @@
   const app = window.TFRAppBootstrap?.create?.({
     FavoritesStore, FeatureController, SidebarRenderer, ChannelFavoriteButton,
     FavoritesOverlay, TopNavManager, UpdateNotifier, ViewerCardSharedInvite,
-    OnboardingTutorial
+    OnboardingTutorial, UsagePresence
   });
   if (!app) throw new Error('[TFR] application bootstrap module is missing');
   const bootstrap = () => app.start();

@@ -38,6 +38,7 @@
       this.lastRenderSignature = '';
       this.lastAutoCompactSignature = '';
       this.lastLiveStructureSignature = '';
+      this.workspaceRenderKey = this.createWorkspaceRenderKey(this.store.getState?.());
       this.previewTimer = null;
       this.suppressAnimationsOnce = false;
       this.boundPreviewAnimation = () => this.previewSidebarAnimation();
@@ -73,13 +74,7 @@
     }
 
     init() {
-      this.unsubscribe = this.store.subscribe((event) => {
-        const isLiveUpdate = event?.kind === 'live';
-        if (!isLiveUpdate) {
-          this.invalidateStateRenderCache();
-        }
-        this.scheduleRender({ defer: isLiveUpdate, liveUpdate: isLiveUpdate });
-      });
+      this.unsubscribe = this.store.subscribe((event) => this.handleStoreUpdate(event));
       this.observeSideNav();
       this.ensureContainerTimer = window.setInterval(() => {
         if (this.container && document.body.contains(this.container)) {
@@ -90,6 +85,30 @@
       window.addEventListener('tfr:previewSidebarAnimation', this.boundPreviewAnimation);
       window.addEventListener('resize', this.boundResize);
       this.render();
+    }
+
+    createWorkspaceRenderKey(state = {}) {
+      return [
+        state?.workspaceMode || 'personal',
+        state?.activeProfileId || '',
+        state?.activeSharedSpaceId || ''
+      ].join(':');
+    }
+
+    handleStoreUpdate(event) {
+      const isLiveUpdate = event?.kind === 'live';
+      if (!isLiveUpdate) {
+        const nextWorkspaceKey = this.createWorkspaceRenderKey(event?.state || this.store.getState?.());
+        const workspaceChanged = nextWorkspaceKey !== this.workspaceRenderKey;
+        this.workspaceRenderKey = nextWorkspaceKey;
+        this.invalidateStateRenderCache();
+        if (workspaceChanged) {
+          this.cancelPendingRender();
+          this.render();
+          return;
+        }
+      }
+      this.scheduleRender({ defer: isLiveUpdate, liveUpdate: isLiveUpdate });
     }
 
     invalidateStateRenderCache() {
@@ -138,6 +157,21 @@
         this.previewTimer = null;
       }
       this.liveHoverPreview.dispose();
+    }
+
+    cancelPendingRender() {
+      if (this.renderFrame) {
+        cancelAnimationFrame(this.renderFrame);
+        this.renderFrame = null;
+      }
+      if (this.renderDelayTimer) {
+        clearTimeout(this.renderDelayTimer);
+        this.renderDelayTimer = null;
+      }
+      if (this.renderIdleHandle !== null && typeof window.cancelIdleCallback === 'function') {
+        window.cancelIdleCallback(this.renderIdleHandle);
+        this.renderIdleHandle = null;
+      }
     }
 
     scheduleRender({ defer = false, liveUpdate = false } = {}) {

@@ -1,38 +1,14 @@
-const { existsSync, readdirSync, readFileSync, statSync } = require('node:fs');
-const { join, relative } = require('node:path');
+const { readFileSync } = require('node:fs');
+const { join } = require('node:path');
 const { createFirefoxManifest } = require('./firefoxManifest');
+const { collectRelativeFiles, FIREFOX_SYNC_PAIRS, PROJECT_ROOT } = require('./projectPaths');
+const { readJson } = require('./packageTools');
 
-const root = join(__dirname, '..');
-const pairs = [
-  ['_locales', 'firefox/_locales'],
-  ['assets', 'firefox/assets'],
-  ['panel', 'firefox/panel'],
-  ['src', 'firefox/src'],
-  ['styles', 'firefox/styles']
-];
-
-const collectFiles = (path, base = path) => {
-  if (!existsSync(path)) {
-    throw new Error(`Missing path: ${relative(root, path)}`);
-  }
-  if (!statSync(path).isDirectory()) {
-    return [relative(base, path) || '.'];
-  }
-  return readdirSync(path, { withFileTypes: true })
-    .flatMap((entry) => {
-      const child = join(path, entry.name);
-      return entry.isDirectory()
-        ? collectFiles(child, base)
-        : [relative(base, child)];
-    })
-    .sort();
-};
-
-for (const [sourceRelative, targetRelative] of pairs) {
-  const source = join(root, sourceRelative);
-  const target = join(root, targetRelative);
-  const sourceFiles = collectFiles(source);
-  const targetFiles = collectFiles(target);
+for (const [sourceRelative, targetRelative] of FIREFOX_SYNC_PAIRS) {
+  const source = join(PROJECT_ROOT, sourceRelative);
+  const target = join(PROJECT_ROOT, targetRelative);
+  const sourceFiles = collectRelativeFiles(source);
+  const targetFiles = collectRelativeFiles(target);
   if (JSON.stringify(sourceFiles) !== JSON.stringify(targetFiles)) {
     throw new Error(`Firefox file list differs for ${sourceRelative}. Run npm run sync:firefox.`);
   }
@@ -45,8 +21,8 @@ for (const [sourceRelative, targetRelative] of pairs) {
   });
 }
 
-const expectedManifest = createFirefoxManifest(JSON.parse(readFileSync(join(root, 'manifest.json'), 'utf8')));
-const actualManifest = JSON.parse(readFileSync(join(root, 'firefox/manifest.json'), 'utf8'));
+const expectedManifest = createFirefoxManifest(readJson(join(PROJECT_ROOT, 'manifest.json')));
+const actualManifest = readJson(join(PROJECT_ROOT, 'firefox/manifest.json'));
 if (JSON.stringify(actualManifest) !== JSON.stringify(expectedManifest)) {
   throw new Error('Firefox manifest is stale. Run npm run sync:firefox.');
 }

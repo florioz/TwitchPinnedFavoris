@@ -13,6 +13,7 @@
     ChatFontManager,
     ChatPaddingManager,
     ChatMentionHighlighter,
+    CommunityChatBadge,
     DeletedMessageViewer,
     ReplyExpansionTracker,
     ChatMessageCopyAction
@@ -41,7 +42,10 @@ class FeatureController {
       },
       {
         property: 'playerRecovery', Type: PlayerRecovery, label: 'player recovery',
-        selectPreferences: (prefs) => prefs.playerRecoveryEnabled === true
+        selectPreferences: (prefs) => ({
+          automaticEnabled: prefs.playerRecoveryEnabled === true,
+          buttonEnabled: prefs.playerResetButtonEnabled === true
+        })
       },
       {
         property: 'autoClaimChannelPoints', Type: AutoClaimChannelPoints, label: 'channel points auto claim',
@@ -50,6 +54,7 @@ class FeatureController {
       {
         property: 'playerAudioCompressor', Type: PlayerAudioCompressor, label: 'player audio compressor',
         selectPreferences: (prefs) => ({
+          controlsEnabled: prefs.playerAudioControlsEnabled === true,
           enabled: prefs.playerAudioCompressorEnabled === true,
           preset: prefs.playerAudioCompressorPreset || 'balanced',
           normalizerEnabled: prefs.playerVolumeNormalizerEnabled === true,
@@ -84,6 +89,10 @@ class FeatureController {
           soundEnabled: prefs.chatMentionSoundEnabled === true,
           soundId: prefs.chatMentionSoundId || 'soft'
         })
+      },
+      {
+        property: 'communityChatBadge', Type: CommunityChatBadge, label: 'community chat badge',
+        selectPreferences: (prefs) => prefs.communityBadgeEnabled === true
       },
       {
         property: 'deletedMessageViewer', Type: DeletedMessageViewer, label: 'deleted message viewer',

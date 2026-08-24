@@ -18,13 +18,26 @@
       this.boundPointerOut = (event) => this.handlePointerOut(event);
       this.boundScroll = () => this.close();
       this.boundPreviewEnter = () => {
-        clearTimeout(this.closeTimer);
-        this.closeTimer = null;
+        this.clearTimer('closeTimer');
       };
-      this.boundPreviewLeave = () => {
-        clearTimeout(this.closeTimer);
-        this.closeTimer = window.setTimeout(() => this.close(), 120);
-      };
+      this.boundPreviewLeave = () => this.scheduleClose(120);
+      this.boundTitleLayoutChange = () => this.schedulePosition();
+    }
+
+    clearTimer(property) {
+      clearTimeout(this[property]);
+      this[property] = null;
+    }
+
+    scheduleClose(delayMs) {
+      this.clearTimer('closeTimer');
+      this.closeTimer = window.setTimeout(() => this.close(), delayMs);
+    }
+
+    schedulePosition() {
+      window.setTimeout(() => {
+        if (this.preview && this.activeEntry?.isConnected) this.position(this.activeEntry);
+      }, 0);
     }
 
     attach(container) {
@@ -60,8 +73,8 @@
       const entry = event.target.closest('.tfr-favorite-entry[data-live-preview="true"]');
       if (!entry || !this.container?.contains(entry)) return;
       if (entry.contains(event.relatedTarget)) return;
-      clearTimeout(this.closeTimer);
-      clearTimeout(this.openTimer);
+      this.clearTimer('closeTimer');
+      this.clearTimer('openTimer');
       this.openTimer = window.setTimeout(() => this.open(entry), PREVIEW_DELAY_MS);
     }
 
@@ -69,9 +82,8 @@
       if (!(event.target instanceof Element)) return;
       const entry = event.target.closest('.tfr-favorite-entry[data-live-preview="true"]');
       if (!entry || entry.contains(event.relatedTarget)) return;
-      clearTimeout(this.openTimer);
-      this.openTimer = null;
-      this.closeTimer = window.setTimeout(() => this.close(), CLOSE_DELAY_MS);
+      this.clearTimer('openTimer');
+      this.scheduleClose(CLOSE_DELAY_MS);
     }
 
     createMedia(login, displayName) {
@@ -110,10 +122,8 @@
       preview.className = 'tfr-live-hover-preview';
       preview.classList.toggle('is-video', this.mode === 'video');
       preview.setAttribute('role', 'tooltip');
-      if (this.mode === 'video') {
-        preview.addEventListener('pointerenter', this.boundPreviewEnter);
-        preview.addEventListener('pointerleave', this.boundPreviewLeave);
-      }
+      preview.addEventListener('pointerenter', this.boundPreviewEnter);
+      preview.addEventListener('pointerleave', this.boundPreviewLeave);
 
       const media = this.createMedia(login, displayName);
 
@@ -128,7 +138,13 @@
       body.append(heading, meta);
       if (title) {
         const streamTitle = document.createElement('small');
+        streamTitle.className = 'tfr-live-hover-preview__title';
         streamTitle.textContent = title;
+        streamTitle.tabIndex = 0;
+        streamTitle.addEventListener('pointerenter', this.boundTitleLayoutChange);
+        streamTitle.addEventListener('pointerleave', this.boundTitleLayoutChange);
+        streamTitle.addEventListener('focus', this.boundTitleLayoutChange);
+        streamTitle.addEventListener('blur', this.boundTitleLayoutChange);
         body.appendChild(streamTitle);
       }
       preview.append(media, body);
@@ -151,10 +167,8 @@
     }
 
     close(clearActive = true) {
-      clearTimeout(this.openTimer);
-      clearTimeout(this.closeTimer);
-      this.openTimer = null;
-      this.closeTimer = null;
+      this.clearTimer('openTimer');
+      this.clearTimer('closeTimer');
       this.preview?.remove();
       this.preview = null;
       this.activeEntry?.removeAttribute('aria-describedby');

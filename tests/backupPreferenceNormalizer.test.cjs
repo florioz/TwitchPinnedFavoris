@@ -43,6 +43,9 @@ test('backup preferences keep typed values and ignore invalid booleans', () => {
     streamerItemStyle: 'compact',
     liveHoverPreviewMode: 'video',
     chatMentionHighlightEnabled: true,
+    communityBadgeEnabled: true,
+    playerResetButtonEnabled: true,
+    playerAudioControlsEnabled: true,
     chatMentionHighlightColor: '#123456',
     chatMentionSoundId: 'chime',
     autoClaimChannelPointsEnabled: true
@@ -53,6 +56,9 @@ test('backup preferences keep typed values and ignore invalid booleans', () => {
   assert.equal(result.streamerItemStyle, 'compact');
   assert.equal(result.liveHoverPreviewMode, 'video');
   assert.equal(result.chatMentionHighlightEnabled, true);
+  assert.equal(result.communityBadgeEnabled, true);
+  assert.equal(result.playerResetButtonEnabled, true);
+  assert.equal(result.playerAudioControlsEnabled, true);
   assert.equal(result.chatMentionHighlightColor, '#123456');
   assert.equal(result.chatMentionSoundId, 'chime');
   assert.equal(result.autoClaimChannelPointsEnabled, true);
