@@ -433,6 +433,61 @@ test('direct Twitch replies trigger the same highlight and sound as mentions', (
   assert.match(message.dataset.tfrMentionText, /reply:/);
 });
 
+test('direct Twitch replies are detected from the nested reply context', () => {
+  const { features } = loadFeatures();
+  const manager = new features.ChatMentionHighlighter();
+  manager.enabled = true;
+  manager.soundEnabled = true;
+  manager.login = 'nks_floriozz';
+  let highlighted = false;
+  let plays = 0;
+  manager.audio = { play: () => { plays += 1; } };
+  const body = { textContent: 'je te réponds sans mentionner ton pseudo' };
+  const replyContext = {
+    textContent: 'Répond à nks_floriozz',
+    getAttribute: () => ''
+  };
+  const message = {
+    dataset: {},
+    getAttribute: () => '',
+    querySelector: (selector) => selector.includes('chat-message-mention') ? null : body,
+    querySelectorAll: (selector) => selector.includes('reply-context') || selector.includes('p[title]')
+      ? [replyContext]
+      : [],
+    classList: { toggle: (_name, enabled) => { highlighted = enabled; } }
+  };
+
+  manager.processMessage(message, true);
+
+  assert.equal(highlighted, true);
+  assert.equal(plays, 1);
+  assert.match(message.dataset.tfrMentionText, /reply:/);
+});
+
+test('a nested reply quote mentioning the current login does not cause a false alert', () => {
+  const { features } = loadFeatures();
+  const manager = new features.ChatMentionHighlighter();
+  manager.enabled = true;
+  manager.login = 'nks_floriozz';
+  let highlighted = true;
+  const body = { textContent: 'réponse ordinaire' };
+  const replyContext = {
+    textContent: 'Répond à autre_viewer : @nks_floriozz était dans le message cité',
+    getAttribute: () => ''
+  };
+  const message = {
+    dataset: {},
+    getAttribute: () => '',
+    querySelector: (selector) => selector.includes('chat-message-mention') ? null : body,
+    querySelectorAll: () => [replyContext],
+    classList: { toggle: (_name, enabled) => { highlighted = enabled; } }
+  };
+
+  manager.processMessage(message, true);
+
+  assert.equal(highlighted, false);
+});
+
 test('a reply quoting the current login does not alert unless addressed to it', () => {
   const { features } = loadFeatures();
   const manager = new features.ChatMentionHighlighter();

@@ -12,6 +12,7 @@
     const DELETED_TRACKING_SELECTOR = `${MESSAGE_SELECTOR}, ${DELETED_NOTICE_SELECTOR}`;
     const MESSAGE_BODY_SELECTOR = '[data-a-target="chat-message-text"], [data-a-target="chat-line-message-body"], [data-test-selector="chat-line-message-body"]';
     const CURRENT_USER_MENTION_SELECTOR = '[data-a-target="chat-message-mention"].mention-fragment--recipient';
+    const REPLY_CONTEXT_SELECTOR = '[data-a-target="chat-message-reply-context"], [data-test-selector="chat-message-reply-context"], p[title]';
     const CHAT_MENTION_SOUND_IDS = new Set(['soft', 'chime', 'arcade', 'pulse', 'alert']);
     const CHAT_MENTION_FALLBACK_IDENTITY = 'twitch-current-user';
     const CHAT_SNAPSHOT_CACHE_LIMIT = 500;
@@ -1243,7 +1244,7 @@
         container.querySelectorAll(MESSAGE_SELECTOR).forEach((message) => this.processMessage(message, false));
         this.observer?.disconnect();
         this.observer = new MutationObserver((mutations) => mutations.forEach((mutation) => {
-          if (mutation.type === 'attributes') {
+          if (mutation.type === 'attributes' || mutation.type === 'characterData') {
             this.scanNode(mutation.target);
             return;
           }
@@ -1253,27 +1254,34 @@
           childList: true,
           subtree: true,
           attributes: true,
-          attributeFilter: ['aria-label']
+          attributeFilter: ['aria-label'],
+          characterData: true
         });
       }
 
       scanNode(node) {
-        visitMatchingElements(node, MESSAGE_SELECTOR, (message) => this.processMessage(message, true));
+        const element = node instanceof Element ? node : node?.parentElement;
+        if (!element) return;
+        visitMatchingElements(element, MESSAGE_SELECTOR, (message) => this.processMessage(message, true));
       }
 
       isReplyToCurrentUser(message) {
         if (!this.login) return false;
-        const label = String(message.getAttribute?.('aria-label') || '')
+        const escapedLogin = this.login.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const replyPrefix = new RegExp(
+          `^(?:(?:en\\s+)?reponse\\s+a|repond(?:re)?\\s+a|reply(?:ing|ied)?\\s+to)\\s+@?${escapedLogin}(?=\\s*[,.:·-]|\\s*$)`,
+          'i'
+        );
+        const candidates = [message.getAttribute?.('aria-label') || ''];
+        message.querySelectorAll?.(REPLY_CONTEXT_SELECTOR).forEach((context) => {
+          candidates.push(context.getAttribute?.('aria-label') || '');
+          candidates.push(context.textContent || '');
+        });
+        return candidates.some((candidate) => replyPrefix.test(String(candidate)
           .normalize('NFD')
           .replace(/[\u0300-\u036f]/g, '')
           .trim()
-          .toLowerCase();
-        if (!label) return false;
-        const escapedLogin = this.login.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        return new RegExp(
-          `^(?:(?:reponse|repond)\\s+a|replying\\s+to|reply\\s+to)\\s+@?${escapedLogin}(?=\\s*[,.:]|\\s*$)`,
-          'i'
-        ).test(label);
+          .toLowerCase()));
       }
 
       inspectMessage(message) {
