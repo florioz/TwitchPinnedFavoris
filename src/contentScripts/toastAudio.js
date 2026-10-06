@@ -51,6 +51,7 @@
     };
 
     return {
+      unlock: getAudioContext,
       async play({
         soundId = 'soft',
         volume = 35,
@@ -66,7 +67,7 @@
           return true;
         }
         const context = await getAudioContext();
-        if (!context) {
+        if (!context || (context.state && context.state !== 'running')) {
           return false;
         }
         const preset = SOUND_PRESETS[soundId] || SOUND_PRESETS.soft;

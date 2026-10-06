@@ -43,6 +43,8 @@
       this.levelWindow = [];
       this.video = null;
       this.graph = null;
+      this.graphs = new WeakMap();
+      this.pendingContext = null;
     }
 
     normalizePreset(preset) {
@@ -248,22 +250,46 @@
     disconnectReplacedGraph() {
       if (this.graph?.meterWorklet?.port) this.graph.meterWorklet.port.onmessage = null;
       this.disconnectNodes();
-      this.graph?.context?.close?.();
+      // Closing a captured element's context permanently silences it when Twitch reuses it.
+      this.graph?.source?.connect(this.graph.context.destination);
       this.graph = null;
       this.video = null;
       this.resetMeasurementState({ resetWorklet: true });
     }
 
     attach(video) {
-      if (!video || this.video === video && this.graph) return true;
+      if (!video) return false;
+      if (!this.canProcess(video)) { this.disconnectReplacedGraph(); return false; }
+      if (this.video === video && this.graph) return true;
+      const cached = this.graphs.get(video);
+      if (cached) {
+        this.disconnectReplacedGraph();
+        this.video = video;
+        this.graph = cached;
+        if (cached.meterWorklet) {
+          this.workletStatus = 'active';
+          cached.meterWorklet.port.onmessage = (event) => { if (this.graph === cached) this.handleWorkletMessage(event); };
+        }
+        this.currentGainDb = 0;
+        this.setGainDb(0);
+        this.applyCompressorState();
+        this.applyRoutingState();
+        this.resume();
+        return true;
+      }
       const AudioContextConstructor = this.window.AudioContext || this.window.webkitAudioContext;
       if (!AudioContextConstructor) return false;
       let context = null;
       let source = null;
       try {
         this.disconnectReplacedGraph();
-        context = new AudioContextConstructor();
-        source = context.createMediaElementSource(video);
+        context = this.pendingContext || new AudioContextConstructor();
+        this.pendingContext = context;
+        // Do not reroute audible media into a suspended context.
+        if (context.state && context.state !== 'running') {
+          Promise.resolve(context.resume?.()).catch(() => {});
+          return false;
+        }
         const analyser = context.createAnalyser();
         analyser.fftSize = 1024;
         analyser.smoothingTimeConstant = 0.65;
@@ -273,8 +299,14 @@
         this.applyAudioParams(limiter, {
           threshold: -1, knee: 0, ratio: 20, attack: 0.003, release: 0.1
         });
+        source = context.createMediaElementSource(video);
+        source.connect(context.destination);
+        if (video.dataset) video.dataset.tfrAudioCaptured = 'true';
+        this.pendingContext = null;
+        this.currentGainDb = 0;
         this.video = video;
         this.graph = { context, source, analyser, gain, compressor, limiter };
+        this.graphs.set(video, this.graph);
         this.applyCompressorState();
         this.applyNormalizerState();
         this.applyRoutingState();
@@ -288,9 +320,24 @@
     }
 
     resume() {
-      const context = this.graph?.context;
+      const context = this.graph?.context || this.pendingContext;
       if (!context || context.state === 'running' || context.state === 'closed') return Promise.resolve();
       return Promise.resolve(context.resume?.()).catch(() => undefined);
+    }
+
+    canProcess(video) {
+      // Cross-origin clip URLs without CORS become silent MediaElementAudioSources.
+      // Keep native playback for those sources; do not mutate crossOrigin or reload the clip.
+      const src = String(video?.src || video?.currentSrc || '');
+      return src.startsWith('blob:') && !/\/clip\/|^\/clips\//i.test(this.window.location?.pathname || '');
+    }
+
+    resetMediaState() {
+      this.currentGainDb = 0;
+      this.resetMeasurementState({ resetWorklet: false });
+      this.workletLevelDb = null;
+      this.workletLevelAt = 0;
+      this.setGainDb(0, 0.01);
     }
 
     async ensureAudioWorklet() {

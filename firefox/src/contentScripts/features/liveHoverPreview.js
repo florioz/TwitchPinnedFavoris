@@ -1,6 +1,6 @@
 (() => {
   const PREVIEW_DELAY_MS = 500;
-  const CLOSE_DELAY_MS = 250;
+  const CLOSE_DELAY_MS = 600;
   const PREVIEW_MODES = new Set(['image', 'video']);
 
   class LiveHoverPreview {
@@ -14,13 +14,21 @@
       this.openTimer = null;
       this.closeTimer = null;
       this.activeEntry = null;
+      this.dismissedEntry = null;
+      this.positionTimer = null;
+      this.watchTimer = null;
+      this.boundDismiss = () => {
+        this.dismissedEntry = this.activeEntry?.matches(':hover') ? this.activeEntry : null;
+        this.close();
+      };
+      this.boundEscape = (event) => { if (event.key === 'Escape') this.boundDismiss(); };
       this.boundPointerOver = (event) => this.handlePointerOver(event);
       this.boundPointerOut = (event) => this.handlePointerOut(event);
       this.boundScroll = () => this.close();
       this.boundPreviewEnter = () => {
         this.clearTimer('closeTimer');
       };
-      this.boundPreviewLeave = () => this.scheduleClose(120);
+      this.boundPreviewLeave = () => this.scheduleClose(CLOSE_DELAY_MS);
       this.boundTitleLayoutChange = () => this.schedulePosition();
     }
 
@@ -31,11 +39,20 @@
 
     scheduleClose(delayMs) {
       this.clearTimer('closeTimer');
-      this.closeTimer = window.setTimeout(() => this.close(), delayMs);
+      this.closeTimer = window.setTimeout(() => {
+        this.closeTimer = null;
+        if (!this.isPreviewInUse()) this.close();
+      }, delayMs);
+    }
+
+    isPreviewInUse() {
+      return Boolean(this.activeEntry?.matches(':hover') || this.preview?.matches(':hover')
+        || (document.activeElement && this.preview?.contains(document.activeElement)));
     }
 
     schedulePosition() {
-      window.setTimeout(() => {
+      this.clearTimer('positionTimer');
+      this.positionTimer = window.setTimeout(() => {
         if (this.preview && this.activeEntry?.isConnected) this.position(this.activeEntry);
       }, 0);
     }
@@ -72,9 +89,12 @@
       if (!this.enabled || !(event.target instanceof Element)) return;
       const entry = event.target.closest('.tfr-favorite-entry[data-live-preview="true"]');
       if (!entry || !this.container?.contains(entry)) return;
+      if (entry === this.dismissedEntry) return;
+      this.dismissedEntry = null;
       if (entry.contains(event.relatedTarget)) return;
       this.clearTimer('closeTimer');
       this.clearTimer('openTimer');
+      if (entry === this.activeEntry && this.preview) return;
       this.openTimer = window.setTimeout(() => this.open(entry), PREVIEW_DELAY_MS);
     }
 
@@ -82,7 +102,9 @@
       if (!(event.target instanceof Element)) return;
       const entry = event.target.closest('.tfr-favorite-entry[data-live-preview="true"]');
       if (!entry || entry.contains(event.relatedTarget)) return;
+      if (entry === this.dismissedEntry) this.dismissedEntry = null;
       this.clearTimer('openTimer');
+      if (this.preview?.contains(event.relatedTarget)) return;
       this.scheduleClose(CLOSE_DELAY_MS);
     }
 
@@ -108,7 +130,7 @@
     }
 
     open(entry) {
-      if (!this.enabled || !entry?.isConnected) return;
+      if (!this.enabled || !entry?.isConnected || entry === this.dismissedEntry) return;
       this.close(false);
       this.activeEntry = entry;
       const login = entry.dataset.login || '';
@@ -121,11 +143,18 @@
       preview.id = 'tfr-live-hover-preview';
       preview.className = 'tfr-live-hover-preview';
       preview.classList.toggle('is-video', this.mode === 'video');
-      preview.setAttribute('role', 'tooltip');
+      preview.setAttribute('role', 'region');
+      preview.setAttribute('aria-label', displayName);
       preview.addEventListener('pointerenter', this.boundPreviewEnter);
       preview.addEventListener('pointerleave', this.boundPreviewLeave);
 
       const media = this.createMedia(login, displayName);
+      const closeButton = document.createElement('button');
+      closeButton.type = 'button';
+      closeButton.className = 'tfr-live-hover-preview__close';
+      // CSS strokes keep the icon centered independently of Twitch's button fonts.
+      closeButton.setAttribute('aria-label', this.t('settings.livePreview.close'));
+      closeButton.addEventListener('click', this.boundDismiss);
 
       const body = document.createElement('div');
       body.className = 'tfr-live-hover-preview__body';
@@ -147,11 +176,45 @@
         streamTitle.addEventListener('blur', this.boundTitleLayoutChange);
         body.appendChild(streamTitle);
       }
-      preview.append(media, body);
+      preview.append(media, body, closeButton);
       document.body.appendChild(preview);
       entry.setAttribute('aria-describedby', preview.id);
       this.preview = preview;
       this.position(entry);
+      this.openPath = window.location.pathname;
+      document.addEventListener('keydown', this.boundEscape);
+      // Entering the embedded Twitch player can blur the parent window.
+      // Visibility and anchor checks handle leaving the page without closing on iframe focus.
+      this.watchAnchor();
+    }
+
+    watchAnchor() {
+      this.watchTimer = window.setTimeout(() => {
+        this.watchTimer = null;
+        // Sidebar hover/layout updates rebuild entries. Preserve the popup for the same login.
+        if (this.activeEntry && (!this.activeEntry.isConnected || !this.container?.contains(this.activeEntry))) {
+          const login = this.activeEntry.dataset.login;
+          const replacement = Array.from(this.container?.querySelectorAll('.tfr-favorite-entry[data-live-preview="true"]') || [])
+            .find(entry => entry.dataset.login === login && entry.isConnected);
+          if (replacement) {
+            this.activeEntry.removeAttribute('aria-describedby');
+            this.activeEntry = replacement;
+            replacement.setAttribute('aria-describedby', this.preview.id);
+          }
+        }
+        if (this.openPath !== window.location.pathname || document.visibilityState === 'hidden') {
+          this.close();
+        } else if (this.preview) {
+          // Collapsing a sidebar group may temporarily remove its anchor entirely.
+          // Keep an already hovered/focused popup usable until the pointer leaves it.
+          const anchorMissing = !this.activeEntry?.isConnected || !this.container?.contains(this.activeEntry);
+          if (anchorMissing && !this.preview.matches(':hover')
+            && !this.preview.contains(document.activeElement)) { this.close(); return; }
+          if (this.isPreviewInUse()) this.clearTimer('closeTimer');
+          else if (this.closeTimer === null) this.scheduleClose(CLOSE_DELAY_MS);
+          this.watchAnchor();
+        }
+      }, 250);
     }
 
     position(entry) {
@@ -169,6 +232,9 @@
     close(clearActive = true) {
       this.clearTimer('openTimer');
       this.clearTimer('closeTimer');
+      this.clearTimer('positionTimer');
+      this.clearTimer('watchTimer');
+      document.removeEventListener?.('keydown', this.boundEscape);
       this.preview?.remove();
       this.preview = null;
       this.activeEntry?.removeAttribute('aria-describedby');
@@ -180,6 +246,7 @@
       this.container?.removeEventListener('pointerout', this.boundPointerOut);
       this.container?.removeEventListener('scroll', this.boundScroll);
       this.container = null;
+      this.dismissedEntry = null;
       this.close();
     }
 

@@ -34,7 +34,7 @@
 
       const comparator = createComparator(preferences.sortMode || 'viewersDesc', liveData);
       const visibleEntries = (entries) => entries
-        .filter((favorite) => shouldDisplayFavorite(favorite, getLiveDataEntry(liveData, favorite)))
+        .filter((favorite) => shouldDisplayFavorite(favorite, getLiveDataEntry(liveData, favorite), state.categories))
         .sort(comparator);
       const buildNode = (node) => {
         const children = (node.children || []).map(buildNode).filter(Boolean);

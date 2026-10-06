@@ -13,6 +13,77 @@ const loadEngine = () => {
   return window.TFRPlayerAudioEngine;
 };
 
+const audioHarness = () => {
+  const { PlayerAudioEngine } = loadEngine();
+  let captures = 0;
+  let closes = 0;
+  const node = () => ({ connect() {}, disconnect() {}, gain: { value: 1 }, getFloatTimeDomainData(a) { a.fill(0.1); } });
+  class Context {
+    constructor() { this.state = 'running'; this.destination = node(); }
+    createMediaElementSource() { captures++; return node(); }
+    createAnalyser() { return node(); }
+    createGain() { return node(); }
+    createDynamicsCompressor() { return node(); }
+    close() { closes++; }
+    resume() { this.state = 'running'; return Promise.resolve(); }
+  }
+  const windowRef = { AudioContext: Context, location: { pathname: '/streamer' } };
+  const engine = new PlayerAudioEngine({ windowRef });
+  const video = { src: 'blob:https://www.twitch.tv/live', dataset: {}, muted: false, volume: 0.6 };
+  return { engine, video, windowRef, counts: () => ({ captures, closes }) };
+};
+
+for (const [compressorEnabled, normalizerEnabled] of [[true, false], [false, true], [true, true]]) {
+  test(`unsafe clip preserves native audio with compressor=${compressorEnabled}, normalizer=${normalizerEnabled}`, () => {
+    const s = audioHarness();
+    s.engine.configure({ compressorEnabled, normalizerEnabled });
+    s.video.src = 'https://cdn.example/clip.mp4';
+    assert.equal(s.engine.attach(s.video), false);
+    assert.equal(s.counts().captures, 0);
+    assert.equal(s.video.volume, 0.6);
+    assert.equal(s.video.muted, false);
+  });
+}
+test('audio graph reuse preserves user mute/unmute across stream/clip/stream switches', () => {
+  const s = audioHarness();
+  s.engine.configure({ compressorEnabled: true, normalizerEnabled: true });
+  assert.equal(s.engine.attach(s.video), true);
+  s.video.muted = true;
+  const clip = { src: 'https://cdn.example/clip.mp4', dataset: {}, volume: 0.4, muted: false };
+  assert.equal(s.engine.attach(clip), false);
+  assert.equal(s.video.muted, true);
+  assert.equal(s.counts().closes, 0);
+  s.video.muted = false;
+  assert.equal(s.engine.attach(s.video), true);
+  assert.equal(s.counts().captures, 1);
+  assert.equal(s.video.volume, 0.6);
+  assert.equal(s.video.muted, false);
+  s.engine.currentGainDb = -24;
+  s.engine.resetMediaState();
+  assert.equal(s.engine.currentGainDb, 0);
+});
+test('a suspended AudioContext never captures the media until resumed', () => {
+  const s = audioHarness();
+  const Base = s.windowRef.AudioContext;
+  s.windowRef.AudioContext = class extends Base { constructor() { super(); this.state = 'suspended'; } };
+  assert.equal(s.engine.attach(s.video), false);
+  assert.equal(s.counts().captures, 0);
+  assert.equal(s.engine.attach(s.video), true);
+});
+
+test('changing media invalidates the previous worklet level without disabling the meter', () => {
+  const s = audioHarness();
+  s.engine.configure({ normalizerEnabled: true }); s.engine.attach(s.video);
+  s.engine.workletStatus = 'active';
+  s.engine.handleWorkletMessage({ data: { type: 'level', rms: 1, peak: 1 } });
+  assert.equal(s.engine.isWorkletMeasurementFresh(), true);
+  s.engine.resetMediaState();
+  assert.equal(s.engine.isWorkletMeasurementFresh(), false);
+  assert.equal(s.engine.workletStatus, 'active');
+  s.engine.update();
+  assert.ok(Math.abs(s.engine.measuredLevelDb + 20) < 0.001);
+});
+
 test('audio engine normalizes presets, targets and reduction bounds', () => {
   const { PlayerAudioEngine } = loadEngine();
   const engine = new PlayerAudioEngine({ windowRef: {} });

@@ -28,6 +28,14 @@ Les scripts de `manifest.json` suivent leurs dépendances : outils purs, stockag
 
 ## Modules transversaux
 
+- `groupGameFilter.js` : composant repliable du filtre de jeux d'un groupe. Adapte le contrôleur de filtre existant aux écritures de groupe et conserve son état d'ouverture pendant les nouveaux rendus.
+- `categoryColorPicker.js` : sélecteur de couleurs réutilisable. Prévisualise la sélection et délègue l'enregistrement aux callbacks fournis par l'overlay.
+- `panel/vodClient.js` : requêtes Twitch des archives et clips, pagination, normalisation et erreurs réseau. Le transport est injectable pour les tests ; ce module ne lit ni le DOM ni le stockage utilisateur.
+- `panel/vods.js` : état et coordination de la page VOD, filtres, sélection, rendu Planning/Chronologie et inspecteur. Fournit au client la limite historique et l'avatar de remplacement.
+- `panel/vodTimeline.js` : calcul des périodes et des positions, rendu des pistes et sélection d'un instant de lecture.
+
+Les trois composants extraits exposent une fabrique `create`. Les dépendances sont explicites : aucun de ces composants ne reçoit l'overlay complet. Les nouveaux scripts doivent être chargés avant leur consommateur, dans le manifeste pour les composants Twitch et dans `vods.html` pour le client VOD.
+
 - `sharedSpaceChat.js` gère l’état du chat partagé; `sharedSpaceChatView.js` rend exclusivement son interface.
 - `colorTools.js` centralise les conversions et la génération pure des couleurs de groupes.
 - `eventEmitter.js` fournit des abonnements isolés pour l’état, le chat et la modération.

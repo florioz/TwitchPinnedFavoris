@@ -26,6 +26,12 @@ test('backup normalizer migrates legacy favorite fields', () => {
   assert.equal(result.mixedcase.avatarUrl, 'default.png');
 });
 
+test('group game filters survive backup normalization', () => {
+  const groups = normalizer.categories([{ id: 'rp', name: 'RP', categoryFilter: { enabled: true, categories: ['Grand Theft Auto V'] } }]);
+  assert.equal(groups[0].categoryFilter.enabled, true);
+  assert.deepEqual(Array.from(groups[0].categoryFilter.categories), ['Grand Theft Auto V']);
+});
+
 test('backup normalizer deduplicates category identifiers', () => {
   const result = normalizer.categories([
     { id: 'same', name: 'One', color: '#9147ff' },

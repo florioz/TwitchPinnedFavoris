@@ -1852,3 +1852,36 @@ nav[data-a-target="side-nav"] * {
   from { opacity: 0; transform: translateX(-4px) scale(0.98); }
   to { opacity: 1; transform: translateX(0) scale(1); }
 }
+.tfr-live-hover-preview__close {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 22px;
+  height: 22px;
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  margin: 0;
+  box-sizing: border-box;
+  display: grid;
+  place-items: center;
+  border: 1px solid #aa78ef;
+  border-radius: 6px;
+  background: #181124;
+  color: white;
+  cursor: pointer;
+  line-height: 1;
+  z-index: 1;
+}
+.tfr-live-hover-preview__close::before,
+.tfr-live-hover-preview__close::after {
+  content: '';
+  position: absolute;
+  width: 10px;
+  height: 1.5px;
+  background: currentColor;
+  border-radius: 1px;
+  transform: rotate(45deg);
+}
+.tfr-live-hover-preview__close::after { transform: rotate(-45deg); }
+.tfr-live-hover-preview__close:focus-visible { outline: 2px solid #bf94ff; outline-offset: 2px; }

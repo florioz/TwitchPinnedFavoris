@@ -146,6 +146,22 @@ test('feature settings config assigns every toggle to one dashboard group', () =
   );
 });
 
+test('mention sound remains configurable and testable without highlighting', () => {
+  const previous = context.document;
+  const node = (tag) => ({ tag, children: [], disabled: false, style: { setProperty() {} },
+    classList: { toggle() {} }, addEventListener() {}, setAttribute() {},
+    append(...items) { this.children.push(...items); }, appendChild(item) { this.children.push(item); } });
+  context.document = { createElement: node };
+  try {
+    const overlay = Object.create(FavoritesOverlay.prototype);
+    const controls = overlay.createMentionSettings({ chatMentionHighlightEnabled: false, chatMentionSoundEnabled: true });
+    assert.equal(controls.children[0].children[1].disabled, true);
+    assert.equal(controls.children[1].children[0].disabled, false);
+    assert.equal(controls.children[2].disabled, false);
+    assert.equal(controls.children[3].disabled, false);
+  } finally { context.document = previous; }
+});
+
 test('optional overlay sections append only when they exist', () => {
   const overlay = Object.create(FavoritesOverlay.prototype);
   const appended = [];

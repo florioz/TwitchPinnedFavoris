@@ -17,7 +17,7 @@
         this.onChange();
       }
 
-      render({ favorite, live, knownCategories }) {
+      render({ favorite, live, knownCategories, group = false }) {
         const filterCategories = Array.isArray(favorite.categoryFilter?.categories)
           ? favorite.categoryFilter.categories
           : [];
@@ -25,7 +25,7 @@
         section.className = 'tfr-details-section';
         const title = document.createElement('h4');
         title.className = 'tfr-details-section__title';
-        title.textContent = t('details.filter.title');
+        title.textContent = t(group ? 'categories.gameFilter.title' : 'details.filter.title');
         section.appendChild(title);
         const container = document.createElement('div');
         container.className = 'tfr-category-filter';
@@ -48,7 +48,13 @@
           datalist,
           suggestions
         } = view.renderInput(favorite, toggleId, knownCategories);
-        container.append(row, datalist, suggestions, view.renderLiveInfo(live));
+        container.append(row, datalist, suggestions);
+        if (group) {
+          const hint = document.createElement('small');
+          hint.className = 'tfr-category-filter__hint';
+          hint.textContent = t('categories.gameFilter.hint');
+          container.appendChild(hint);
+        } else container.appendChild(view.renderLiveInfo(live));
 
         const applyToggleState = (enabled) => {
           view.setControlsEnabled(enabled, [input, addButton]);

@@ -37,6 +37,14 @@ test('zero volume skips all playback', async () => {
   assert.equal(await audio.play({ soundId: 'custom', volume: 0, customSoundDataUrl: 'x' }), false);
 });
 
+test('blocked audio is reported without scheduling sound, and unlock retries the context', async () => {
+  let resumes = 0;
+  const context = { state: 'suspended', resume: async () => { resumes++; } };
+  const audio = createToastAudio({ AudioContextConstructor: class { constructor() { return context; } } });
+  assert.equal(await audio.play({ soundId: 'soft' }), false);
+  await audio.unlock(); assert.equal(resumes, 2);
+});
+
 test('synthetic preset creates one oscillator per note', async () => {
   const oscillators = [];
   const context = {

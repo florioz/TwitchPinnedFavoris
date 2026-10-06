@@ -424,6 +424,12 @@
           category.parentId = null;
         }
         category.color = this.sanitizeCategoryColor(category.color);
+        if (category.categoryFilter) {
+          category.categoryFilter = {
+            enabled: category.categoryFilter.enabled === true,
+            categories: sanitizeCategoryList(category.categoryFilter.categories)
+          };
+        }
         categoryIdMap.set(category.id, category);
       });
       this.state.categories.forEach((category) => {
@@ -1137,6 +1143,21 @@
           categories
         };
         fav.filterMatchSince = 0;
+      });
+    }
+
+    async setGroupCategoryFilter(categoryId, payload = {}) {
+      await this.updateState((draft) => {
+        const group = draft.categories.find(group => group.id === categoryId);
+        if (!group) return;
+        const current = group.categoryFilter || { enabled: false, categories: [] };
+        group.categoryFilter = {
+          enabled: payload.enabled === undefined ? Boolean(current.enabled) : Boolean(payload.enabled),
+          categories: sanitizeCategoryList(payload.categories ?? current.categories)
+        };
+        Object.values(draft.favorites).forEach(favorite => {
+          if (favorite.categories?.[0] === categoryId) favorite.filterMatchSince = 0;
+        });
       });
     }
 
@@ -2044,10 +2065,8 @@
           const normalized = login.toLowerCase();
           const targetLogin = favoriteRenames.get(normalized) || normalized;
           const live = nextLive[targetLogin];
-          const filterActive =
-            Boolean(stored?.categoryFilter?.enabled) &&
-            Array.isArray(stored.categoryFilter?.categories) &&
-            stored.categoryFilter.categories.length > 0;
+          const filter = window.TFRFavoriteVisibilityTools.getEffectiveCategoryFilter(stored, this.state.categories);
+          const filterActive = Boolean(filter?.enabled && filter.categories?.length);
           if (!filterActive) {
             if (stored.filterMatchSince) {
               const existing = favoriteUpdates[targetLogin];
@@ -2063,7 +2082,7 @@
             }
             return;
           }
-          const matches = shouldDisplayFavorite(stored, live);
+          const matches = shouldDisplayFavorite(stored, live, this.state.categories);
           const previousSince =
             Number.isFinite(stored.filterMatchSince) && stored.filterMatchSince > 0 ? stored.filterMatchSince : 0;
           let nextSince = previousSince;

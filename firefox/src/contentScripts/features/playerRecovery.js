@@ -3,12 +3,6 @@
     '[data-a-target="player-settings-button"]',
     '[data-test-selector="player-settings-button"]'
   ].join(', ');
-  const QUALITY_BUTTON_SELECTOR = 'button[data-a-target="player-settings-menu-item-quality"]';
-  const QUALITY_RADIO_SELECTOR = [
-    '[data-a-target="player-settings-menu"] input[data-a-target="tw-radio"]',
-    'input[data-a-target="tw-radio"]'
-  ].join(', ');
-  const QUALITY_MENU_SELECTOR = '[data-a-target="player-settings-menu"]';
   const CONTENT_GATE_SELECTOR = '[data-a-target*="content-gate"], [data-test-selector*="content-gate"]';
   const SCOPED_ERROR_SELECTOR = [
     '[data-a-target*="player-error"]',
@@ -17,8 +11,6 @@
   ].join(', ');
   const PLAYER_CONTROL_SELECTOR = '[data-a-target^="player-"]';
   const STALL_CHECK_DELAY_MS = 10000;
-  const RECOVERY_RETRY_DELAY_MS = 500;
-  const BUTTON_FEEDBACK_DELAY_MS = 1500;
 
   class PlayerRecovery {
     constructor({
@@ -26,10 +18,18 @@
       windowRef = window,
       now = () => Date.now(),
       cooldownMs = 8000,
-      qualitySwitchDelayMs = 350,
       t = (key) => key
     } = {}) {
       this.document = documentRef;
+      this.window = windowRef;
+      this.now = now;
+      this.session = 0;
+      this.pending = null;
+      this.disposed = false;
+      this.failureCount = 0;
+      this.nextAttemptAt = 0;
+      this.progress = null;
+      this.boundAudioRestore = () => { void this.requestRecovery('audio-source-change', { manual: true, audio: true }); };
       this.setTimeout = windowRef.setTimeout?.bind(windowRef) || setTimeout;
       this.clearTimeout = windowRef.clearTimeout?.bind(windowRef) || clearTimeout;
       this.t = t;
@@ -37,7 +37,6 @@
       this.recoverableErrorPattern = window.TFRPlayerRecoveryPolicy.RECOVERABLE_ERROR_PATTERN;
       this.retryLabelPattern = window.TFRPlayerRecoveryPolicy.RETRY_LABEL_PATTERN;
       this.attemptLimiter = window.TFRPlayerRecoveryPolicy.createAttemptLimiter({ now, cooldownMs });
-      this.qualitySwitchDelayMs = qualitySwitchDelayMs;
       this.enabled = false;
       this.buttonEnabled = false;
       this.observer = null;
@@ -50,11 +49,18 @@
       this.boundError = () => this.recover('media-error');
       this.boundStalled = () => this.scheduleStallCheck();
       this.boundManualRecovery = () => this.manualRecover();
+      this.boundVisibility = () => {
+        this.progress = null;
+        if (this.document.visibilityState === 'hidden' && this.pending && !this.pending.manual) this.cancelPending();
+      };
     }
     init() {
       this.observer = new MutationObserver(() => this.inspect());
       this.observer.observe(this.document.documentElement, { childList: true, subtree: true });
       this.inspect();
+      this.document.addEventListener('tfr:player:audio-restore', this.boundAudioRestore);
+      this.document.addEventListener('visibilitychange', this.boundVisibility);
+      this.pollTimer = this.window.setInterval(() => this.inspect(), 1000);
     }
     configure(preferences) {
       const legacyEnabled = preferences === true;
@@ -66,6 +72,7 @@
         this.clearStallCheck();
         this.clearRecoveryRetry();
       }
+      if (!this.enabled && !this.buttonEnabled) this.cancelPending();
       if (!this.buttonEnabled) this.removeButton();
     }
     findVideo() { return this.document.querySelector(this.selectors.video); }
@@ -91,6 +98,7 @@
       const player = errorState?.closest?.(this.selectors.player) || this.findPlayer();
       const buttons = Array.from(player?.querySelectorAll?.('button') || []);
       return buttons.find((button) => {
+        if (button === this.button || button.closest?.('.tfr-player-reset-slot')) return false;
         const label = [
           button.textContent,
           button.getAttribute?.('aria-label'),
@@ -99,17 +107,10 @@
         return this.retryLabelPattern.test(label);
       }) || null;
     }
-    resolveRecoveryTargets(errorState = null) {
-      const currentVideo = this.findVideo();
-      if (currentVideo) this.attachVideo(currentVideo);
-      const video = currentVideo || this.video;
-      return {
-        retry: this.findRetryButton(errorState || this.findErrorState(video)),
-        video
-      };
-    }
     attachVideo(video) {
       if (video === this.video) return;
+      this.clearStallCheck();
+      this.progress = null;
       this.video?.removeEventListener('error', this.boundError);
       this.video?.removeEventListener('stalled', this.boundStalled);
       this.video = video || null;
@@ -117,6 +118,16 @@
       this.video?.addEventListener('stalled', this.boundStalled);
     }
     inspect() {
+      if (this.disposed) return;
+      const path = this.window.location?.pathname || '';
+      if (path !== this.path) {
+        this.path = path;
+        this.cancelPending();
+        this.progress = null;
+        this.failureCount = 0;
+        this.nextAttemptAt = 0;
+        this.attemptLimiter.reset();
+      }
       if (!this.enabled && !this.buttonEnabled) {
         this.attachVideo(null);
         this.removeButton();
@@ -125,14 +136,113 @@
       this.attachVideo(this.findVideo());
       if (this.buttonEnabled) this.ensureButton();
       if (!this.enabled) return;
+      if (!this.automaticAllowed()) { this.progress = null; return; }
       const error = this.findErrorState(this.video);
-      if (error) this.recover('twitch-error', error);
+      if (error) { void this.requestRecovery('twitch-error'); return; }
+      const time = this.now();
+      if (!this.video || this.video.paused || this.video.ended) { this.progress = null; return; }
+      if (!this.progress || this.progress.position !== this.video.currentTime) {
+        const since = this.progress?.healthySince ?? time;
+        this.progress = { position: this.video.currentTime, at: time, healthySince: since };
+        if (time - since > 30000) { this.failureCount = 0; this.nextAttemptAt = 0; this.attemptLimiter.reset(); }
+      } else if (time - this.progress.at > 20000) {
+        void this.requestRecovery('playback-stalled');
+      }
+    }
+    automaticAllowed() {
+      const path = this.window.location?.pathname || '';
+      if (!/^\/[a-z0-9_]+\/?$/i.test(path) || /\/(videos|directory|clips|settings|downloads)\/?$/i.test(path)) return false;
+      if (this.document.visibilityState === 'hidden' || this.video?.ended) return false;
+      if (this.document.querySelector('[data-a-target="offline-channel-main-content"], [data-a-target="channel-offline-status"], [data-a-target="video-ad-label"], [data-test-selector="ad-banner-default-text"], [data-a-target*="content-gate"]')) return false;
+      // An error is an explicit signal; stalls additionally require a real live timeline.
+      return Boolean(this.findErrorState()) || (this.video?.duration === Infinity && !this.video.paused);
+    }
+    debug(event, detail = '') { this.window.TFRPerformance?.debug?.('player-recovery', event, detail); }
+    cancelPending() {
+      this.session++;
+      if (this.pending?.root) this.pending.root.removeAttribute?.('data-tfr-recovery-request');
+      this.pending?.cancel?.();
+      this.pending = null;
+      this.setButtonFeedback(false);
+    }
+    async requestRecovery(reason, { manual = false, audio = false } = {}) {
+      if (this.disposed || this.pending || (!manual && (!this.enabled || this.failureCount >= 3 || !this.automaticAllowed()))) return false;
+      if (this.now() < this.nextAttemptAt || !this.attemptLimiter.consume()) {
+        this.debug('ignored', 'cooldown'); return false;
+      }
+      const root = this.findPlayer();
+      const video = this.findVideo();
+      if (!root) return false;
+      const wasPaused = video?.paused === true;
+      const token = { session: this.session, path: this.window.location?.pathname, root, video, manual };
+      this.pending = token;
+      const valid = () => !this.disposed && this.pending === token && token.session === this.session
+        && token.path === this.window.location?.pathname && root.isConnected !== false
+        && (token.sourceRequested || this.findVideo() === video)
+        && this.findPlayer() === root;
+      const delay = (ms) => new Promise((resolve) => {
+        const id = this.setTimeout(() => { token.cancel = null; resolve(); }, ms);
+        token.cancel = () => { this.clearTimeout(id); resolve(); };
+      });
+      const progressing = async (requestId = null) => {
+        const observed = this.findVideo();
+        const last = observed?.currentTime;
+        for (let n = 0; n < 8 && valid(); n++) {
+          await delay(500);
+          if (!valid()) return false;
+          const current = this.findVideo();
+          if (!manual && !this.automaticAllowed()) return false;
+          if (requestId && root.getAttribute('data-tfr-recovery-result') !== requestId) continue;
+          if (!current || this.findErrorState(current)) continue;
+          if (manual && wasPaused) {
+            if (current.paused && current.readyState >= 2) return true;
+          } else if (!current.paused && current.currentTime > (current === observed ? last : 0) + 0.05) return true;
+        }
+        return false;
+      };
+      this.setButtonFeedback(true);
+      this.debug('requested', reason);
+      let success = false;
+      try {
+        if (!audio) {
+          const errorState = this.findErrorState(video);
+          const retry = errorState ? this.findRetryButton(errorState) : null;
+          if (retry) { this.debug('strategy', 'native-retry'); retry.click(); }
+          else if (!manual && video && !video.paused) { this.debug('strategy', 'resume'); video.play?.()?.catch?.(() => {}); }
+          if (retry || !manual) success = await progressing();
+        }
+        if (!success && valid() && (manual || this.automaticAllowed())) {
+          this.debug('strategy', 'source-restart');
+          const requestId = `${this.session}-${this.now()}`;
+          token.sourceRequested = true;
+          root.setAttribute('data-tfr-recovery-request', requestId);
+          root.dispatchEvent(new this.window.Event('tfr:player:restart', { bubbles: true }));
+          success = await progressing(requestId);
+          if (root.getAttribute('data-tfr-recovery-request') === requestId) root.removeAttribute('data-tfr-recovery-request');
+        }
+        if (!valid()) return false;
+        this.failureCount = success ? 0 : this.failureCount + 1;
+        // A failed automatic recovery stops after three attempts until playback or navigation recovers.
+        this.nextAttemptAt = this.now() + (success ? 8000 : 8000 * 2 ** Math.min(this.failureCount, 3));
+        this.progress = null;
+        this.debug(success ? 'success' : 'failed', reason);
+        return success;
+      } catch (error) {
+        if (!valid()) return false;
+        this.failureCount++;
+        this.nextAttemptAt = this.now() + 16000;
+        this.debug('failed', String(error));
+        return false;
+      } finally {
+        if (valid()) root.removeAttribute?.('data-tfr-recovery-request');
+        if (this.pending === token) { this.pending = null; this.setButtonFeedback(false); }
+      }
     }
     scheduleStallCheck() {
       if (!this.enabled || this.stallTimer) return;
       this.stallTimer = this.setTimeout(() => {
         this.stallTimer = null;
-        if (this.video && !this.video.paused && this.video.readyState < 2) this.recover('stalled');
+        this.inspect();
       }, STALL_CHECK_DELAY_MS);
     }
     clearTimer(property) {
@@ -140,41 +250,9 @@
       this[property] = null;
     }
     clearStallCheck() { this.clearTimer('stallTimer'); }
-    scheduleRecoveryRetry() {
-      if (!this.enabled || this.recoveryTimer) return;
-      this.recoveryTimer = this.setTimeout(() => {
-        this.recoveryTimer = null;
-        this.inspect();
-      }, RECOVERY_RETRY_DELAY_MS);
-    }
     clearRecoveryRetry() { this.clearTimer('recoveryTimer'); }
-    restartPlayback(video = this.video) {
-      if (!video) return false;
-      if (!video.paused) video.pause?.();
-      video.play?.()?.catch?.(() => {});
-      return true;
-    }
-    performRecovery({ retry, video } = this.resolveRecoveryTargets()) {
-      if (retry) {
-        retry.click();
-        return true;
-      }
-      if (!video) return false;
-      void this.resetThroughQualityMenu().then((reset) => {
-        if (!reset) this.restartPlayback(video);
-      }).catch(() => this.restartPlayback(video));
-      return true;
-    }
     recover(_reason = '', errorState = null) {
-      if (!this.enabled) return false;
-      const targets = this.resolveRecoveryTargets(errorState);
-      if (!targets.retry && !targets.video) {
-        this.scheduleRecoveryRetry();
-        return false;
-      }
-      this.clearRecoveryRetry();
-      if (!this.attemptLimiter.consume()) return false;
-      return this.performRecovery(targets);
+      return this.requestRecovery(_reason || 'media-error');
     }
     resolveButtonMount(settingsButton) {
       let reference = settingsButton;
@@ -225,85 +303,24 @@
       this.buttonSlot = null;
       this.button = null;
     }
-    findQualityRadios() {
-      return Array.from(this.document.querySelectorAll?.(
-        QUALITY_RADIO_SELECTOR
-      ) || []).filter((radio) => !radio.disabled);
-    }
-    waitFor(getValue, timeoutMs = 800) {
-      const immediate = getValue();
-      if (immediate) return Promise.resolve(immediate);
-      return new Promise((resolve) => {
-        const startedAt = Date.now();
-        const check = () => {
-          const value = getValue();
-          if (value || Date.now() - startedAt >= timeoutMs) resolve(value || null);
-          else this.setTimeout(check, 25);
-        };
-        this.setTimeout(check, 25);
-      });
-    }
-    async openQualityOptions() {
-      const existingRadios = this.findQualityRadios();
-      if (existingRadios.length > 1) return existingRadios;
-      const settingsButton = this.document.querySelector(SETTINGS_BUTTON_SELECTOR);
-      if (!settingsButton) return [];
-      settingsButton.click();
-      const qualityButton = await this.waitFor(() => this.document.querySelector(QUALITY_BUTTON_SELECTOR));
-      if (!qualityButton) return [];
-      qualityButton.click();
-      return await this.waitFor(() => {
-        const radios = this.findQualityRadios();
-        return radios.length > 1 ? radios : null;
-      }) || [];
-    }
-    async resetThroughQualityMenu() {
-      const radios = await this.openQualityOptions();
-      const originalIndex = radios.findIndex((radio) => radio.checked || radio.getAttribute?.('aria-checked') === 'true');
-      if (originalIndex < 0 || radios.length < 2) return false;
-      const alternateIndex = originalIndex === 0 ? 1 : 0;
-      radios[alternateIndex].click();
-      await new Promise((resolve) => this.setTimeout(resolve, this.qualitySwitchDelayMs));
-      const refreshedRadios = await this.openQualityOptions();
-      const original = refreshedRadios[originalIndex];
-      if (!original) return false;
-      original.click();
-      const openMenu = this.document.querySelector(QUALITY_MENU_SELECTOR);
-      if (openMenu) {
-        this.document.querySelector(SETTINGS_BUTTON_SELECTOR)?.click();
-      }
-      this.video?.play?.()?.catch?.(() => {});
-      return true;
-    }
     setButtonFeedback(resetInProgress) {
       if (!this.button) return;
       this.button.disabled = resetInProgress;
       this.button.classList.toggle('is-resetting', resetInProgress);
       this.button.title = this.t(resetInProgress
-        ? 'settings.playerRecovery.manualSuccess'
+        ? 'settings.playerRecovery.inProgress'
         : 'settings.playerRecovery.manualButton');
       this.button.setAttribute('aria-label', this.button.title);
     }
     async manualRecover() {
-      const { retry } = this.resolveRecoveryTargets();
-      if (retry) {
-        retry.click();
-      } else {
-        const reset = await this.resetThroughQualityMenu().catch((error) => {
-          console.warn('[TFR] player quality reset failed', error);
-          return false;
-        });
-        if (!reset) return false;
-      }
-      this.clearTimer('feedbackTimer');
-      this.setButtonFeedback(true);
-      this.feedbackTimer = this.setTimeout(() => {
-        this.feedbackTimer = null;
-        this.setButtonFeedback(false);
-      }, BUTTON_FEEDBACK_DELAY_MS);
-      return true;
+      return this.requestRecovery('manual', { manual: true });
     }
     dispose() {
+      this.disposed = true;
+      this.cancelPending();
+      this.window.clearInterval?.(this.pollTimer);
+      this.document.removeEventListener?.('tfr:player:audio-restore', this.boundAudioRestore);
+      this.document.removeEventListener?.('visibilitychange', this.boundVisibility);
       this.observer?.disconnect(); this.observer = null; this.clearStallCheck(); this.clearRecoveryRetry(); this.attachVideo(null);
       this.removeButton();
     }

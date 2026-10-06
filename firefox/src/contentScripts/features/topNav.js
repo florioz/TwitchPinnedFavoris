@@ -182,35 +182,38 @@
       'a[aria-label="Offres Prime"]',
       'a[aria-label="Prime Offers"]'
     ];
+    // Insert beside the whole Prime/Luna action, outside its tooltip boundary.
+    // The first ancestor also containing another native action is the shared action row.
+    const peerSelector = [
+      '[data-a-target="notifications-button"]',
+      '[data-a-target="whispers-box-button"]',
+      '[data-a-target="user-menu-toggle"]',
+      '[data-test-selector="notifications-button"]',
+      '[data-test-selector="whispers-box-button"]'
+    ].join(',');
+    for (const selector of anchorSelectors) {
+      const anchor = document.querySelector(selector);
+      if (!anchor) continue;
+      let branch = anchor;
+      for (let depth = 0; branch?.parentElement && depth < 12; depth++) {
+        const parent = branch.parentElement;
+        const peer = Array.from(parent.querySelectorAll(peerSelector))
+          .find(node => !branch.contains(node) && !this.slot?.contains(node));
+        if (peer && this.isUsableParent(parent)) return { parent, reference: branch, anchor };
+        if (parent.matches('header, nav, [data-a-target="top-nav"]')) break;
+        branch = parent;
+      }
+    }
     const containerSelectors = [
       '[data-test-selector="top-nav-bar-icon-buttons"]',
       '[data-test-selector="top-nav-bar__icon-menu"]',
       '[data-test-selector="top-nav-bar__icons"]',
       '[data-test-selector="top-nav"]',
       '[data-a-target="top-nav"]',
-      '[data-test-selector="top-nav-bar-prime"]',
-      '.Layout-sc-1xcs6mc-0.bZYcrx',
       'header div[role="menubar"]',
       'header [data-test-selector="tw-top-nav"]',
       'header nav'
     ];
-
-    const findAnchorInParent = (parent) => {
-      for (const selector of anchorSelectors) {
-        try {
-          const candidate = parent.querySelector(selector);
-          if (candidate) {
-            return candidate;
-          }
-        } catch (error) {
-          this.log('selector-error', { selector, error: String(error) });
-        }
-      }
-      return (
-        Array.from(parent.querySelectorAll('[data-a-target],[data-target],button,a'))
-          .find((node) => node !== this.button) || null
-      );
-    };
 
     const findUsableParent = (element) => {
       let current = element?.parentElement;
@@ -258,11 +261,14 @@
       if (!anchor) {
         continue;
       }
-      const parent = findUsableParent(anchor);
+      const wrapper = anchor.closest('[data-test-selector="top-nav-bar-prime"], .tw-tooltip-wrapper');
+      const parent = findUsableParent(wrapper || anchor);
       if (!parent) {
         continue;
       }
-      const reference = anchor.nextElementSibling;
+      // Do not fall back inside an action/tooltip when the shared row is not ready.
+      if (!parent?.matches('header, nav, [data-a-target="top-nav"], [data-test-selector="top-nav-bar-icon-buttons"], [data-test-selector="top-nav-bar__icon-menu"], [data-test-selector="top-nav-bar__icons"]')) continue;
+      const reference = wrapper || anchor;
       this.log('mount-point', {
         strategy: 'direct',
         selector,
@@ -493,21 +499,8 @@
       }
       let insertionParent = parent;
       let insertionReference = reference;
-      const anchorParent = anchor?.parentElement || null;
-      const anchorGrand = anchorParent?.parentElement || null;
-      if (anchorParent && this.isUsableParent(anchorParent) && anchorParent !== parent) {
-        insertionParent = anchorParent;
-        insertionReference = anchor || null;
-      }
-      if (anchorGrand && this.isUsableParent(anchorGrand) && anchorGrand !== parent && anchorGrand !== insertionParent) {
-        insertionParent = anchorGrand;
-        insertionReference = anchorParent || anchor || null;
-      }
-      if (anchor && anchor.parentElement === insertionParent) {
-        insertionReference = anchor;
-      } else if (anchorParent && anchorParent.parentElement === insertionParent) {
-        insertionReference = anchorParent;
-      }
+      // findMountPoint already chose the safe shared parent. Never descend back
+      // into Prime's wrapper based on the number of DOM ancestors.
       if (!insertionReference) {
         // Force the slot before existing actions so the button renders on the left.
         insertionReference = Array.from(insertionParent.children).find((child) => child !== slot) || null;

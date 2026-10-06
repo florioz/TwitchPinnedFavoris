@@ -996,3 +996,26 @@ body {
     grid-column: 1 / -1;
   }
 }
+.tfr-vod-chart-scroll { overflow: auto; max-height: 65vh; margin-top: 12px; }
+.tfr-vod-chart { --label-width: 160px; padding-right: 12px; }
+.tfr-vod-chart__axis { position: sticky; top: 0; margin-left: var(--label-width); height: 30px; background: #181124; z-index: 3; }
+.tfr-vod-chart__axis span { position: absolute; font-size: 12px; }
+.tfr-vod-chart__row { display: flex; border-bottom: 1px solid #39244f; }
+.tfr-vod-chart__name { position: sticky; left: 0; width: var(--label-width); flex-shrink: 0; background: #181124; padding: 10px; box-sizing: border-box; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; z-index: 2; }
+.tfr-vod-chart__track { position: relative; flex: 1; background: repeating-linear-gradient(to right, transparent 0, transparent calc(var(--hour-step) - 1px), #39244f calc(var(--hour-step) - 1px), #39244f var(--hour-step)); }
+.tfr-vod-chart__bar { position: absolute; min-width: 4px; height: 28px; border: 1px solid #b88cff; border-radius: 5px; padding: 2px; background: #7136b3; color: white; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+.tfr-vod-chart__bar:hover, .tfr-vod-chart__bar:focus-visible, .tfr-vod-chart__bar.is-selected { background: #a05deb; outline: 2px solid white; z-index: 1; }
+.tfr-vod-chart { position: relative; padding-right: 40px; }
+.tfr-vod-chart__axis { z-index: 5; }
+.tfr-vod-chart__name { border-left: 4px solid var(--vod-group-color, #a970ff); }
+.tfr-vod-chart__bar { border-color: var(--vod-group-color, #b88cff); border-left-width: 5px; background: #30213f; }
+.tfr-vod-chart__cursor { position: absolute; top: 0; bottom: 0; width: 2px; background: #ffe29c; pointer-events: none; z-index: 6; }
+.tfr-vod-chart__cursor span { position: sticky; top: 0; display: block; width: max-content; transform: translateX(-50%); padding: 4px 8px; border-radius: 4px; background: #ffe29c; color: #181124; font-size: 12px; font-weight: bold; }
+.tfr-vod-selection { position: sticky; left: 0; bottom: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 14px; background: #21172f; border: 1px solid #795397; z-index: 7; }
+.tfr-vod-selection[hidden], .tfr-vod-chart__cursor[hidden] { display: none; }
+.tfr-vod-selection strong { margin-right: auto; }
+.tfr-vods-board[hidden], .tfr-vods-board label[hidden] { display: none; }
+.tfr-vods-view-switch { display: flex; gap: 10px; margin: 18px 0; }
+.tfr-vods-view-switch button[aria-pressed="false"] { background: transparent; color: var(--tfr-muted); }
+#chronologyBoard > label { display: inline-flex; align-items: center; gap: 8px; margin: 6px 18px 6px 0; }
+#chronologyBoard select { background: #241733; color: white; border: 1px solid #795397; padding: 7px; border-radius: 6px; }

@@ -35,13 +35,19 @@
     return typeof filter.category === 'string' ? [filter.category] : [];
   };
 
-  const shouldDisplayFavorite = (favoriteEntry, liveEntry) => {
+  const getEffectiveCategoryFilter = (favoriteEntry, groups = []) => {
+    const group = groups.find(group => group.id === favoriteEntry?.categories?.[0]);
+    if (group?.categoryFilter?.enabled && group.categoryFilter.categories?.length) return group.categoryFilter;
+    return favoriteEntry?.categoryFilter;
+  };
+
+  const shouldDisplayFavorite = (favoriteEntry, liveEntry, groups = []) => {
     if (!liveEntry?.isLive) return false;
-    const filter = favoriteEntry?.categoryFilter;
+    const filter = getEffectiveCategoryFilter(favoriteEntry, groups);
     if (!filter?.enabled) return true;
 
     const requiredCategories = new Set(
-      getFavoriteCategoryFilterNames(favoriteEntry).map(normalizeCategoryName).filter(Boolean)
+      getFavoriteCategoryFilterNames({ categoryFilter: filter }).map(normalizeCategoryName).filter(Boolean)
     );
     if (!requiredCategories.size) return true;
 
@@ -59,6 +65,7 @@
   };
 
   return Object.freeze({
+    getEffectiveCategoryFilter,
     getFavoriteCategoryFilterNames,
     getLiveDataEntry,
     normalizeCategoryName,

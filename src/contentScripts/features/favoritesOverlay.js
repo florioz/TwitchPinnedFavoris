@@ -100,6 +100,18 @@ class FavoritesOverlay {
     this.sharedCreationSource = '';
     this.workspaceTransitionMode = '';
     this.featureCardsOpen = new Set();
+    this.categoryColorPicker = window.TFRCategoryColorPicker.create({
+      t,
+      sanitizeColor: value => this.store.sanitizeCategoryColor(value),
+      applyColor: (element, color) => this.applyCategoryColorVars(element, color),
+      colorFromEvent: (event, element) => this.getColorFromWheelEvent(event, element),
+      onChange: () => this.render()
+    });
+    this.groupGameFilter = window.TFRGroupGameFilter.create({
+      store: this.store, t, FavoriteCategoryFilterController, categoryFilterTools,
+      getCategorySuggestions: term => this.getCategorySuggestions(term),
+      onChange: () => this.render()
+    });
     this.openFromTutorial = () => this.open();
     this.closeFromTutorial = () => this.close();
     document.addEventListener('tfr:favorites-manager:open', this.openFromTutorial);
@@ -1129,18 +1141,11 @@ class FavoritesOverlay {
         const result = await window.TFRSharedSpacesClient.connect();
         this.sharedRemoteMessage = result.ok
           ? ''
-          : /authorization page could not be loaded/i.test(result.message || '')
-            ? t('sharedSpaces.remote.redirectError', { url: status.redirectUrl || '' })
-            : result.message;
+          : t('sharedSpaces.remote.connectionFailed');
+        if (!result.ok) window.TFRPerformance?.debug?.('shared-spaces', 'connection-failed', result.message);
         await this.refreshSharedRemote();
       });
       accountActions.appendChild(connect);
-      if (status.redirectUrl) {
-        const technical = document.createElement('details'); technical.className = 'tfr-shared-onboarding__technical';
-        const summary = document.createElement('summary'); summary.textContent = t('sharedSpaces.remote.technicalHelp');
-        const redirect = document.createElement('small'); redirect.textContent = t('sharedSpaces.remote.redirectUrl', { url: status.redirectUrl });
-        technical.append(summary, redirect); accountPanel.appendChild(technical);
-      }
     } else if (status?.connected) {
       const remoteMatch = this.remoteSharedSpaces.find((space) => space.id === activeSpace?.id);
       const sync = document.createElement('button');
@@ -2496,7 +2501,7 @@ class FavoritesOverlay {
     const activeCount = group.keys.filter((key) => {
       const config = toggles.find((toggle) => toggle.key === key);
       return this.isFeatureEnabled(config, preferences);
-    }).length;
+    }).length + (group.id === 'mentions' && preferences.chatMentionSoundEnabled === true ? 1 : 0);
     const status = document.createElement('span');
     status.className = 'tfr-feature-card__status';
     status.textContent = activeCount
@@ -2549,7 +2554,6 @@ class FavoritesOverlay {
     const soundEnabled = preferences.chatMentionSoundEnabled === true;
     const controls = document.createElement('div');
     controls.className = 'tfr-chat-mention-settings';
-    controls.classList.toggle('is-disabled', !enabled);
 
     const colorLabel = document.createElement('label');
     colorLabel.className = 'tfr-chat-mention-settings__color';
@@ -2569,7 +2573,6 @@ class FavoritesOverlay {
     const soundInput = document.createElement('input');
     soundInput.type = 'checkbox';
     soundInput.checked = soundEnabled;
-    soundInput.disabled = !enabled;
     const soundText = document.createElement('strong');
     soundText.textContent = t('settings.chatMentions.sound');
     soundInput.addEventListener('change', async (event) => {
@@ -2579,7 +2582,7 @@ class FavoritesOverlay {
     soundLabel.append(soundInput, soundText);
 
     const soundSelect = document.createElement('select');
-    soundSelect.disabled = !enabled || !soundEnabled;
+    soundSelect.disabled = !soundEnabled;
     ['soft', 'chime', 'arcade', 'pulse', 'alert'].forEach((soundId) => {
       const option = document.createElement('option');
       option.value = soundId;
@@ -2593,7 +2596,7 @@ class FavoritesOverlay {
     testButton.type = 'button';
     testButton.className = 'tfr-chat-mention-settings__test';
     testButton.textContent = t('settings.chatMentions.testMention');
-    testButton.disabled = !enabled;
+    testButton.disabled = !enabled && !soundEnabled;
     testButton.setAttribute('aria-pressed', 'false');
 
     const preview = document.createElement('div');
@@ -3289,6 +3292,7 @@ class FavoritesOverlay {
     card.appendChild(header);
 
     card.appendChild(this.renderCategoryColorPicker(node));
+    card.appendChild(this.renderGroupGameFilter(node));
 
     const body = document.createElement('div');
     body.className = 'tfr-category-card__body';
@@ -3333,6 +3337,10 @@ class FavoritesOverlay {
     return card;
   }
 
+  renderGroupGameFilter(node) {
+    return this.groupGameFilter.render(node);
+  }
+
   renderCategoryColorPicker(node) {
     return this.renderCategoryColorPickerControl({
       label: t('categories.color.label'),
@@ -3343,129 +3351,8 @@ class FavoritesOverlay {
     });
   }
 
-  createCategoryColorAction({ className = '', labelKey, titleKey = '', onActivate }) {
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.className = ['tfr-chip-action', className].filter(Boolean).join(' ');
-    button.textContent = t(labelKey);
-    if (titleKey) button.title = t(titleKey);
-    button.addEventListener('click', async (event) => {
-      event.stopPropagation();
-      await onActivate();
-      this.render();
-    });
-    return button;
-  }
-
-  renderCategoryColorPickerControl({
-    label: labelText,
-    currentColor: rawColor,
-    onApply,
-    onClear,
-    onRandomize = null
-  }) {
-    const wrapper = document.createElement('div');
-    wrapper.className = 'tfr-category-color-picker';
-
-    const label = document.createElement('span');
-    label.className = 'tfr-category-color-picker__label';
-    label.textContent = labelText;
-    wrapper.appendChild(label);
-
-    const options = document.createElement('div');
-    options.className = 'tfr-category-color-picker__options';
-    const currentColor = this.store.sanitizeCategoryColor?.(rawColor) || '';
-    let pendingColor = currentColor;
-
-    const previewButton = document.createElement('button');
-    previewButton.type = 'button';
-    previewButton.className = 'tfr-category-color-swatch tfr-category-color-swatch--picker';
-    previewButton.title = t('categories.color.openPalette');
-    previewButton.setAttribute('aria-label', t('categories.color.openPalette'));
-    if (currentColor) {
-      this.applyCategoryColorVars(previewButton, currentColor);
-    } else {
-      previewButton.classList.add('tfr-category-color-swatch--none');
-    }
-    previewButton.addEventListener('click', (event) => {
-      event.stopPropagation();
-      wrapper.classList.toggle('is-open');
-    });
-    options.appendChild(previewButton);
-
-    const value = document.createElement('code');
-    value.className = 'tfr-category-color-picker__value';
-    value.textContent = currentColor || t('categories.color.none');
-    options.appendChild(value);
-
-    if (onRandomize) {
-      options.appendChild(this.createCategoryColorAction({
-        className: 'tfr-category-color-randomize',
-        labelKey: 'categories.color.randomizeOne',
-        titleKey: 'categories.color.randomizeOneDescription',
-        onActivate: onRandomize
-      }));
-    }
-
-    const palette = document.createElement('div');
-    palette.className = 'tfr-category-color-popover';
-
-    const updatePreview = (color) => {
-      pendingColor = this.store.sanitizeCategoryColor?.(color) || '';
-      value.textContent = pendingColor || t('categories.color.none');
-      previewButton.classList.toggle('tfr-category-color-swatch--none', !pendingColor);
-      if (pendingColor) {
-        this.applyCategoryColorVars(previewButton, pendingColor);
-      } else {
-        previewButton.removeAttribute('data-color');
-        previewButton.style.removeProperty('--tfr-category-card-tint');
-        previewButton.style.removeProperty('--tfr-category-card-border');
-        previewButton.style.removeProperty('--tfr-swatch-color');
-      }
-    };
-
-    const wheel = document.createElement('button');
-    wheel.type = 'button';
-    wheel.className = 'tfr-category-color-wheel';
-    wheel.setAttribute('aria-label', t('categories.color.pickFromWheel'));
-    let isPicking = false;
-    const pickFromWheel = (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      updatePreview(this.getColorFromWheelEvent(event, wheel));
-    };
-    wheel.addEventListener('pointerdown', (event) => {
-      isPicking = true;
-      wheel.setPointerCapture?.(event.pointerId);
-      pickFromWheel(event);
-    });
-    wheel.addEventListener('pointermove', (event) => {
-      if (!isPicking) return;
-      pickFromWheel(event);
-    });
-    wheel.addEventListener('pointerup', (event) => {
-      isPicking = false;
-      wheel.releasePointerCapture?.(event.pointerId);
-    });
-    wheel.addEventListener('pointercancel', (event) => {
-      isPicking = false;
-      wheel.releasePointerCapture?.(event.pointerId);
-    });
-    palette.appendChild(wheel);
-
-    palette.appendChild(this.createCategoryColorAction({
-      className: 'tfr-chip-action--primary',
-      labelKey: 'categories.color.apply',
-      onActivate: () => onApply(pendingColor)
-    }));
-    palette.appendChild(this.createCategoryColorAction({
-      labelKey: 'categories.color.clear',
-      onActivate: onClear
-    }));
-    options.appendChild(palette);
-
-    wrapper.appendChild(options);
-    return wrapper;
+  renderCategoryColorPickerControl(options) {
+    return this.categoryColorPicker.render(options);
   }
 
   createFavoriteSquare(fav, liveData) {

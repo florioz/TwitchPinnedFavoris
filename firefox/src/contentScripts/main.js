@@ -360,25 +360,15 @@
     if (!normalized || getChannelFromLocation(window.location) !== normalized) {
       return null;
     }
+    // Page markup only enriches a recently confirmed stream; it cannot prove liveness.
+    if (fallback.isLive !== true || fallback.fetchFailed || !fallback.startedAt
+      || !fallback.lastConfirmedAt || Date.now() - fallback.lastConfirmedAt > 5 * 60 * 1000) return null;
     const hasOfflineMarker = Boolean(
       document.querySelector(
         '[data-a-target="offline-channel-main-content"], [data-test-selector="offline-channel-main-content"], [data-a-target="channel-offline-status"]'
       )
     );
     if (hasOfflineMarker) {
-      return null;
-    }
-    const hasLiveMarker = Boolean(
-      document.querySelector(
-        '[data-a-target="animated-channel-viewers-count"], [data-a-target="channel-viewers-count"], [data-a-target="stream-title"], [data-a-target="video-player"], .video-player__container'
-      )
-    );
-    const hasLiveChat = Boolean(
-      document.querySelector(
-        '[data-a-target="chat-input"], [data-a-target="chat-send-button"], [data-test-selector="chat-scrollable-area__message-container"]'
-      )
-    );
-    if (!hasLiveMarker && !hasLiveChat) {
       return null;
     }
     const title = getFirstText([
@@ -397,6 +387,7 @@
       '[data-test-selector="animated-channel-viewers-count"]'
     ]);
     return {
+      ...fallback,
       userId: String(fallback.userId || ''),
       login: normalized,
       displayName: fallback.displayName || fallback.display_name || normalized,
@@ -405,7 +396,7 @@
       viewers: parseViewerText(viewerText) || Number(fallback.viewers) || 0,
       title: title || fallback.title || '',
       game: game || fallback.game || '',
-      startedAt: fallback.startedAt || new Date().toISOString(),
+      startedAt: fallback.startedAt,
       fetchFailed: Boolean(fallback.fetchFailed),
       inferredFromPage: true
     };

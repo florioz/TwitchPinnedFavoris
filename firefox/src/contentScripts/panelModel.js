@@ -97,7 +97,7 @@
   } = {}) => {
     const entries = Object.values(favorites)
       .map((fav) => ({ fav, live: liveData[fav.login] }))
-      .filter(({ fav, live }) => fav && live && shouldDisplayFavorite(fav, live))
+      .filter(({ fav, live }) => fav && live && shouldDisplayFavorite(fav, live, categories))
       .sort((a, b) => {
         const viewerDifference = (b.live?.viewers || 0) - (a.live?.viewers || 0);
         if (viewerDifference) return viewerDifference;

@@ -66,7 +66,11 @@
           sortOrder: typeof raw.sortOrder === 'number' ? raw.sortOrder : now + index,
           collapsed: typeof raw.collapsed === 'boolean' ? raw.collapsed : false,
           parentId: typeof raw.parentId === 'string' && raw.parentId.trim() ? raw.parentId.trim() : null,
-          color: sanitizeColor(raw.color)
+          color: sanitizeColor(raw.color),
+          ...(raw.categoryFilter ? { categoryFilter: {
+            enabled: raw.categoryFilter.enabled === true,
+            categories: sanitizeCategoryList(raw.categoryFilter.categories)
+          } } : {})
         });
       });
       return result;

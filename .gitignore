@@ -14,4 +14,7 @@ Thumbs.db
 dist/
 *.backup
 *.backup_*
+# Synchronization conflict copies are not release sources.
+* (# Name clash *)/
+* (# Edit conflict *).*
 *.bin

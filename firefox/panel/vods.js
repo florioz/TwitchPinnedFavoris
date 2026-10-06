@@ -4,79 +4,10 @@
   const { formatDate, formatNumber, locale, t } = i18n;
   i18n.applyDocument(document);
   const STORAGE_KEY = 'tfr_state';
-  const TWITCH_GRAPHQL_ENDPOINT = 'https://gql.twitch.tv/gql';
-  const TWITCH_CLIENT_ID = 'kimne78kx3ncx6brgo4mv6wki5h1ko';
   const DEFAULT_AVATAR = 'https://static-cdn.jtvnw.net/jtv_user_pictures/404_user_70x70.png';
-  const DAY_MS = 24 * 60 * 60 * 1000;
-  const HOUR_WIDTH = 144;
   const MAX_DAY_OFFSET = 60;
-  const MAX_TIMELINE_HOURS = 24;
-  const MIN_TIMELINE_HOURS = 4;
-  const VIDEO_LIMIT = 60;
-  const CLIP_PAGE_LIMIT = 100;
-  const CLIP_MAX_PAGES = 4;
 
-  const VODS_QUERY = `
-    query TfrChannelVideos($login: String!, $limit: Int!) {
-      user(login: $login) {
-        id
-        login
-        displayName
-        profileImageURL(width: 96)
-        videos(first: $limit, type: ARCHIVE) {
-          edges {
-            node {
-              id
-              title
-              createdAt
-              publishedAt
-              lengthSeconds
-              viewCount
-              previewThumbnailURL(width: 320, height: 180)
-              game {
-                name
-              }
-            }
-          }
-        }
-      }
-    }
-  `;
-
-  const CLIPS_QUERY = `
-    query TfrChannelClips($login: String!, $limit: Int!, $period: ClipsPeriod!, $cursor: Cursor) {
-      user(login: $login) {
-        clips(first: $limit, after: $cursor, criteria: { period: $period }) {
-          pageInfo {
-            hasNextPage
-          }
-          edges {
-            cursor
-            node {
-              id
-              slug
-              title
-              url
-              createdAt
-              durationSeconds
-              viewCount
-              thumbnailURL(width: 320, height: 180)
-              curator {
-                login
-                displayName
-              }
-              game {
-                name
-              }
-              video {
-                id
-              }
-            }
-          }
-        }
-      }
-    }
-  `;
+  const vodClient = TFRVodClient.create({ defaultAvatar: DEFAULT_AVATAR });
 
   const state = {
     favorites: {},
@@ -85,6 +16,8 @@
     clipsByVideoId: new Map(),
     selectedCategoryId: 'all',
     selectedDay: startOfDay(new Date()).getTime(),
+    view: 'planning',
+    periodDays: 7,
     searchTerm: '',
     sortKey: 'views',
     sortDirection: 'desc',
@@ -96,6 +29,18 @@
   };
 
   const elements = {
+    chronologyBoard: document.getElementById('chronologyBoard'),
+    planningBoard: document.getElementById('planningBoard'),
+    chronologyViewButton: document.getElementById('chronologyViewButton'),
+    planningViewButton: document.getElementById('planningViewButton'),
+    timelineFullDay: document.getElementById('timelineFullDay'),
+    timelineFullDayLabel: document.getElementById('timelineFullDayLabel'),
+    timelineZoom: document.getElementById('timelineZoom'),
+    timelinePeriod: document.getElementById('timelinePeriod'),
+    timelinePeriodLabel: document.getElementById('timelinePeriodLabel'),
+    timelineHint: document.getElementById('timelineHint'),
+    liveTimeline: document.getElementById('liveTimeline'),
+
     refreshButton: document.getElementById('refreshButton'),
     searchInput: document.getElementById('searchInput'),
     groupSelect: document.getElementById('groupSelect'),
@@ -170,23 +115,6 @@
     return startOfDay(new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]))).getTime();
   }
 
-  function getClipPeriodForVideo(video) {
-    const startedAt = new Date(video?.createdAt || 0).getTime();
-    const ageMs = Date.now() - startedAt;
-    if (!Number.isFinite(ageMs) || ageMs < 0) {
-      return 'LAST_DAY';
-    }
-    if (ageMs <= DAY_MS) {
-      return 'LAST_DAY';
-    }
-    if (ageMs <= 7 * DAY_MS) {
-      return 'LAST_WEEK';
-    }
-    if (ageMs <= 30 * DAY_MS) {
-      return 'LAST_MONTH';
-    }
-    return 'ALL_TIME';
-  }
 
   function escapeHtml(value) {
     return String(value ?? '').replace(/[&<>"']/g, (char) => ({
@@ -260,130 +188,14 @@
     state.categories = Array.isArray(payload.categories) ? payload.categories : [];
   }
 
-  async function fetchChannelVods(login) {
-    const response = await fetch(TWITCH_GRAPHQL_ENDPOINT, {
-      method: 'POST',
-      headers: {
-        'Client-ID': TWITCH_CLIENT_ID,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        query: VODS_QUERY,
-        variables: { login, limit: VIDEO_LIMIT }
-      })
+  function fetchChannelVods(login) {
+    return vodClient.fetchChannelVods(login, {
+      oldest: oldestTimelineDay(startOfDay(new Date()).getTime()),
+      fallbackAvatar: state.favorites[login]?.avatarUrl || DEFAULT_AVATAR
     });
-    if (!response.ok) {
-      throw new Error(`Twitch ${response.status}`);
-    }
-    const payload = await response.json();
-    const user = payload?.data?.user;
-    if (!user) {
-      return null;
-    }
-    const videos = (user.videos?.edges || [])
-      .map((edge) => edge?.node)
-      .filter(Boolean)
-      .map((video) => ({
-        id: video.id,
-        title: video.title || 'VOD Twitch',
-        createdAt: video.createdAt || video.publishedAt,
-        lengthSeconds: Number(video.lengthSeconds) || 0,
-        viewCount: Number(video.viewCount) || 0,
-        thumbnailUrl: video.previewThumbnailURL || '',
-        game: video.game?.name || '',
-        url: `https://www.twitch.tv/videos/${video.id}`
-      }))
-      .filter((video) => video.id && video.createdAt);
-    return {
-      login: user.login || login,
-      displayName: user.displayName || login,
-      avatarUrl: user.profileImageURL || state.favorites[login]?.avatarUrl || DEFAULT_AVATAR,
-      videos
-    };
   }
 
-  async function fetchVideoClipsPage(channel, period, cursor = null) {
-    const response = await fetch(TWITCH_GRAPHQL_ENDPOINT, {
-      method: 'POST',
-      headers: {
-        'Client-ID': TWITCH_CLIENT_ID,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        query: CLIPS_QUERY,
-        variables: {
-          login: channel.login,
-          limit: CLIP_PAGE_LIMIT,
-          period,
-          cursor
-        }
-      })
-    });
-    if (!response.ok) {
-      throw new Error(`Twitch clips ${response.status}`);
-    }
-    const payload = await response.json();
-    if (Array.isArray(payload?.errors) && payload.errors.length) {
-      throw new Error(payload.errors[0]?.message || 'Twitch clips query failed');
-    }
-    return payload?.data?.user?.clips || { edges: [], pageInfo: { hasNextPage: false } };
-  }
-
-  async function fetchVideoClips(channel, video) {
-    if (!channel?.login || !video?.id || !video.createdAt) {
-      return [];
-    }
-    const startedAt = new Date(video.createdAt);
-    const endedAt = new Date(startedAt.getTime() + Math.max(1, video.lengthSeconds || 1) * 1000);
-    const period = getClipPeriodForVideo(video);
-    const edges = [];
-    let cursor = null;
-    for (let page = 0; page < CLIP_MAX_PAGES; page += 1) {
-      const pageData = await fetchVideoClipsPage(channel, period, cursor);
-      const pageEdges = Array.isArray(pageData?.edges) ? pageData.edges : [];
-      edges.push(...pageEdges);
-      const nextCursor = pageEdges[pageEdges.length - 1]?.cursor || null;
-      if (!pageData?.pageInfo?.hasNextPage || !nextCursor || nextCursor === cursor) {
-        break;
-      }
-      cursor = nextCursor;
-    }
-    return edges
-      .map((edge) => edge?.node)
-      .filter(Boolean)
-      .filter((clip) => {
-        const clipVideoId = clip.video?.id ? String(clip.video.id) : '';
-        if (clipVideoId) {
-          return clipVideoId === String(video.id);
-        }
-        const createdAt = new Date(clip.createdAt || 0).getTime();
-        return Number.isFinite(createdAt) && createdAt >= startedAt.getTime() && createdAt <= endedAt.getTime();
-      })
-      .filter((clip, index, clips) => {
-        const key = clip.id || clip.slug;
-        return key && clips.findIndex((candidate) => (candidate.id || candidate.slug) === key) === index;
-      })
-      .map((clip) => {
-        const createdAt = clip.createdAt || '';
-        const estimatedOffset = createdAt ? Math.max(0, Math.round((new Date(createdAt).getTime() - startedAt.getTime()) / 1000)) : 0;
-        return {
-          id: clip.id || clip.slug,
-          slug: clip.slug || clip.id,
-          title: clip.title || 'Clip Twitch',
-          url: clip.url || (clip.slug ? `https://clips.twitch.tv/${clip.slug}` : ''),
-          createdAt,
-          offsetSeconds: estimatedOffset,
-          durationSeconds: Number(clip.durationSeconds) || 0,
-          viewCount: Number(clip.viewCount) || 0,
-          thumbnailUrl: clip.thumbnailURL || '',
-          curator: clip.curator?.displayName || clip.curator?.login || '',
-          game: clip.game?.name || '',
-          videoId: clip.video?.id || ''
-        };
-      })
-      .filter((clip) => clip.id)
-      .sort((a, b) => a.offsetSeconds - b.offsetSeconds || b.viewCount - a.viewCount);
-  }
+  const fetchVideoClips = (channel, video) => vodClient.fetchVideoClips(channel, video);
 
   async function mapWithConcurrency(items, limit, mapper, onProgress) {
     const results = [];
@@ -435,7 +247,8 @@
 
   function getVisibleRows() {
     const selectedDay = Number(state.selectedDay);
-    const dayEnd = selectedDay + DAY_MS;
+    const range = TFRVodTimeline.periodRange(selectedDay, state.view === 'chronology' ? state.periodDays : 1);
+    const dayEnd = range.end;
     const term = state.searchTerm.trim().toLowerCase();
     const rows = getFilteredLogins()
       .map((login) => state.videosByLogin.get(String(login).toLowerCase()))
@@ -443,8 +256,7 @@
       .map((channel) => {
         const videos = channel.videos
           .filter((video) => {
-            const start = new Date(video.createdAt).getTime();
-            const matchesDay = start >= selectedDay && start < dayEnd;
+            const matchesDay = Boolean(TFRVodTimeline.interval(video, range.start, dayEnd));
             if (!matchesDay) return false;
             if (!term) return true;
             return (
@@ -455,7 +267,9 @@
             );
           })
           .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
-        return { ...channel, videos, metrics: getRowMetrics({ ...channel, videos }) };
+        const favorite = Object.values(state.favorites).find(fav => String(fav.login).toLowerCase() === channel.login.toLowerCase());
+        const category = state.categories.find(cat => cat.id === favorite?.categories?.[0]);
+        return { ...channel, color: category?.color, videos, metrics: getRowMetrics({ ...channel, videos }) };
       })
       .filter((channel) => channel.videos.length);
     return sortRows(rows);
@@ -520,19 +334,27 @@
 
   function clampDay(timestamp) {
     const today = startOfDay(new Date()).getTime();
-    const oldest = today - MAX_DAY_OFFSET * DAY_MS;
+    const oldest = oldestTimelineDay(today);
     return Math.min(today, Math.max(oldest, startOfDay(new Date(timestamp)).getTime()));
   }
 
+  function oldestTimelineDay(today) {
+    const date = new Date(today);
+    date.setDate(date.getDate() - MAX_DAY_OFFSET);
+    return date.getTime();
+  }
+
   function moveSelectedDay(offset) {
-    state.selectedDay = clampDay(Number(state.selectedDay) + offset * DAY_MS);
+    const date = new Date(Number(state.selectedDay));
+    date.setDate(date.getDate() + offset);
+    state.selectedDay = clampDay(date.getTime());
     renderFilters();
-    renderTimeline();
+    renderViews();
   }
 
   function getDayCounts(logins = getFilteredLogins()) {
     const today = startOfDay(new Date()).getTime();
-    const oldest = today - MAX_DAY_OFFSET * DAY_MS;
+    const oldest = oldestTimelineDay(today);
     const counts = new Map();
     logins
       .map((login) => state.videosByLogin.get(String(login).toLowerCase()))
@@ -540,11 +362,13 @@
       .forEach((channel) => {
         channel.videos.forEach((video) => {
           const timestamp = new Date(video.createdAt).getTime();
-          if (!Number.isFinite(timestamp) || timestamp < oldest || timestamp >= today + DAY_MS) {
+          const end = timestamp + Number(video.lengthSeconds) * 1000;
+          if (!Number.isFinite(timestamp) || !Number.isFinite(end) || end <= oldest || timestamp >= TFRVodTimeline.dayEnd(today)) {
             return;
           }
-          const day = startOfDay(new Date(timestamp)).getTime();
-          counts.set(day, (counts.get(day) || 0) + 1);
+          for (let day = Math.max(oldest, startOfDay(new Date(timestamp)).getTime()); day <= today && day < end; day = TFRVodTimeline.dayEnd(day)) {
+            counts.set(day, (counts.get(day) || 0) + 1);
+          }
         });
       });
     return counts;
@@ -562,30 +386,6 @@
     if (latestDay) {
       state.selectedDay = latestDay;
     }
-  }
-
-  function getTimelineWindow(rows) {
-    const starts = [];
-    const ends = [];
-    rows.forEach((channel) => {
-      channel.videos.forEach((video) => {
-        const start = new Date(video.createdAt);
-        const minute = start.getHours() * 60 + start.getMinutes();
-        starts.push(minute);
-        ends.push(Math.min(MAX_TIMELINE_HOURS * 60, minute + Math.ceil((video.lengthSeconds || 3600) / 60)));
-      });
-    });
-    if (!starts.length) {
-      return { startHour: 0, hourCount: MAX_TIMELINE_HOURS, width: MAX_TIMELINE_HOURS * HOUR_WIDTH };
-    }
-    const startHour = Math.max(0, Math.floor(Math.min(...starts) / 60));
-    const desiredEndHour = Math.min(MAX_TIMELINE_HOURS, Math.ceil(Math.max(...ends) / 60));
-    const hourCount = Math.max(MIN_TIMELINE_HOURS, desiredEndHour - startHour);
-    return {
-      startHour,
-      hourCount: Math.min(MAX_TIMELINE_HOURS - startHour, hourCount),
-      width: Math.min(MAX_TIMELINE_HOURS - startHour, hourCount) * HOUR_WIDTH
-    };
   }
 
   function findVideoContext(videoId) {
@@ -611,7 +411,7 @@
     }
     state.selectedVideo = { login: channel.login, videoId: video.id };
     state.clipsError = '';
-    renderTimeline();
+    renderViews();
     renderInspector();
     elements.vodInspector?.scrollIntoView({ block: 'nearest' });
     if (state.clipsByVideoId.has(video.id)) {
@@ -637,7 +437,7 @@
   function closeInspector() {
     state.selectedVideo = null;
     state.clipsError = '';
-    renderTimeline();
+    renderViews();
     renderInspector();
   }
 
@@ -658,7 +458,7 @@
 
     const dayCounts = getDayCounts();
     const today = startOfDay(new Date()).getTime();
-    const oldest = today - MAX_DAY_OFFSET * DAY_MS;
+    const oldest = oldestTimelineDay(today);
     elements.dayInput.min = formatDateValue(oldest);
     elements.dayInput.max = formatDateValue(today);
     if (state.selectedDay < oldest || state.selectedDay > today) {
@@ -686,11 +486,33 @@
       : t('vods.dayWithoutVods', { day: formatDayLabel(state.selectedDay) });
   }
 
-  function renderTimeline() {
-    const rows = getVisibleRows();
+  function renderViewControls() {
+    const isChronology = state.view === 'chronology';
+    elements.chronologyBoard.hidden = !isChronology;
+    elements.planningBoard.hidden = isChronology;
+    elements.chronologyViewButton.setAttribute('aria-pressed', String(isChronology));
+    elements.planningViewButton.setAttribute('aria-pressed', String(!isChronology));
+    elements.timelineFullDay.closest('label').hidden = state.periodDays !== 1;
+  }
+
+  function renderChronology(rows) {
+    const chart = elements.liveTimeline;
+    elements.timelineHint.textContent = locale.startsWith('fr')
+      ? 'Chronologie des lives — d’après les VOD disponibles, heures locales. Les lives sans archive ne sont pas représentés.'
+      : 'Stream timeline — based on available VODs, in local time. Streams without archives are not represented.';
+    TFRVodTimeline.render(chart, rows, Number(state.selectedDay), {
+      locale, onSelect: selectVideo, formatDuration, selectedId: state.selectedVideo?.videoId,
+      zoom: Number(elements.timelineZoom.value),
+      fullDay: elements.timelineFullDay.checked,
+      days: state.periodDays
+    });
+    elements.chronologyBoard.after(elements.vodInspector);
+    renderInspector();
+  }
+
+  function renderPlanning(rows) {
     elements.timeline.innerHTML = '';
     elements.timeline.style.removeProperty('--timeline-width');
-    elements.emptyState.hidden = rows.length > 0 || state.isLoading;
     let inspectorAttached = false;
 
     rows.forEach((channel) => {
@@ -766,10 +588,10 @@
       }
     });
 
-    if (elements.vodInspector && !inspectorAttached) {
-      elements.vodInspector.hidden = true;
-    }
+    if (!inspectorAttached) elements.vodInspector.hidden = true;
+  }
 
+  function renderSummary(rows) {
     const totalVideos = rows.reduce((sum, row) => sum + row.videos.length, 0);
     if (state.isLoading) {
       const done = Number(state.loadingProgress?.done) || 0;
@@ -780,6 +602,27 @@
       return;
     }
     elements.summary.textContent = t('vods.streamerSummary', { streamers: rows.length, vods: totalVideos });
+  }
+
+  function renderViews() {
+    const rows = getVisibleRows();
+    renderViewControls();
+    elements.emptyState.hidden = rows.length > 0 || state.isLoading;
+    if (state.view === 'chronology') renderChronology(rows);
+    else renderPlanning(rows);
+    renderSummary(rows);
+  }
+
+  function clearSelection() {
+    state.selectedVideo = null;
+    elements.vodInspector.hidden = true;
+  }
+
+  function setView(view) {
+    if (!['planning', 'chronology'].includes(view) || state.view === view) return;
+    state.view = view;
+    clearSelection();
+    renderViews();
   }
 
   function buildClipSegments(clips, duration) {
@@ -942,17 +785,17 @@
     state.loadingProgress = { done: 0, total: 0 };
     elements.refreshButton.disabled = true;
     elements.refreshButton.textContent = t('vods.loading');
-    renderTimeline();
+    renderViews();
     await readStoredState();
     renderFilters();
     const logins = Object.values(state.favorites)
       .map((fav) => fav.login)
       .filter(Boolean);
     state.loadingProgress = { done: 0, total: logins.length };
-    renderTimeline();
+    renderViews();
     const channels = await mapWithConcurrency(logins, 4, fetchChannelVods, (done, total) => {
       state.loadingProgress = { done, total };
-      renderTimeline();
+      renderViews();
     });
     state.videosByLogin = new Map();
     channels.filter(Boolean).forEach((channel) => {
@@ -964,37 +807,55 @@
     elements.refreshButton.textContent = t('vods.refresh');
     ensureSelectedDayHasContent();
     renderFilters();
-    renderTimeline();
+    renderViews();
   }
 
   function bindEvents() {
+    const fr = locale.startsWith('fr');
+    elements.chronologyViewButton.textContent = fr ? 'Chronologie' : 'Timeline';
+    elements.planningViewButton.textContent = fr ? 'Planning' : 'Schedule';
+    elements.timelinePeriodLabel.textContent = fr ? 'Période se terminant au jour choisi' : 'Period ending on selected day';
+    for (const option of elements.timelinePeriod.options) option.textContent = `${option.value} ${fr ? (option.value === '1' ? 'jour' : 'jours') : (option.value === '1' ? 'day' : 'days')}`;
+    for (const [id, view] of [['chronologyViewButton', 'chronology'], ['planningViewButton', 'planning']]) {
+      elements[id].addEventListener('click', () => setView(view));
+    }
+    elements.timelinePeriod.addEventListener('change', event => {
+      const days = Number(event.target.value);
+      if (![1, 7, 30, 60].includes(days)) return;
+      state.periodDays = days;
+      clearSelection();
+      renderViews();
+    });
+    elements.timelineFullDayLabel.textContent = locale.startsWith('fr') ? 'Journée entière' : 'Full day';
+    elements.timelineFullDay.addEventListener('change', renderViews);
+    elements.timelineZoom.addEventListener('change', renderViews);
     elements.refreshButton.addEventListener('click', () => refreshData());
     elements.searchInput.addEventListener('input', (event) => {
       state.searchTerm = event.target.value || '';
-      renderTimeline();
+      renderViews();
     });
     elements.groupSelect.addEventListener('change', (event) => {
       state.selectedCategoryId = event.target.value || 'all';
       ensureSelectedDayHasContent();
       renderFilters();
-      renderTimeline();
+      renderViews();
     });
     elements.sortSelect?.addEventListener('change', (event) => {
       state.sortKey = event.target.value || 'views';
       renderFilters();
-      renderTimeline();
+      renderViews();
     });
     elements.sortDirectionButton?.addEventListener('click', () => {
       state.sortDirection = state.sortDirection === 'asc' ? 'desc' : 'asc';
       renderFilters();
-      renderTimeline();
+      renderViews();
     });
     elements.previousDayButton?.addEventListener('click', () => moveSelectedDay(-1));
     elements.nextDayButton?.addEventListener('click', () => moveSelectedDay(1));
     elements.dayInput.addEventListener('change', (event) => {
       state.selectedDay = clampDay(parseDateValue(event.target.value));
       renderFilters();
-      renderTimeline();
+      renderViews();
     });
   }
 

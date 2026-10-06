@@ -21,7 +21,7 @@
   const RETRY_LABEL_PATTERN = /(?:retry|try again|reload|refresh|réessayer|recharger|relancer|actualiser)/i;
 
   const createAttemptLimiter = ({ now = () => Date.now(), cooldownMs = 8000, windowMs = 60000, maxAttempts = 3 } = {}) => {
-    let lastAttemptAt = 0;
+    let lastAttemptAt = -Infinity;
     let attempts = [];
     const consume = () => {
       const timestamp = now();
@@ -31,7 +31,8 @@
       attempts.push(timestamp);
       return true;
     };
-    return Object.freeze({ consume });
+    const reset = () => { lastAttemptAt = -Infinity; attempts = []; };
+    return Object.freeze({ consume, reset });
   };
 
   window.TFRPlayerRecoveryPolicy = Object.freeze({

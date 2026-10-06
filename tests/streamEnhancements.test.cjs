@@ -54,6 +54,11 @@ const loadFeatures = () => {
     Event: class EventMock {},
     Node: { ELEMENT_NODE: 1 },
     NodeFilter: { SHOW_TEXT: 4, FILTER_REJECT: 2, FILTER_ACCEPT: 1 },
+    MutationObserver: class {
+      constructor(callback) { this.callback = callback; this.disconnected = false; }
+      observe() {}
+      disconnect() { this.disconnected = true; }
+    },
     clearInterval: window.clearInterval,
     clearTimeout: window.clearTimeout
   };
@@ -94,7 +99,7 @@ const loadFeatures = () => {
     context
   );
   const features = window.TFRStreamEnhancements.create({ t: (key) => key });
-  return { features, activeIntervals, classes, styles, ElementMock, getTimeoutCalls: () => timeoutCalls };
+  return { features, activeIntervals, classes, styles, ElementMock, document: context.document, window, getTimeoutCalls: () => timeoutCalls };
 };
 
 test('player latency indicator starts and stops without leaving a timer behind', () => {
@@ -312,12 +317,12 @@ test('audio protection follows Twitch video playback lifecycle', () => {
   manager.bindVideoEvents(secondVideo);
   manager.bindVideoEvents(null);
   assert.deepEqual(added, [
-    'first:play', 'first:playing', 'first:volumechange',
-    'second:play', 'second:playing', 'second:volumechange'
+    'first:play', 'first:playing', 'first:volumechange', 'first:loadstart', 'first:emptied', 'first:loadedmetadata',
+    'second:play', 'second:playing', 'second:volumechange', 'second:loadstart', 'second:emptied', 'second:loadedmetadata'
   ]);
   assert.deepEqual(removed, [
-    'first:play', 'first:playing', 'first:volumechange',
-    'second:play', 'second:playing', 'second:volumechange'
+    'first:play', 'first:playing', 'first:volumechange', 'first:loadstart', 'first:emptied', 'first:loadedmetadata',
+    'second:play', 'second:playing', 'second:volumechange', 'second:loadstart', 'second:emptied', 'second:loadedmetadata'
   ]);
 });
 
@@ -326,6 +331,44 @@ test('audio reduction readout removes misleading negative zero', () => {
   const manager = new features.PlayerAudioCompressor();
   assert.equal(manager.formatReductionDb(-0.01), '0.0');
   assert.equal(manager.formatReductionDb(-4.36), '-4.4');
+});
+
+test('reply metadata deduplicates remounted messages and respects independent sound and visual options', () => {
+  const { features } = loadFeatures();
+  const manager = new features.ChatMentionHighlighter();
+  manager.login = 'viewer'; manager.enabled = true; manager.soundEnabled = true;
+  let plays = 0; manager.audio = { play: () => plays++ };
+  const makeMessage = (id) => ({
+    dataset: { tfrMessageId: id, tfrReplyParent: 'viewer' },
+    querySelector: () => ({ textContent: 'a reply', querySelector: () => null }),
+    classList: { toggle(_name, value) { this.highlighted = value; } }
+  });
+  const first = makeMessage('1'); manager.processMessage(first, true);
+  assert.equal(first.classList.highlighted, true); assert.equal(plays, 1);
+  manager.processMessage(makeMessage('1'), true); assert.equal(plays, 1);
+  manager.enabled = false;
+  const second = makeMessage('2'); manager.processMessage(second, true);
+  assert.equal(second.classList.highlighted, false); assert.equal(plays, 2);
+  manager.enabled = true; manager.soundEnabled = false;
+  const third = makeMessage('3'); manager.processMessage(third, true);
+  assert.equal(third.classList.highlighted, true); assert.equal(plays, 2);
+});
+
+test('chat observer follows reconnection and account changes without duplicate observers', () => {
+  const { features, document } = loadFeatures();
+  const manager = new features.ChatMentionHighlighter(); manager.enabled = true;
+  manager.resolveLogin = () => 'viewer';
+  let container = { querySelectorAll: () => [] };
+  document.querySelector = () => container;
+  manager.observe(); const first = manager.observer;
+  manager.observe(); assert.equal(manager.observer, first);
+  container = null; manager.observe(); assert.equal(first.disconnected, true);
+  assert.equal(manager.container, null);
+  container = { querySelectorAll: () => [] }; manager.observe();
+  assert.notEqual(manager.observer, first); const second = manager.observer;
+  manager.resolveLogin = () => 'other'; manager.observe();
+  assert.equal(second.disconnected, true); assert.equal(manager.login, 'other');
+  manager.dispose(); assert.equal(manager.observer, null);
 });
 
 test('chat mention colors and sounds use safe fallbacks', () => {

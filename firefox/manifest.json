@@ -3,7 +3,7 @@
   "name": "__MSG_extensionName__",
   "description": "__MSG_extensionDescription__",
   "default_locale": "en",
-  "version": "0.6.25",
+  "version": "0.6.26",
   "icons": {
     "16": "assets/icon16.png",
     "48": "assets/icon48.png",
@@ -41,6 +41,7 @@
       ],
       "js": [
         "src/contentScripts/page/deletedMessageBridge.js",
+        "src/contentScripts/page/playerBridge.js",
         "src/contentScripts/page/chatEmoteInputBridge.js"
       ],
       "run_at": "document_start",
@@ -115,11 +116,13 @@
         "src/contentScripts/features/favoriteCategoryFilterTools.js",
         "src/contentScripts/features/favoriteCategoryFilterView.js",
         "src/contentScripts/features/favoriteCategoryFilterController.js",
+        "src/contentScripts/features/groupGameFilter.js",
         "src/contentScripts/features/featureSettingsConfig.js",
         "src/contentScripts/features/appearanceWizardModel.js",
         "src/contentScripts/features/onboardingTutorial.js",
         "src/contentScripts/features/favoritesDragDropModel.js",
         "src/contentScripts/features/favoriteSearchTools.js",
+        "src/contentScripts/features/categoryColorPicker.js",
         "src/contentScripts/features/favoritesOverlay.js",
         "src/contentScripts/features/featureController.js",
         "src/contentScripts/contentI18nMessages.js",

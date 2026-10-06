@@ -476,6 +476,7 @@
         this.updatePreference = null;
         this.resumeAudio = () => this.engine.resume();
         this.boundVideo = null;
+        this.boundMediaChanged = () => { this.engine.resetMediaState(); this.refresh(); };
         this.lastMeterReadoutAt = 0;
       }
 
@@ -497,7 +498,7 @@
           clearInterval(this.meterTimer);
           this.meterTimer = null;
         }
-        const shouldResumeAudio = this.enabled || this.normalizerEnabled;
+        const shouldResumeAudio = this.enabled || this.normalizerEnabled || Boolean(this.engine.graph);
         const method = shouldResumeAudio ? 'addEventListener' : 'removeEventListener';
         document[method]?.('pointerdown', this.resumeAudio, true);
         document[method]?.('keydown', this.resumeAudio, true);
@@ -643,6 +644,10 @@
         ['play', 'playing', 'volumechange'].forEach((eventName) => {
           this.boundVideo?.removeEventListener?.(eventName, this.resumeAudio);
           video?.addEventListener?.(eventName, this.resumeAudio);
+        });
+        ['loadstart', 'emptied', 'loadedmetadata'].forEach((eventName) => {
+          this.boundVideo?.removeEventListener?.(eventName, this.boundMediaChanged);
+          video?.addEventListener?.(eventName, this.boundMediaChanged);
         });
         this.boundVideo = video || null;
       }
@@ -853,6 +858,24 @@
         if (document.visibilityState === 'hidden') return;
         this.ensureButton();
         const video = document.querySelector('.video-player__container video, [data-a-target="video-player"] video, video');
+        if (video && !this.engine.canProcess(video)) {
+          const needsNativeRestore = /^https?:/i.test(video.src || video.currentSrc || '')
+            || /\/clip\//i.test(window.location.pathname);
+          const restoreCount = Number(video.dataset?.tfrAudioRestoreCount || 0);
+          const restoreAt = Number(video.dataset?.tfrAudioRestoreAt || 0);
+          if (needsNativeRestore && video.dataset?.tfrAudioCaptured === 'true'
+            && restoreCount < 3 && Date.now() >= restoreAt) {
+            const root = video.closest?.('[data-a-target="video-player"], .video-player__container');
+            if (root) {
+              video.dataset.tfrAudioRestoreCount = String(restoreCount + 1);
+              video.dataset.tfrAudioRestoreAt = String(Date.now() + 16000 * 2 ** restoreCount);
+              root.dispatchEvent(new Event('tfr:player:audio-restore', { bubbles: true }));
+            }
+          }
+          this.engine.disconnectReplacedGraph();
+          this.bindVideoEvents(null);
+          return;
+        }
         if ((this.enabled || this.normalizerEnabled) && video && video !== this.video) this.attachAudio(video);
         this.applyCompressorState();
         this.updateCompressorReadout();
@@ -1159,6 +1182,9 @@
         this.soundEnabled = false;
         this.soundId = 'soft';
         this.login = '';
+        this.seenMessages = new Set();
+        this.lifecycleTimer = null;
+        this.boundUnlock = () => this.ensureAudio()?.unlock?.()?.catch?.(() => {});
         this.container = null;
         this.observer = null;
         this.retryTimer = null;
@@ -1171,6 +1197,9 @@
       init() {
         this.ensureAudio();
         window.addEventListener('tfr:testChatMentionSound', this.boundTestSound);
+        document.addEventListener?.('pointerdown', this.boundUnlock, true);
+        document.addEventListener?.('keydown', this.boundUnlock, true);
+        this.lifecycleTimer = window.setInterval(() => { if (this.enabled || this.soundEnabled) this.observe(); }, 1000);
       }
 
       ensureAudio() {
@@ -1190,7 +1219,7 @@
         this.soundEnabled = Boolean(soundEnabled);
         this.soundId = this.normalizeSoundId(soundId);
         document.documentElement.style.setProperty('--tfr-chat-mention-color', this.sanitizeColor(color));
-        if (this.enabled) this.observe();
+        if (this.enabled || this.soundEnabled) this.observe(true);
         else this.stop();
       }
 
@@ -1208,10 +1237,22 @@
       }
 
       playSound(soundId = this.soundId) {
-        this.ensureAudio()?.play({ soundId, volume: 35 });
+        return Promise.resolve(this.ensureAudio()?.play({ soundId, volume: 35 }))
+          .then((played) => {
+            if (played === false) window.TFRPerformance?.debug?.('chat-mention', 'sound-blocked');
+            return played;
+          }).catch(() => {
+            window.TFRPerformance?.debug?.('chat-mention', 'sound-unavailable');
+            return false;
+          });
       }
 
       resolveLogin() {
+        const cookie = String(document.cookie || '').match(/(?:^|;\s*)login=([^;]+)/);
+        if (cookie) {
+          const login = this.normalizeLogin(cookie[1]);
+          if (login) return login;
+        }
         for (const key of ['twilight-user', 'twilight_user', 'current-user', 'currentUser']) {
           try {
             const user = JSON.parse(window.localStorage.getItem(key) || 'null');
@@ -1230,16 +1271,20 @@
         return this.normalizeLogin(candidate);
       }
 
-      observe() {
+      observe(force = false) {
+        const previousLogin = this.login;
         this.login = this.resolveLogin();
         const container = findChatContainer();
         if (!container) {
+          this.observer?.disconnect();
+          this.observer = null;
+          this.container = null;
           scheduleChatRetry(this, () => {
-            if (this.enabled) this.observe();
+            if (this.enabled || this.soundEnabled) this.observe();
           });
           return;
         }
-        if (container === this.container && this.observer) return;
+        if (!force && container === this.container && this.observer && previousLogin === this.login) return;
         this.container = container;
         container.querySelectorAll(MESSAGE_SELECTOR).forEach((message) => this.processMessage(message, false));
         this.observer?.disconnect();
@@ -1248,6 +1293,8 @@
             this.scanNode(mutation.target);
             return;
           }
+          const parentMessage = mutation.target?.closest?.(MESSAGE_SELECTOR);
+          if (parentMessage) this.processMessage(parentMessage, true);
           mutation.addedNodes.forEach((node) => this.scanNode(node));
         }));
         this.observer.observe(container, {
@@ -1262,11 +1309,16 @@
       scanNode(node) {
         const element = node instanceof Element ? node : node?.parentElement;
         if (!element) return;
+        const parentMessage = element.closest?.(MESSAGE_SELECTOR);
+        if (parentMessage) this.processMessage(parentMessage, true);
         visitMatchingElements(element, MESSAGE_SELECTOR, (message) => this.processMessage(message, true));
       }
 
       isReplyToCurrentUser(message) {
+        message.dispatchEvent?.(new Event('tfr:chat:inspect-reply', { bubbles: true }));
+        if (!this.login) this.login = this.normalizeLogin(message.dataset?.tfrCurrentLogin);
         if (!this.login) return false;
+        if (this.normalizeLogin(message.dataset?.tfrReplyParent) === this.login) return true;
         const escapedLogin = this.login.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
         const replyPrefix = new RegExp(
           `^(?:(?:en\\s+)?reponse\\s+a|repond(?:re)?\\s+a|reply(?:ing|ied)?\\s+to)\\s+@?${escapedLogin}(?=\\s*[,.:·-]|\\s*$)`,
@@ -1288,7 +1340,9 @@
         const body = message.querySelector(MESSAGE_BODY_SELECTOR);
         if (!body) return null;
         const normalizedText = String(body.textContent || '').toLowerCase();
-        const nativeMention = Boolean(message.querySelector(CURRENT_USER_MENTION_SELECTOR));
+        const nativeMention = Boolean(typeof body.querySelector === 'function'
+          ? body.querySelector(CURRENT_USER_MENTION_SELECTOR)
+          : message.querySelector(CURRENT_USER_MENTION_SELECTOR));
         const directReply = this.isReplyToCurrentUser(message);
         const identity = this.login || CHAT_MENTION_FALLBACK_IDENTITY;
         const escapedLogin = this.login.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -1298,25 +1352,34 @@
         return {
           identity,
           mentioned: nativeMention || textMentionsLogin || directReply,
-          signature: `${identity}:${nativeMention ? 'native:' : ''}${directReply ? 'reply:' : ''}${normalizedText}`
+          signature: `${identity}:${this.enabled}:${this.soundEnabled}:${nativeMention ? 'native:' : ''}${directReply ? 'reply:' : ''}${normalizedText}`
         };
       }
 
       processMessage(message, allowSound) {
-        if (!this.enabled) return;
+        if (!this.enabled && !this.soundEnabled) return;
         const inspection = this.inspectMessage(message);
         if (!inspection || message.dataset.tfrMentionText === inspection.signature) return;
         const { identity, mentioned, signature } = inspection;
         message.dataset.tfrMentionChecked = identity;
         message.dataset.tfrMentionText = signature;
-        message.classList.toggle('tfr-chat-mention', mentioned);
-        const alreadyNotified = message.dataset.tfrMentionNotified === identity;
-        if (mentioned && allowSound && this.soundEnabled && !alreadyNotified) {
+        message.classList.toggle('tfr-chat-mention', mentioned && this.enabled);
+        const messageId = message.dataset.tfrMessageId || message.getAttribute?.('data-id') || message.id;
+        const notificationKey = messageId ? `${identity}:${messageId}` : null;
+        const alreadyNotified = message.dataset.tfrMentionNotified === identity
+          || (notificationKey && this.seenMessages.has(notificationKey));
+        if (mentioned && !allowSound) {
           message.dataset.tfrMentionNotified = identity;
-          this.playSound();
-        } else if (!mentioned) {
-          delete message.dataset.tfrMentionNotified;
+          if (notificationKey) this.seenMessages.add(notificationKey);
         }
+        if (mentioned && allowSound && this.soundEnabled && !alreadyNotified) {
+          window.TFRPerformance?.debug?.('chat-mention', 'notification');
+          message.dataset.tfrMentionNotified = identity;
+          if (notificationKey) this.seenMessages.add(notificationKey);
+          if (this.seenMessages.size > 1000) this.seenMessages.delete(this.seenMessages.values().next().value);
+          this.playSound();
+        }
+        while (this.seenMessages.size > 1000) this.seenMessages.delete(this.seenMessages.values().next().value);
       }
 
       stop() {
@@ -1334,6 +1397,10 @@
 
       dispose() {
         this.stop();
+        window.clearInterval(this.lifecycleTimer);
+        document.removeEventListener?.('pointerdown', this.boundUnlock, true);
+        document.removeEventListener?.('keydown', this.boundUnlock, true);
+        this.seenMessages.clear();
         window.removeEventListener('tfr:testChatMentionSound', this.boundTestSound);
         document.documentElement.style.removeProperty('--tfr-chat-mention-color');
       }

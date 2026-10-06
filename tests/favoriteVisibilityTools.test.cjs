@@ -8,6 +8,24 @@ const {
   shouldDisplayFavorite
 } = require('../src/contentScripts/features/favoriteVisibilityTools.js');
 
+test('group game filter overrides individual filters and automatically applies to new members', () => {
+  const groups = [{ id: 'rp', categoryFilter: { enabled: true, categories: ['Grand Theft Auto V'] } }];
+  const favorite = { categories: ['rp'], categoryFilter: { enabled: true, categories: ['Minecraft'] } };
+  assert.equal(shouldDisplayFavorite(favorite, { isLive: true, game: 'Grand Theft Auto V' }, groups), true);
+  assert.equal(shouldDisplayFavorite(favorite, { isLive: true, game: 'Minecraft' }, groups), false);
+  assert.equal(shouldDisplayFavorite({ categories: ['rp'] }, { isLive: true, game: 'Minecraft' }, groups), false);
+  groups[0].categoryFilter.enabled = false;
+  assert.equal(shouldDisplayFavorite(favorite, { isLive: true, game: 'Minecraft' }, groups), true);
+  assert.deepEqual(favorite.categoryFilter.categories, ['Minecraft']);
+});
+
+test('group filters leave other groups, subgroups and unassigned favorites unchanged', () => {
+  const groups = [{ id: 'rp', categoryFilter: { enabled: true, categories: ['GTA'] } }, { id: 'child', parentId: 'rp' }];
+  for (const categories of [[], ['other'], ['child']]) {
+    assert.equal(shouldDisplayFavorite({ categories }, { isLive: true, game: 'Minecraft' }, groups), true);
+  }
+});
+
 test('category names are normalized without accents or surrounding whitespace', () => {
   assert.equal(normalizeCategoryName('  Pokémon Écarlate  '), 'pokemon ecarlate');
 });

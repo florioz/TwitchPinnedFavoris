@@ -51,9 +51,20 @@
         </label>
       </section>
 
+      <nav class="tfr-vods-view-switch" aria-label="View">
+        <button id="chronologyViewButton" class="tfr-vods-button" type="button" aria-pressed="false">Chronologie</button>
+        <button id="planningViewButton" class="tfr-vods-button" type="button" aria-pressed="true">Planning</button>
+      </nav>
       <section class="tfr-vods-summary" id="summary" aria-live="polite"></section>
+      <section class="tfr-vods-board" id="chronologyBoard" hidden>
+        <p id="timelineHint"></p>
+        <label><span id="timelinePeriodLabel">Période</span> <select id="timelinePeriod"><option value="1">1 jour</option><option value="7" selected>7 jours</option><option value="30">30 jours</option><option value="60">60 jours</option></select></label>
+        <label><input id="timelineFullDay" type="checkbox" /> <span id="timelineFullDayLabel">Full day</span></label>
+        <label>Zoom <select id="timelineZoom"><option value="1">1×</option><option value="2">2×</option><option value="4">4×</option></select></label>
+        <div id="liveTimeline" class="tfr-vod-chart-scroll" tabindex="0"></div>
+      </section>
 
-      <section class="tfr-vods-board" aria-label="Planning des VODs">
+      <section class="tfr-vods-board" id="planningBoard" aria-label="Planning des VODs">
         <div class="tfr-vods-timeline" id="timeline"></div>
       </section>
 
@@ -66,6 +77,8 @@
     </main>
 
     <script src="../src/contentScripts/extensionI18n.js"></script>
+    <script src="./vodTimeline.js"></script>
+    <script src="./vodClient.js"></script>
     <script src="./vods.js"></script>
   </body>
 </html>

@@ -31,5 +31,6 @@
   const getReports = () => recentReports.map((entry) => ({ ...entry, details: { ...entry.details } }));
   const clearReports = () => { recentReports.length = 0; };
 
-  window.TFRPerformance = Object.freeze({ now, report, setLoggingEnabled, getReports, clearReports });
+  const debug = (scope, event, detail) => { if (loggingEnabled) console.debug(`[TFR ${scope}] ${event}`, detail); };
+  window.TFRPerformance = Object.freeze({ now, report, debug, setLoggingEnabled, getReports, clearReports });
 })();
