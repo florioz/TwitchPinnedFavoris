@@ -93,11 +93,10 @@ test('audio engine normalizes presets, targets and reduction bounds', () => {
   assert.equal(engine.normalizeTargetDb(-5), -10);
   engine.targetDb = -68;
   assert.equal(engine.calculateTargetGainDb(-55), -13);
-  assert.equal(engine.calculateTargetGainDb(-20), -24);
+  assert.equal(engine.calculateTargetGainDb(-20), -48);
   assert.equal(engine.calculateTargetGainDb(-72), 0);
   assert.equal(engine.calculateTargetGainDb(-95), null);
-  engine.maxReductionDb = engine.normalizeMaxReductionDb(-36);
-  assert.equal(engine.calculateTargetGainDb(-20), -36);
+  assert.equal(engine.maxReductionDb, -68);
   assert.equal(engine.normalizeMaxReductionDb(-100), -40);
   assert.equal(engine.normalizeMaxReductionDb(-2), -12);
   assert.equal(engine.normalizeMaxReductionDb('invalid'), -24);
@@ -222,7 +221,7 @@ test('audio engine applies smooth attenuation without positive gain', () => {
   const result = engine.update(1000);
   assert.ok(result.gainDb < -15, 'a sudden loud passage receives a fast first attenuation');
   assert.equal(result.normalizerPhase, 'reducing');
-  assert.ok(result.gainDb >= -24);
+  assert.ok(result.gainDb >= engine.targetDb);
   assert.ok(applied.every((value) => value <= 1));
 });
 
@@ -376,4 +375,83 @@ test('a stale AudioWorklet loading failure does not downgrade the current graph'
 
   assert.equal(await loading, false);
   assert.equal(engine.workletStatus, 'active');
+});
+
+for (const sourceType of ['MediaSourceHandle', 'MediaSource']) {
+  test(`${sourceType} live source is captured and measured without a blob URL`, () => {
+    const s = audioHarness();
+    s.video.src = '';
+    s.video.currentSrc = '';
+    s.video.srcObject = { [Symbol.toStringTag]: sourceType };
+    s.engine.configure({ compressorEnabled: true, normalizerEnabled: true });
+    assert.equal(s.engine.attach(s.video), true);
+    s.engine.update();
+    assert.ok(Number.isFinite(s.engine.measuredLevelDb));
+    assert.equal(s.counts().captures, 1);
+    s.windowRef.location.pathname = '/streamer/clip/example';
+    assert.equal(s.engine.canProcess(s.video), false);
+  });
+}
+
+test('unknown srcObject and missing sources remain native', () => {
+  const s = audioHarness();
+  s.video.src = '';
+  assert.equal(s.engine.attach(s.video), false);
+  s.video.srcObject = {};
+  assert.equal(s.engine.attach(s.video), false);
+  assert.equal(s.counts().captures, 0);
+});
+
+
+test('quiet audio is boosted gradually, capped, and quickly reduced on a loud return', () => {
+  const s = audioHarness();
+  s.engine.configure({ normalizerEnabled: true, targetDb: -20 });
+  s.engine.attach(s.video);
+  let amplitude = 0.01;
+  s.engine.graph.analyser.getFloatTimeDomainData = buffer => buffer.fill(amplitude);
+  assert.equal(s.engine.calculateTargetGainDb(-40), 12);
+  assert.equal(s.engine.calculateTargetGainDb(-25), 5);
+  for (let n = 1; n <= 300; n++) s.engine.update(n * 100);
+  assert.ok(s.engine.currentGainDb > 11 && s.engine.currentGainDb <= 12);
+  assert.equal(s.engine.normalizerPhase, 'boosting');
+  amplitude = 0.5;
+  s.engine.update(30100);
+  assert.ok(s.engine.currentGainDb < 0, 'loud return cancels the boost immediately');
+  s.engine.configure({ normalizerEnabled: false });
+  assert.equal(s.engine.currentGainDb, 0);
+  assert.equal(s.engine.graph.gain.gain.value, 1);
+});
+
+test('noise gate and silence never build amplification, including worklet silence', () => {
+  const s = audioHarness();
+  s.engine.configure({ normalizerEnabled: true, targetDb: -20 });
+  s.engine.attach(s.video);
+  assert.equal(s.engine.calculateTargetGainDb(-65), 0);
+  assert.equal(s.engine.calculateTargetGainDb(-60), 0);
+  assert.equal(s.engine.calculateTargetGainDb(-55), 6);
+  s.engine.currentGainDb = 12;
+  s.engine.graph.analyser.getFloatTimeDomainData = buffer => buffer.fill(0);
+  s.engine.update(100);
+  assert.ok(s.engine.currentGainDb < 12);
+  s.engine.workletStatus = 'active';
+  s.engine.workletLevelDb = null;
+  s.engine.workletLevelAt = 1000;
+  const previous = s.engine.currentGainDb;
+  s.engine.update(1100);
+  assert.ok(s.engine.currentGainDb < previous);
+  s.engine.currentGainDb = 0;
+  s.engine.graph.analyser.getFloatTimeDomainData = buffer => buffer.fill(0.0001);
+  for (let n = 30; n < 100; n++) s.engine.update(n * 100);
+  assert.equal(s.engine.currentGainDb, 0);
+});
+
+
+test('automatic reduction follows every target and ignores legacy manual limits', () => {
+  const { engine } = audioHarness();
+  for (const targetDb of [-80, -68, -40, -16, -10]) {
+    engine.configure({ normalizerEnabled: true, targetDb, maxReductionDb: -12 });
+    assert.equal(engine.maxReductionDb, targetDb);
+    assert.equal(engine.calculateTargetGainDb(0), targetDb);
+    assert.equal(engine.calculateTargetGainDb(-5), targetDb + 5);
+  }
 });

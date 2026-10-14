@@ -701,8 +701,11 @@ const loadCachedLiveSnapshot = async () => {
     favorites: cloneData(storedState.favorites || {}),
     categories: cloneData(Array.isArray(storedState.categories) ? storedState.categories : []),
     preferences: cloneData(storedState.preferences || DEFAULT_STATE.preferences),
-    liveData: cloneData(cachedLiveData),
-    timestamp: stored?.tfr_lastLiveUpdate || Date.now()
+    liveData: cloneData(Object.fromEntries(Object.entries(cachedLiveData).filter(([, entry]) => {
+      const age = Date.now() - Number(entry?.lastConfirmedAt || 0);
+      return age >= 0 && age <= 120_000 && Number(entry?.lastConfirmedAt) > 0;
+    }))),
+    timestamp: stored?.tfr_lastLiveUpdate || 0
   };
 };
 

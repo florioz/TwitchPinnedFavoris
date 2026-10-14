@@ -48,6 +48,12 @@ test('manifest loads helper modules before their consumers', () => {
   before('src/contentScripts/features/chatEmotePicker.js', 'src/contentScripts/features/streamEnhancements.js');
   before('src/contentScripts/features/domWorkScheduler.js', 'src/contentScripts/features/streamEnhancements.js');
   before('src/contentScripts/features/playerAudioEngine.js', 'src/contentScripts/features/streamEnhancements.js');
+  before('src/contentScripts/features/playerAudioEngine.js', 'src/contentScripts/features/playerAudioControls.js');
+  before('src/contentScripts/features/playerAudioControls.js', 'src/contentScripts/features/streamEnhancements.js');
+  before('src/contentScripts/features/chatEmotePicker.js', 'src/contentScripts/features/thirdPartyChatEmotes.js');
+  before('src/contentScripts/features/thirdPartyChatEmotes.js', 'src/contentScripts/features/streamEnhancements.js');
+  before('src/contentScripts/features/twitchChatEvents.js', 'src/contentScripts/features/chatModeration.js');
+
   before('src/contentScripts/features/sharedSpaceModel.js', 'src/contentScripts/features/favoritesStore.js');
   before('src/contentScripts/features/sharedWorkspaceTransitions.js', 'src/contentScripts/features/favoritesStore.js');
   before('src/contentScripts/features/sharedWorkspaceIntegrity.js', 'src/contentScripts/features/favoritesStore.js');

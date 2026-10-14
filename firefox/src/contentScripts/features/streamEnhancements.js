@@ -16,25 +16,6 @@
     const CHAT_MENTION_SOUND_IDS = new Set(['soft', 'chime', 'arcade', 'pulse', 'alert']);
     const CHAT_MENTION_FALLBACK_IDENTITY = 'twitch-current-user';
     const CHAT_SNAPSHOT_CACHE_LIMIT = 500;
-    const audioEngineModule = window.TFRPlayerAudioEngine;
-    if (!audioEngineModule?.PlayerAudioEngine) throw new Error('Player audio engine module is missing');
-    const EmoteAutocomplete = window.TFRChatEmoteAutocomplete?.ChatEmoteAutocomplete;
-    if (!EmoteAutocomplete) throw new Error('Chat emote autocomplete module is missing');
-    const ChatEmotePicker = window.TFRChatEmotePicker?.ChatEmotePicker;
-    if (!ChatEmotePicker) throw new Error('Chat emote picker module is missing');
-    const emoteCatalog = window.TFRChatEmoteCatalog;
-    if (!emoteCatalog) throw new Error('Chat emote catalog module is missing');
-    const {
-      PlayerAudioEngine,
-      PRESETS: AUDIO_COMPRESSOR_PRESETS,
-      TARGET_MIN_DB: VOLUME_TARGET_MIN_DB,
-      TARGET_MAX_DB: VOLUME_TARGET_MAX_DB,
-      MAX_REDUCTION_MIN_DB: VOLUME_MAX_REDUCTION_MIN_DB,
-      MAX_REDUCTION_MAX_DB: VOLUME_MAX_REDUCTION_MAX_DB,
-      MAX_REDUCTION_DEFAULT_DB: VOLUME_MAX_REDUCTION_DEFAULT_DB
-    } = audioEngineModule;
-    const TWITCH_GQL_ENDPOINT = 'https://gql.twitch.tv/gql';
-    const TWITCH_CLIENT_ID = 'kimne78kx3ncx6brgo4mv6wki5h1ko';
     const CHAT_RETRY_DELAY_MS = 1500;
 
     const findChatContainer = () => {
@@ -72,225 +53,10 @@
       matches.forEach(callback);
     };
 
-    const currentLogin = () => {
-      const login = window.location.pathname.match(/^\/([^/?#]+)/)?.[1]?.toLowerCase() || '';
-      return new Set(['directory', 'downloads', 'jobs', 'p', 'settings', 'subscriptions']).has(login) ? '' : login;
-    };
-
-    class ThirdPartyChatEmotes {
-      constructor() {
-        this.enabledSevenTv = false;
-        this.enabledBetterTtv = false;
-        this.autocompleteEnabled = false;
-        this.pickerEnabled = false;
-        this.emotes = new Map();
-        this.autocompleteEmotes = new Map();
-        this.channelLogin = '';
-        this.observer = null;
-        this.container = null;
-        this.retryTimer = null;
-        this.pendingReplyContext = null;
-        this.locationTimer = null;
-        this.loadGeneration = 0;
-        this.tooltip = window.TFRChatEmoteTooltip.create(document, window);
-        this.autocomplete = new EmoteAutocomplete(document, window);
-        this.picker = new ChatEmotePicker({ documentRef: document, windowRef: window, t });
-        this.renderScheduler = window.TFRDomWorkScheduler.create({
-          process: (node) => this.scanNode(node),
-          maxBatchSize: 10
-        });
-      }
-
-      init() {
-        this.locationTimer = window.setInterval(() => {
-          if (document.visibilityState === 'hidden') return;
-          const login = currentLogin();
-          if (login !== this.channelLogin) this.reload();
-          if (!this.container?.isConnected) this.observeChat();
-        }, 2000);
-      }
-
-      dispose() {
-        this.observer?.disconnect();
-        clearChatRetry(this);
-        clearInterval(this.locationTimer);
-        this.observer = null;
-        this.locationTimer = null;
-        this.emotes.clear();
-        this.autocompleteEmotes.clear();
-        this.renderScheduler.dispose();
-        this.tooltip.dispose();
-        this.autocomplete.dispose();
-        this.picker.dispose();
-      }
-
-      configure({ sevenTvEnabled, betterTtvEnabled, autocompleteEnabled, pickerEnabled }) {
-        const nextSevenTv = Boolean(sevenTvEnabled);
-        const nextBetterTtv = Boolean(betterTtvEnabled);
-        const nextAutocomplete = Boolean(autocompleteEnabled);
-        const nextPicker = Boolean(pickerEnabled) && (nextSevenTv || nextBetterTtv);
-        const providersChanged = nextSevenTv !== this.enabledSevenTv || nextBetterTtv !== this.enabledBetterTtv;
-        const autocompleteChanged = nextAutocomplete !== this.autocompleteEnabled;
-        const pickerChanged = nextPicker !== this.pickerEnabled;
-        if (
-          !providersChanged
-          && !autocompleteChanged
-          && !pickerChanged
-        ) return;
-        this.enabledSevenTv = nextSevenTv;
-        this.enabledBetterTtv = nextBetterTtv;
-        this.autocompleteEnabled = nextAutocomplete;
-        this.pickerEnabled = nextPicker;
-        this.autocomplete.setEnabled(nextAutocomplete);
-        this.picker.setEnabled(nextPicker);
-        if (providersChanged || autocompleteChanged) this.reload();
-      }
-
-      async reload() {
-        const generation = ++this.loadGeneration;
-        this.channelLogin = currentLogin();
-        this.emotes.clear();
-        this.autocompleteEmotes.clear();
-        this.autocomplete.setEmotes([]);
-        this.picker.setEmotes([]);
-        this.observer?.disconnect();
-        this.observer = null;
-        if (!this.enabledSevenTv && !this.enabledBetterTtv && !this.autocompleteEnabled) {
-          this.tooltip.bind(null);
-          return;
-        }
-        const channelId = this.channelLogin ? await this.fetchTwitchUserId(this.channelLogin) : '';
-        const [sevenTvEmotes, betterTtvEmotes] = await Promise.all([
-          (this.enabledSevenTv || this.autocompleteEnabled) ? this.fetchSevenTv(channelId) : new Map(),
-          (this.enabledBetterTtv || this.autocompleteEnabled) ? this.fetchBetterTtv(channelId) : new Map()
-        ]);
-        if (generation !== this.loadGeneration) return;
-        this.autocompleteEmotes = emoteCatalog.merge(sevenTvEmotes, betterTtvEmotes);
-        this.emotes = emoteCatalog.merge(
-          this.enabledSevenTv ? sevenTvEmotes : null,
-          this.enabledBetterTtv ? betterTtvEmotes : null
-        );
-        this.autocomplete.setEmotes(this.autocompleteEmotes);
-        this.picker.setEmotes(this.emotes);
-        if (!this.enabledSevenTv && !this.enabledBetterTtv) {
-          this.tooltip.bind(null);
-          return;
-        }
-        this.observeChat();
-        this.renderExisting();
-      }
-
-      async fetchJson(url, options) {
-        try {
-          const response = await fetch(url, { credentials: 'omit', ...options });
-          return response.ok ? await response.json() : null;
-        } catch {
-          return null;
-        }
-      }
-
-      async fetchTwitchUserId(login) {
-        const payload = await this.fetchJson(TWITCH_GQL_ENDPOINT, {
-          method: 'POST',
-          headers: { 'Client-ID': TWITCH_CLIENT_ID, 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            operationName: 'TfrEnhancementUserId',
-            query: 'query TfrEnhancementUserId($login: String!) { user(login: $login) { id } }',
-            variables: { login }
-          })
-        });
-        return payload?.data?.user?.id || '';
-      }
-
-      async fetchSevenTv(channelId) {
-        const target = new Map();
-        const [globalSet, channelSet] = await Promise.all([
-          this.fetchJson('https://7tv.io/v3/emote-sets/global'),
-          channelId ? this.fetchJson(`https://7tv.io/v3/users/twitch/${encodeURIComponent(channelId)}`) : null
-        ]);
-        emoteCatalog.appendSevenTv(target, globalSet);
-        emoteCatalog.appendSevenTv(target, channelSet);
-        return target;
-      }
-
-      async fetchBetterTtv(channelId) {
-        const target = new Map();
-        const [globalEmotes, channel] = await Promise.all([
-          this.fetchJson('https://api.betterttv.net/3/cached/emotes/global'),
-          channelId ? this.fetchJson(`https://api.betterttv.net/3/cached/users/twitch/${encodeURIComponent(channelId)}`) : null
-        ]);
-        emoteCatalog.appendBetterTtv(target, globalEmotes);
-        emoteCatalog.appendBetterTtv(target, channel?.channelEmotes);
-        emoteCatalog.appendBetterTtv(target, channel?.sharedEmotes);
-        return target;
-      }
-
-      observeChat() {
-        if (!this.enabledSevenTv && !this.enabledBetterTtv) return;
-        const container = findChatContainer();
-        if (!container) {
-          scheduleChatRetry(this, () => this.observeChat());
-          return;
-        }
-        if (container === this.container && this.observer) return;
-        this.container = container;
-        this.tooltip.bind(container);
-        this.observer?.disconnect();
-        this.observer = new MutationObserver((mutations) => {
-          if (document.visibilityState === 'hidden') return;
-          const startedAt = window.TFRPerformance?.now?.();
-          mutations.forEach((mutation) => mutation.addedNodes.forEach((node) => this.renderScheduler.enqueue(node)));
-          if (startedAt !== undefined) window.TFRPerformance?.report?.('emotes.renderMessages', startedAt);
-        });
-        this.observer.observe(container, { childList: true, subtree: true });
-      }
-
-      renderExisting() {
-        this.container?.querySelectorAll(MESSAGE_SELECTOR).forEach((message) => this.renderMessage(message));
-      }
-
-      scanNode(node) {
-        visitMatchingElements(node, MESSAGE_SELECTOR, (message) => this.renderMessage(message));
-      }
-
-      renderMessage(message) {
-        if (!this.emotes.size) return;
-        const body = message.querySelector(MESSAGE_BODY_SELECTOR);
-        if (!body) return;
-        const walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT, {
-          acceptNode: (node) => node.parentElement?.closest('.tfr-chat-emote, a, button, [data-a-target="chat-badge"]')
-            ? NodeFilter.FILTER_REJECT
-            : NodeFilter.FILTER_ACCEPT
-        });
-        const textNodes = [];
-        while (walker.nextNode()) textNodes.push(walker.currentNode);
-        textNodes.forEach((textNode) => this.replaceTextNode(textNode));
-      }
-
-      replaceTextNode(textNode) {
-        const tokens = String(textNode.nodeValue || '').split(/(\s+)/);
-        if (!tokens.some((token) => this.emotes.has(token))) return;
-        const fragment = document.createDocumentFragment();
-        tokens.forEach((token) => {
-          const emote = this.emotes.get(token);
-          if (!emote) {
-            fragment.appendChild(document.createTextNode(token));
-            return;
-          }
-          const image = document.createElement('img');
-          image.className = 'tfr-chat-emote';
-          image.src = emote.url;
-          image.alt = emote.name;
-          image.dataset.tfrEmoteName = emote.name;
-          image.dataset.tfrEmoteProvider = emote.provider;
-          image.setAttribute('aria-label', `${emote.name}, ${emote.provider}`);
-          image.loading = 'lazy';
-          image.decoding = 'async';
-          fragment.appendChild(image);
-        });
-        textNode.parentNode?.replaceChild(fragment, textNode);
-      }
-    }
+    const ThirdPartyChatEmotes = window.TFRThirdPartyChatEmotes.create({
+      t, findChatContainer, scheduleChatRetry, clearChatRetry, visitMatchingElements,
+      messageSelector: MESSAGE_SELECTOR, messageBodySelector: MESSAGE_BODY_SELECTOR
+    });
 
     class PlayerLatencyIndicator {
       constructor() {
@@ -457,442 +223,7 @@
       }
     }
 
-    class PlayerAudioCompressor {
-      constructor() {
-        this.engine = new PlayerAudioEngine({
-          workletModuleUrl: audioWorkletModuleUrl,
-          onWorkletLevel: () => this.updateVolumeNormalization(true)
-        });
-        this.enabled = false;
-        this.controlsEnabled = false;
-        this.preset = 'balanced';
-        this.normalizerEnabled = false;
-        this.targetDb = -16;
-        this.maxReductionDb = VOLUME_MAX_REDUCTION_DEFAULT_DB;
-        this.timer = null;
-        this.meterTimer = null;
-        this.button = null;
-        this.panel = null;
-        this.updatePreference = null;
-        this.resumeAudio = () => this.engine.resume();
-        this.boundVideo = null;
-        this.boundMediaChanged = () => { this.engine.resetMediaState(); this.refresh(); };
-        this.lastMeterReadoutAt = 0;
-      }
-
-      get currentGainDb() { return this.engine.currentGainDb; }
-      get measuredLevelDb() { return this.engine.measuredLevelDb; }
-      get normalizerPhase() { return this.engine.normalizerPhase; }
-      get video() { return this.engine.video; }
-      get graph() { return this.engine.graph; }
-      set graph(value) { this.engine.graph = value; }
-
-      init() {
-        this.timer = window.setInterval(() => this.refresh(), 1000);
-      }
-
-      syncRuntimeActivity() {
-        if (this.normalizerEnabled && !this.meterTimer) {
-          this.meterTimer = window.setInterval(() => this.updateVolumeNormalization(false), 100);
-        } else if (!this.normalizerEnabled && this.meterTimer) {
-          clearInterval(this.meterTimer);
-          this.meterTimer = null;
-        }
-        const shouldResumeAudio = this.enabled || this.normalizerEnabled || Boolean(this.engine.graph);
-        const method = shouldResumeAudio ? 'addEventListener' : 'removeEventListener';
-        document[method]?.('pointerdown', this.resumeAudio, true);
-        document[method]?.('keydown', this.resumeAudio, true);
-        if (!shouldResumeAudio) this.bindVideoEvents(null);
-      }
-
-      setPreferenceUpdater(updatePreference) {
-        this.updatePreference = updatePreference;
-      }
-
-      closePanel() {
-        this.panel?.remove();
-        this.panel = null;
-      }
-
-      removeControls() {
-        this.closePanel();
-        this.button?.remove();
-        this.button = null;
-      }
-
-      configure({ controlsEnabled, enabled, preset, normalizerEnabled, targetDb, maxReductionDb }) {
-        const panelWasOpen = Boolean(this.panel?.isConnected);
-        this.controlsEnabled = Boolean(controlsEnabled);
-        this.enabled = Boolean(enabled);
-        this.preset = this.normalizePreset(preset);
-        this.normalizerEnabled = Boolean(normalizerEnabled);
-        this.targetDb = this.normalizeTargetDb(targetDb);
-        this.maxReductionDb = this.engine.normalizeMaxReductionDb(maxReductionDb);
-        this.engine.configure({
-          compressorEnabled: this.enabled,
-          preset: this.preset,
-          normalizerEnabled: this.normalizerEnabled,
-          targetDb: this.targetDb,
-          maxReductionDb: this.maxReductionDb
-        });
-        this.syncRuntimeActivity();
-        this.closePanel();
-        this.refresh();
-        if (panelWasOpen && this.controlsEnabled) this.togglePanel();
-      }
-
-      normalizePreset(preset) {
-        return this.engine.normalizePreset(preset);
-      }
-
-      normalizeTargetDb(value) {
-        return this.engine.normalizeTargetDb(value);
-      }
-
-      calculateTargetGainDb(inputDb) {
-        this.engine.targetDb = this.targetDb;
-        return this.engine.calculateTargetGainDb(inputDb);
-      }
-
-      calculateMeasuredLevelDb(samples) {
-        return this.engine.calculateMeasuredLevelDb(samples);
-      }
-
-      applyCompressorState() {
-        this.engine.compressorEnabled = this.enabled;
-        this.engine.preset = this.preset;
-        this.engine.applyCompressorState();
-        const audioProtectionEnabled = this.enabled || this.normalizerEnabled;
-        this.button?.classList.toggle('is-active', audioProtectionEnabled);
-        this.button?.setAttribute('aria-pressed', String(audioProtectionEnabled));
-      }
-
-      updateVolumeNormalization(fromWorklet = false) {
-        if (document.visibilityState === 'hidden' || !this.normalizerEnabled) return;
-        if (!fromWorklet && this.engine.isWorkletMeasurementFresh()) return;
-        const result = this.engine.update();
-        const now = Date.now();
-        if (result && now - this.lastMeterReadoutAt >= 200) {
-          this.lastMeterReadoutAt = now;
-          this.updateNormalizerReadout(
-            result.levelDb,
-            result.contextState,
-            result.normalizerPhase,
-            result.measurementMode
-          );
-        }
-      }
-
-      formatReductionDb(value) {
-        const reduction = Number(value) || 0;
-        return (Math.abs(reduction) < 0.05 ? 0 : reduction).toFixed(1);
-      }
-
-      updateNormalizerReadout(
-        levelDb,
-        contextState = 'running',
-        phase = this.normalizerPhase,
-        measurementMode = this.engine.getMeasurementMode()
-      ) {
-        const levelOutput = this.panel?.querySelector?.('.tfr-audio-normalizer__level');
-        const gainOutput = this.panel?.querySelector?.('.tfr-audio-normalizer__gain');
-        const calibrateButton = this.panel?.querySelector?.('.tfr-audio-normalizer__calibrate');
-        const measurementOutput = this.panel?.querySelector?.('.tfr-audio-normalizer__measurement');
-        if (calibrateButton) calibrateButton.disabled = !this.normalizerEnabled || !Number.isFinite(levelDb);
-        if (levelOutput) {
-          levelOutput.textContent = contextState === 'running'
-            ? t('settings.volumeNormalizer.measured', {
-              level: Number.isFinite(levelDb) ? levelDb.toFixed(1) : '—'
-            })
-            : t('settings.volumeNormalizer.audioPaused');
-        }
-        if (gainOutput) gainOutput.textContent = this.normalizerEnabled
-          ? t(
-            phase === 'releasing'
-              ? 'settings.volumeNormalizer.gainReleasing'
-              : 'settings.volumeNormalizer.gain',
-            { gain: this.formatReductionDb(this.currentGainDb) }
-          )
-          : t('settings.volumeNormalizer.gainInactive');
-        if (measurementOutput) measurementOutput.textContent = t(
-          measurementMode === 'worklet'
-            ? 'settings.volumeNormalizer.measurementWorklet'
-            : 'settings.volumeNormalizer.measurementFallback'
-        );
-      }
-
-      updateCompressorReadout() {
-        const output = this.panel?.querySelector?.('.tfr-audio-compressor__reduction');
-        if (!output) return;
-        const reduction = this.formatReductionDb(this.graph?.compressor?.reduction);
-        output.textContent = this.enabled
-          ? t('settings.audioCompressor.reduction', { reduction })
-          : t('settings.audioCompressor.reductionInactive');
-      }
-
-      attachAudio(video) {
-        const attached = this.engine.attach(video);
-        if (attached) {
-          this.bindVideoEvents(video);
-          this.engine.resume();
-        }
-        return attached;
-      }
-
-      bindVideoEvents(video) {
-        if (this.boundVideo === video) return;
-        ['play', 'playing', 'volumechange'].forEach((eventName) => {
-          this.boundVideo?.removeEventListener?.(eventName, this.resumeAudio);
-          video?.addEventListener?.(eventName, this.resumeAudio);
-        });
-        ['loadstart', 'emptied', 'loadedmetadata'].forEach((eventName) => {
-          this.boundVideo?.removeEventListener?.(eventName, this.boundMediaChanged);
-          video?.addEventListener?.(eventName, this.boundMediaChanged);
-        });
-        this.boundVideo = video || null;
-      }
-
-      ensureButton() {
-        if (!this.controlsEnabled) {
-          this.removeControls();
-          return;
-        }
-        const volumeButton = document.querySelector(
-          '[data-a-target="player-mute-unmute-button"], [data-a-target="player-volume-button"]'
-        );
-        const controls = volumeButton?.parentElement;
-        if (!controls) {
-          this.removeControls();
-          return;
-        }
-        if (!this.button) {
-          this.button = document.createElement('button');
-          this.button.type = 'button';
-          this.button.className = 'tfr-audio-compressor-button';
-          this.button.textContent = '≋';
-          this.button.title = t('settings.audioCompressor.button');
-          this.button.setAttribute('aria-label', t('settings.audioCompressor.button'));
-          this.button.addEventListener('click', () => this.togglePanel());
-        }
-        if (this.button.parentElement !== controls) controls.appendChild(this.button);
-        this.applyCompressorState();
-      }
-
-      createPanelHeading(titleKey, enabled) {
-        const heading = document.createElement('div');
-        heading.className = 'tfr-audio-compressor-panel__heading';
-        const title = document.createElement('strong');
-        title.textContent = t(titleKey);
-        const status = document.createElement('span');
-        status.className = 'tfr-audio-compressor-panel__status';
-        status.textContent = enabled
-          ? t('settings.audioCompressor.statusEnabled') : t('settings.audioCompressor.statusDisabled');
-        heading.append(title, status);
-        return heading;
-      }
-
-      createStateToggle(enabled, onToggle) {
-        const button = document.createElement('button');
-        button.type = 'button';
-        button.className = `tfr-audio-compressor-panel__toggle ${enabled ? 'is-disable' : 'is-enable'}`;
-        button.textContent = enabled
-          ? t('settings.audioCompressor.disable') : t('settings.audioCompressor.enable');
-        button.addEventListener('click', onToggle);
-        return button;
-      }
-
-      createRangeScale(labelKeys) {
-        const scale = document.createElement('span');
-        scale.className = 'tfr-audio-normalizer__scale';
-        labelKeys.forEach((labelKey) => {
-          const item = document.createElement('span');
-          item.textContent = t(labelKey);
-          scale.appendChild(item);
-        });
-        return scale;
-      }
-
-      createDbRangeControl({ titleKey, value, min, max, scaleKeys, preferenceKey, footer = null }) {
-        const label = document.createElement('label');
-        label.className = 'tfr-audio-normalizer__target';
-        const heading = document.createElement('span');
-        heading.textContent = t(titleKey);
-        const output = document.createElement('output');
-        output.textContent = `${value} dB`;
-        heading.appendChild(output);
-        const input = document.createElement('input');
-        input.type = 'range';
-        input.min = String(min);
-        input.max = String(max);
-        input.step = '1';
-        input.value = String(value);
-        input.disabled = !this.normalizerEnabled;
-        input.addEventListener('input', () => { output.textContent = `${input.value} dB`; });
-        input.addEventListener('change', async () => {
-          await this.updatePreference?.({ [preferenceKey]: Number(input.value) });
-        });
-        label.append(heading, input, this.createRangeScale(scaleKeys));
-        if (footer) label.appendChild(footer);
-        return label;
-      }
-
-      togglePanel() {
-        if (!this.controlsEnabled || !this.button) return;
-        if (this.panel?.isConnected) {
-          this.closePanel();
-          return;
-        }
-        this.engine.resume();
-        const panel = document.createElement('div');
-        panel.className = 'tfr-audio-compressor-panel';
-        panel.classList.toggle('is-enabled', this.enabled);
-        panel.classList.toggle('is-normalizing', this.normalizerEnabled);
-        const heading = this.createPanelHeading('settings.audioCompressor.title', this.enabled);
-        const description = document.createElement('small');
-        description.textContent = t('settings.audioCompressor.panelDescription');
-        const toggle = this.createStateToggle(this.enabled, async () => {
-          await this.updatePreference?.({ enabled: !this.enabled, preset: this.preset });
-        });
-        const presets = document.createElement('div');
-        presets.className = 'tfr-audio-compressor-panel__presets';
-        AUDIO_COMPRESSOR_PRESETS.forEach((preset) => {
-          const button = document.createElement('button');
-          button.type = 'button';
-          button.textContent = t(`settings.audioCompressor.preset.${preset}`);
-          button.disabled = !this.enabled;
-          button.classList.toggle('is-active', this.enabled && preset === this.preset);
-          button.addEventListener('click', async () => {
-            await this.updatePreference?.({ enabled: true, preset });
-          });
-          presets.appendChild(button);
-        });
-        const compressorReduction = document.createElement('output');
-        compressorReduction.className = 'tfr-audio-compressor__reduction';
-        compressorReduction.textContent = this.enabled
-          ? t('settings.audioCompressor.reduction', {
-            reduction: (Number(this.graph?.compressor?.reduction) || 0).toFixed(1)
-          })
-          : t('settings.audioCompressor.reductionInactive');
-        const normalizer = document.createElement('section');
-        normalizer.className = 'tfr-audio-normalizer';
-        const normalizerHeading = this.createPanelHeading(
-          'settings.volumeNormalizer.title', this.normalizerEnabled
-        );
-        const normalizerDescription = document.createElement('small');
-        normalizerDescription.textContent = t('settings.volumeNormalizer.panelDescription');
-        const normalizerToggle = this.createStateToggle(this.normalizerEnabled, async () => {
-          await this.updatePreference?.({ normalizerEnabled: !this.normalizerEnabled });
-        });
-        const calibrateButton = document.createElement('button');
-        calibrateButton.type = 'button';
-        calibrateButton.className = 'tfr-audio-normalizer__calibrate';
-        calibrateButton.disabled = !this.normalizerEnabled || !Number.isFinite(this.measuredLevelDb);
-        calibrateButton.textContent = t('settings.volumeNormalizer.useCurrentLevel');
-        calibrateButton.addEventListener('click', async () => {
-          if (!Number.isFinite(this.measuredLevelDb)) return;
-          await this.updatePreference?.({ targetDb: Math.round(this.measuredLevelDb) });
-        });
-        const targetLabel = this.createDbRangeControl({
-          titleKey: 'settings.volumeNormalizer.target',
-          value: this.targetDb,
-          min: VOLUME_TARGET_MIN_DB,
-          max: VOLUME_TARGET_MAX_DB,
-          scaleKeys: [
-            'settings.volumeNormalizer.quieter',
-            'settings.volumeNormalizer.recommended',
-            'settings.volumeNormalizer.louder'
-          ],
-          preferenceKey: 'targetDb',
-          footer: calibrateButton
-        });
-        const reductionHint = document.createElement('small');
-        reductionHint.textContent = t('settings.volumeNormalizer.maxReductionHint');
-        const reductionLabel = this.createDbRangeControl({
-          titleKey: 'settings.volumeNormalizer.maxReduction',
-          value: this.maxReductionDb,
-          min: VOLUME_MAX_REDUCTION_MIN_DB,
-          max: VOLUME_MAX_REDUCTION_MAX_DB,
-          scaleKeys: [
-            'settings.volumeNormalizer.strongerLimit',
-            'settings.volumeNormalizer.defaultLimit',
-            'settings.volumeNormalizer.lighterLimit'
-          ],
-          preferenceKey: 'maxReductionDb',
-          footer: reductionHint
-        });
-        const gainOutput = document.createElement('output');
-        gainOutput.className = 'tfr-audio-normalizer__gain';
-        gainOutput.textContent = this.normalizerEnabled
-          ? t(
-            this.normalizerPhase === 'releasing'
-              ? 'settings.volumeNormalizer.gainReleasing'
-              : 'settings.volumeNormalizer.gain',
-            { gain: this.formatReductionDb(this.currentGainDb) }
-          )
-          : t('settings.volumeNormalizer.gainInactive');
-        const levelOutput = document.createElement('output');
-        levelOutput.className = 'tfr-audio-normalizer__level';
-        levelOutput.textContent = t('settings.volumeNormalizer.measured', {
-          level: Number.isFinite(this.measuredLevelDb) ? this.measuredLevelDb.toFixed(1) : '—'
-        });
-        const measurementOutput = document.createElement('output');
-        measurementOutput.className = 'tfr-audio-normalizer__measurement';
-        measurementOutput.textContent = t(
-          this.engine.getMeasurementMode() === 'worklet'
-            ? 'settings.volumeNormalizer.measurementWorklet'
-            : 'settings.volumeNormalizer.measurementFallback'
-        );
-        normalizer.append(
-          normalizerHeading, normalizerDescription, normalizerToggle, targetLabel,
-          reductionLabel, measurementOutput, levelOutput, gainOutput
-        );
-        panel.append(heading, description, toggle, presets, compressorReduction, normalizer);
-        document.body.appendChild(panel);
-        const rect = this.button.getBoundingClientRect();
-        panel.style.left = `${Math.max(8, Math.min(window.innerWidth - 288, rect.left))}px`;
-        panel.style.bottom = `${Math.max(8, window.innerHeight - rect.top + 8)}px`;
-        this.panel = panel;
-      }
-
-      refresh() {
-        if (document.visibilityState === 'hidden') return;
-        this.ensureButton();
-        const video = document.querySelector('.video-player__container video, [data-a-target="video-player"] video, video');
-        if (video && !this.engine.canProcess(video)) {
-          const needsNativeRestore = /^https?:/i.test(video.src || video.currentSrc || '')
-            || /\/clip\//i.test(window.location.pathname);
-          const restoreCount = Number(video.dataset?.tfrAudioRestoreCount || 0);
-          const restoreAt = Number(video.dataset?.tfrAudioRestoreAt || 0);
-          if (needsNativeRestore && video.dataset?.tfrAudioCaptured === 'true'
-            && restoreCount < 3 && Date.now() >= restoreAt) {
-            const root = video.closest?.('[data-a-target="video-player"], .video-player__container');
-            if (root) {
-              video.dataset.tfrAudioRestoreCount = String(restoreCount + 1);
-              video.dataset.tfrAudioRestoreAt = String(Date.now() + 16000 * 2 ** restoreCount);
-              root.dispatchEvent(new Event('tfr:player:audio-restore', { bubbles: true }));
-            }
-          }
-          this.engine.disconnectReplacedGraph();
-          this.bindVideoEvents(null);
-          return;
-        }
-        if ((this.enabled || this.normalizerEnabled) && video && video !== this.video) this.attachAudio(video);
-        this.applyCompressorState();
-        this.updateCompressorReadout();
-      }
-
-      dispose() {
-        clearInterval(this.timer);
-        clearInterval(this.meterTimer);
-        this.timer = null;
-        this.meterTimer = null;
-        this.removeControls();
-        document.removeEventListener?.('pointerdown', this.resumeAudio, true);
-        document.removeEventListener?.('keydown', this.resumeAudio, true);
-        this.bindVideoEvents(null);
-        this.engine.bypass();
-      }
-    }
+    const PlayerAudioCompressor = window.TFRPlayerAudioControls.create({ t, audioWorkletModuleUrl });
 
     class ChatFontManager {
       constructor() {
@@ -960,6 +291,47 @@
 
       init() {}
 
+      setModerationTracker(tracker) {
+        if (this.moderationTracker === tracker) return;
+        this.unsubscribeModeration?.();
+        this.moderationTracker = tracker;
+        this.unsubscribeModeration = tracker?.subscribe(() => {
+          this.updateSanctionLabels();
+          if (this.enabled) this.container?.querySelectorAll(DELETED_TRACKING_SELECTOR).forEach(message => this.processMessage(message));
+        });
+        this.updateSanctionLabels();
+      }
+
+      getDeletionLabel(message) {
+        const latest = this.moderationTracker?.getMessageState?.(this.getMessageId(message))?.action;
+        if (latest?.type === 'ban' && latest.isPermanent) return t('settings.deletedMessages.ban');
+        if (latest?.type === 'timeout') {
+          const seconds = Number(latest.duration);
+          if (!(seconds > 0)) return t('settings.deletedMessages.timeoutUnknown');
+          const duration = seconds >= 86400 ? `${Math.floor(seconds / 86400)}d ${Math.floor(seconds % 86400 / 3600)}h`
+            : seconds >= 3600 ? `${Math.floor(seconds / 3600)}h ${Math.floor(seconds % 3600 / 60)}min`
+            : seconds >= 60 ? `${Math.floor(seconds / 60)}min ${Math.floor(seconds % 60)}s` : `${seconds}s`;
+          return t('settings.deletedMessages.timeout', { duration });
+        }
+        return t('settings.deletedMessages.badge');
+      }
+
+      updateSanctionLabel(message) {
+        const label = this.getDeletionLabel(message);
+        if (message.dataset.tfrDeletedLabel !== label) message.dataset.tfrDeletedLabel = label;
+        const body = window.TFRChatDomTools.queryMessage(message, MESSAGE_BODY_SELECTOR);
+        if (body && body.dataset.tfrDeletedLabel !== label) body.dataset.tfrDeletedLabel = label;
+        const restored = deletedMessageView.findRestored(message);
+        if (restored && restored.getAttribute('aria-label') !== label) restored.setAttribute('aria-label', label);
+      }
+
+      updateSanctionLabels() {
+        if (!this.enabled) return;
+        document.querySelectorAll('.tfr-deleted-message-react-restored, .tfr-deleted-message-revealed').forEach(message => {
+          if (!window.TFRChatDomTools.isReplyContext(message)) this.updateSanctionLabel(message);
+        });
+      }
+
       configure(enabled) {
         this.enabled = Boolean(enabled);
         if (!this.enabled) {
@@ -971,7 +343,7 @@
         this.observe();
       }
 
-      dispose() { this.stop(); }
+      dispose() { this.setModerationTracker(null); this.stop(); }
 
       stop() {
         document.documentElement.classList.remove('tfr-show-deleted-messages');
@@ -1024,14 +396,15 @@
       }
 
       isDeleted(message) {
-        const dataset = message.dataset || {};
-        if (dataset.deleted === 'true' || dataset.deletedMessage === 'true') return true;
-        if (message.classList.contains('chat-line__message--deleted') || message.classList.contains('is-deleted')) return true;
-        if (message.querySelector('[data-a-target="deleted-message"], [data-test-selector="chat-line-message-deleted"], [data-test-selector="chat-deleted-message"]')) return true;
-        return /message (?:supprim\u00e9|deleted)/i.test(message.textContent || '');
+        if (window.TFRChatDomTools.isReplyContext(message)) return false;
+        return this.moderationTracker?.getMessageState?.(this.getMessageId(message))?.deleted === true;
       }
 
       getMessageId(message) {
+        message.dispatchEvent?.(new Event('tfr:chat:inspect-reply', { bubbles: true }));
+        const nativeId = message.dataset?.tfrMessageId;
+        if (nativeId) return nativeId;
+        message = window.TFRChatDomTools.ownMessage(message);
         const holder = message.matches?.('[data-message-id],[data-id],[data-uuid]')
           ? message
           : message.querySelector?.('[data-message-id],[data-id],[data-uuid]');
@@ -1042,6 +415,7 @@
       }
 
       getMessageSnapshotKey(message) {
+        message = window.TFRChatDomTools.ownMessage(message);
         const user = String(
           message.dataset?.aUser
           || message.getAttribute?.('data-a-user')
@@ -1079,6 +453,7 @@
       }
 
       captureRemovedSnapshot(message, mutation) {
+        if (window.TFRChatDomTools.isReplyContext(mutation?.target)) return false;
         const removedNodes = Array.from(mutation?.removedNodes || []);
         const oldText = mutation?.type === 'characterData' ? String(mutation.oldValue || '').trim() : '';
         const removedText = removedNodes.map((node) => String(node.textContent || '').trim())
@@ -1095,8 +470,8 @@
       }
 
       requestNativeRestore(message) {
-        message.dataset.tfrDeletedLabel = t('settings.deletedMessages.badge');
-        const body = message.querySelector(MESSAGE_BODY_SELECTOR);
+        this.updateSanctionLabel(message);
+        const body = window.TFRChatDomTools.queryMessage(message, MESSAGE_BODY_SELECTOR);
         if (body) body.dataset.tfrDeletedLabel = message.dataset.tfrDeletedLabel;
         if (message.dataset.tfrDeletedRestoreRequested === 'true') return;
         message.dataset.tfrDeletedRestoreRequested = 'true';
@@ -1106,12 +481,17 @@
       }
 
       processMessage(message) {
+        if (window.TFRChatDomTools.isReplyContext(message)) return;
         if (!(message instanceof HTMLElement)) return;
         const existing = deletedMessageView.findRestored(message);
         if (!this.isDeleted(message)) {
-          if (message.classList.contains('tfr-deleted-message-react-restored')) return;
+          if (message.classList.contains('tfr-deleted-message-react-restored')) {
+            this.updateSanctionLabel(message);
+            return;
+          }
           deletedMessageView.clear(message);
-          const body = message.querySelector(MESSAGE_BODY_SELECTOR);
+          const body = window.TFRChatDomTools.queryMessage(message, MESSAGE_BODY_SELECTOR)
+          || window.TFRChatDomTools.queryMessage(message, window.TFRChatDomTools.DELETION_SELECTOR)?.parentElement;
           const text = body?.textContent?.trim();
           if (text) {
             this.rememberSnapshot(message, {
@@ -1123,16 +503,18 @@
         }
         this.requestNativeRestore(message);
         if (existing) return;
-        const snapshot = this.findSnapshot(message);
+        const serverMessage = this.moderationTracker?.getMessageState?.(this.getMessageId(message))?.message;
+        const snapshot = serverMessage ? { text: serverMessage.text, nodes: [] } : null;
         if (!snapshot?.text) return;
-        const body = message.querySelector(MESSAGE_BODY_SELECTOR);
+        const body = window.TFRChatDomTools.queryMessage(message, MESSAGE_BODY_SELECTOR)
+          || window.TFRChatDomTools.queryMessage(message, window.TFRChatDomTools.DELETION_SELECTOR)?.parentElement;
         if (!body) return;
         deletedMessageView.reveal({
           message,
           body,
           text: snapshot.text,
           nodes: snapshot.nodes,
-          label: t('settings.deletedMessages.badge')
+          label: this.getDeletionLabel(message)
         });
       }
     }

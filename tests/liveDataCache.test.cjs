@@ -29,3 +29,18 @@ test('workspace live refresh removes stale login and user-id aliases', () => {
   assert.equal(result.untouched.isLive, true);
   assert.equal(result.newname.isLive, false);
 });
+
+
+test('startup discards yesterday and undated statuses but keeps recently confirmed data', () => {
+  const now = 200000000;
+  const result = cache.freshEntries({
+    yesterday: { isLive: true, lastConfirmedAt: now - 86400000 },
+    undated: { isLive: true },
+    future: { isLive: true, lastConfirmedAt: now + 1 },
+    recent: { isLive: true, lastConfirmedAt: now - 60000 },
+    offline: { isLive: false, lastConfirmedAt: now - 1000 }
+  }, now);
+  assert.deepEqual(Object.keys(result).sort(), ['offline', 'recent']);
+  assert.equal(result.recent.isLive, true);
+  assert.equal(Object.keys(cache.freshEntries(result, now + 121000)).length, 0);
+});

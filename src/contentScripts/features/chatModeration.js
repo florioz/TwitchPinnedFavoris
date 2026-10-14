@@ -2,23 +2,18 @@
   const createChatModerationFeatures = ({
     t,
     formatModerationDurationLabel,
-    formatModerationTimestamp,
-    MAX_TIMEOUT_SECONDS
+    formatModerationTimestamp
   }) => {
   const thirdPartyEmotes = window.TFRChatEmoteResolver.create();
   const chatDomTools = window.TFRChatDomTools;
-  const durationTools = window.TFRModerationDurationTools;
   const historyPresenter = window.TFRModerationHistoryPresenter.create({
     t,
     formatDuration: formatModerationDurationLabel,
     formatTimestamp: formatModerationTimestamp
   });
-  const actionCollection = window.TFRModerationActionCollection;
-  const moderationTextTools = window.TFRModerationTextTools;
   const panelGeometry = window.TFRModerationPanelGeometry;
   const createEventEmitter = window.TFREventEmitter.create;
   if (!chatDomTools) throw new Error('[TFR] chat DOM tools are missing');
-  if (!durationTools) throw new Error('[TFR] moderation duration tools are missing');
 
   class ChatHistoryTracker {
     constructor() {
@@ -209,6 +204,7 @@
     }
 
     captureMessage(messageElement) {
+      if (chatDomTools.isReplyContext(messageElement)) return;
       const rootElement = this.getMessageRoot(messageElement);
       if (!rootElement || rootElement.dataset?.tfrChatTracked === 'true' || messageElement?.dataset?.tfrChatTracked === 'true') {
         return;
@@ -265,6 +261,7 @@
     }
 
     getMessageId(messageElement) {
+      messageElement = chatDomTools.ownMessage(messageElement);
       const holder = messageElement?.matches?.('[data-message-id],[data-id],[data-uuid]')
         ? messageElement
         : messageElement?.querySelector?.('[data-message-id],[data-id],[data-uuid]');
@@ -327,6 +324,7 @@
     }
 
     extractLogin(messageElement) {
+      messageElement = chatDomTools.ownMessage(messageElement);
       const dataset = messageElement.dataset || {};
       const candidates = [
         dataset.userName,
@@ -384,6 +382,7 @@
     }
 
     extractDisplayName(messageElement) {
+      messageElement = chatDomTools.ownMessage(messageElement);
       const dataset = messageElement.dataset || {};
       if (dataset.userDisplayName) {
         return dataset.userDisplayName;
@@ -398,6 +397,7 @@
     }
 
     extractMessageText(messageElement) {
+      messageElement = chatDomTools.ownMessage(messageElement);
       const textContainer =
         messageElement.querySelector('[data-a-target="chat-message-text"]') ||
         messageElement.querySelector('[data-test-selector="chat-line-message-body"]') ||
@@ -495,6 +495,7 @@
     }
 
     extractMessageFragments(messageElement, fallbackText = '') {
+      messageElement = chatDomTools.ownMessage(messageElement);
       const textContainer = this.getMessageContainer(messageElement);
       const skipSelectors = [
         '[data-a-target="chat-message-timestamp"]',
@@ -571,6 +572,7 @@
     }
 
     extractBadges(messageElement) {
+      messageElement = chatDomTools.ownMessage(messageElement);
       const badgeSelectors = [
         '[data-a-target="chat-badge"]',
         '[data-a-target*="badge" i]',
@@ -624,6 +626,7 @@
     }
 
     extractUserColor(messageElement) {
+      messageElement = chatDomTools.ownMessage(messageElement);
       const usernameNode =
         messageElement.querySelector('[data-a-target="chat-message-username"]') ||
         messageElement.querySelector('[data-test-selector="chat-message-username"]') ||
@@ -638,6 +641,7 @@
     }
 
     extractTimestamp(messageElement) {
+      messageElement = chatDomTools.ownMessage(messageElement);
       const dataset = messageElement.dataset || {};
       const numericCandidates = [
         dataset.timestamp,
@@ -720,1252 +724,51 @@
 
   const CHAT_MESSAGE_SELECTOR =
     '[data-a-target="chat-line-message"], [data-test-selector="chat-line-message"], [data-a-target="chat-line-user-notice"], [data-test-selector="chat-line-user-notice"], [data-a-target="chat-line-message-body"], .chat-line__message, .chat-line__status, .seventv-message';
-  const STATUS_LINK_WINDOW_MS = 15000;
-  const DELETION_BURST_WINDOW_MS = 1500;
-  const DELETION_PROMOTION_WINDOW_MS = 2000;
 
   class ModerationActionTracker {
     constructor(historyTracker) {
       this.historyTracker = historyTracker;
       this.actions = [];
       this.maxActions = 1000;
-      this.observer = null;
-      this.container = null;
-      this.retryTimer = null;
-      this.events = createEventEmitter({
-        onListenerError: (error) => console.error('[TFR] moderation tracker listener failed', error)
-      });
-      this.containerCheckTimer = null;
-      this.mutationFrame = null;
-      this.messageSelector = CHAT_MESSAGE_SELECTOR;
       this.actionKeys = new Set();
-      this.recentActionCache = new Map();
-      this.deletionEvidence = new Map();
-      this.pendingStatuses = new Map();
-      this.pendingMutations = [];
-      this.observerRoot = null;
-      this.visibilityHandler = () => this.handleVisibilityChange();
+      this.events = createEventEmitter();
+      this.feed = null;
+      this.unsubscribeFeed = null;
     }
-
     init() {
-      document.addEventListener('visibilitychange', this.visibilityHandler);
-      if (document.visibilityState !== 'hidden') this.observeChat(true);
-      if (!this.containerCheckTimer) {
-        this.containerCheckTimer = setInterval(() => {
-          if (document.visibilityState === 'hidden') return;
-          if (!this.container || !this.container.isConnected) {
-            this.observeChat(true);
-          }
-        }, 5000);
-      }
+      if (this.unsubscribeFeed) return;
+      this.feed = window.TFRTwitchChatEvents.getShared();
+      this.unsubscribeFeed = this.feed.subscribe(event => {
+        if (event.type === 'reset') { this.actions = []; this.actionKeys.clear(); this.emit(); return; }
+        if (event.type === 'refresh') { this.emit(); return; }
+        if (event.source !== 'twitch-irc' || !this.belongsToCurrentChannel(event) || this.actionKeys.has(event.id)) return;
+        this.actionKeys.add(event.id);
+        this.actions.push(event);
+        while (this.actions.length > this.maxActions) this.actionKeys.delete(this.actions.shift().id);
+        this.emit();
+      });
     }
-
-    dispose() {
-      document.removeEventListener('visibilitychange', this.visibilityHandler);
-      this.observer?.disconnect();
-      this.observer = null;
-      if (this.retryTimer) {
-        clearTimeout(this.retryTimer);
-        this.retryTimer = null;
-      }
-      if (this.containerCheckTimer) {
-        clearInterval(this.containerCheckTimer);
-        this.containerCheckTimer = null;
-      }
-      if (this.mutationFrame) {
-        cancelAnimationFrame(this.mutationFrame);
-        this.mutationFrame = null;
-      }
-      this.pendingMutations = [];
-      this.container = null;
-      this.observerRoot = null;
-      this.actions = [];
-      this.actionKeys.clear();
-      this.deletionEvidence.clear();
-      this.pendingStatuses.clear();
-      this.events.clear();
+    getMessageState(id) { return this.feed?.getMessageState(id) || null; }
+    subscribe(listener) { return this.events.subscribe(listener); }
+    belongsToCurrentChannel(event) {
+      const channel = window.TFRTwitchChatEvents.getChannel(window.location?.pathname);
+      return Boolean(channel) && event.channel === `/${channel}`;
     }
-
-    handleVisibilityChange() {
-      if (document.visibilityState === 'hidden') {
-        this.observer?.disconnect();
-        this.observer = null;
-        this.pendingMutations = [];
-        return;
-      }
-      this.observeChat(true);
-    }
-
-    subscribe(listener) {
-      return this.events.subscribe(listener);
-    }
-
-    emit() {
-      const snapshot = this.getActions();
-      this.events.emit(snapshot);
-    }
-
     getActions() {
-      return this.actions.slice();
-    }
-
-    observeChat(force = false) {
-      if (!force && this.container?.isConnected) {
-        return;
-      }
-      this.observer?.disconnect();
-      this.observer = null;
-      let container = null;
-      if (this.historyTracker?.chatContainer?.isConnected) {
-        container = this.historyTracker.chatContainer;
-      } else if (typeof this.historyTracker?.findMessagesContainer === 'function') {
-        try {
-          container = this.historyTracker.findMessagesContainer();
-        } catch (error) {
-          console.error('[TFR] moderation tracker container error', error);
-          container = null;
-        }
-      }
-      if (!container) {
-        container = document.querySelector?.(
-          '[data-test-selector="chat-room-component-layout"], [data-a-target="chat-room-component-layout"], .chat-room, .stream-chat'
-        ) || null;
-      }
-      if (!container) {
-        if (!this.retryTimer) {
-          this.retryTimer = setTimeout(() => {
-            this.retryTimer = null;
-            this.observeChat(true);
-          }, 1500);
-        }
-        return;
-      }
-      this.container = container;
-      this.observerRoot = this.findModerationRoot(container);
-      this.observer = new MutationObserver((mutations) => this.handleMutations(mutations));
-      this.observer.observe(this.observerRoot, {
-        childList: true,
-        subtree: true,
-        characterData: true,
-        attributeOldValue: true,
-        attributes: true,
-        attributeFilter: [
-          'class', 'aria-label', 'title', 'data-deleted', 'data-deleted-message',
-          'data-mod-action', 'data-moderation-action-type', 'data-action', 'data-duration',
-          'data-timeout-duration', 'data-timeout-seconds'
-        ]
-      });
-      this.captureExisting(this.observerRoot);
-      this.scanModerationStatus(this.observerRoot);
-    }
-
-    findModerationRoot(container) {
-      const explicit = container.closest?.(
-        '[data-a-target="chat-room-component-layout"], [data-test-selector="chat-room-component-layout"], .chat-room, .stream-chat'
-      );
-      if (explicit) return explicit;
-      let current = container;
-      for (let depth = 0; current?.parentElement && depth < 8; depth += 1) {
-        current = current.parentElement;
-        if (current.querySelector?.('[data-a-target="chat-input"], textarea[data-a-target*="chat"], [contenteditable="true"]')) {
-          return current;
-        }
-      }
-      return container;
-    }
-
-    captureExisting(container) {
-      const nodes = container.querySelectorAll(this.messageSelector);
-      nodes.forEach((node) => this.captureAction(node));
-    }
-
-    handleMutations(mutations) {
-      this.pendingMutations.push(...mutations);
-      if (this.mutationFrame) return;
-      this.mutationFrame = requestAnimationFrame(() => {
-        if (document.visibilityState === 'hidden') {
-          this.mutationFrame = null;
-          this.pendingMutations = [];
-          return;
-        }
-        const startedAt = window.TFRPerformance?.now?.();
-        this.mutationFrame = null;
-        const pending = this.pendingMutations.splice(0, this.pendingMutations.length);
-        pending.forEach((mutation) => {
-          if (mutation.type === 'childList') {
-            mutation.addedNodes.forEach((node) => {
-              this.scanNode(node);
-              this.scanModerationStatus(node);
-            });
-            this.scanClosestMessage(mutation.target);
-          } else if (this.shouldScanMutation(mutation)) {
-            this.scanClosestMessage(mutation.target);
-            this.scanModerationStatus(
-              mutation.target?.nodeType === Node.TEXT_NODE ? mutation.target.parentElement : mutation.target
-            );
-          }
-        });
-        if (startedAt !== undefined) {
-          window.TFRPerformance?.report?.('moderation.handleMutations', startedAt, { mutations: pending.length });
-        }
+      return this.actions.filter(event => this.belongsToCurrentChannel(event)).map(event => {
+        const message = this.feed?.getActionMessage?.(event);
+        return message ? { ...event, lastMessage: message.text, messageId: message.messageId,
+          displayName: message.displayName } : event;
       });
     }
-
-    collectMessageElements(node) {
-      const selector = this.messageSelector;
-      const elements = [];
-      const seen = new Set();
-      const add = (element) => {
-        if (element instanceof HTMLElement && !seen.has(element)) {
-          seen.add(element);
-          elements.push(element);
-        }
-      };
-      if (!node) {
-        return elements;
-      }
-      if (node.nodeType === Node.ELEMENT_NODE) {
-        const element = node;
-        if (element.matches?.(selector)) {
-          add(element);
-        }
-        element.querySelectorAll?.(selector)?.forEach((child) => add(child));
-      } else if (node.nodeType === Node.TEXT_NODE) {
-        const parent = node.parentElement;
-        if (parent) {
-          const root = parent.closest(selector);
-          if (root) {
-            add(root);
-          }
-        }
-      }
-      return elements;
-    }
-
-    scanNode(node) {
-      this.collectMessageElements(node).forEach((element) => this.captureAction(element));
-    }
-
-    scanClosestMessage(node) {
-      const element = node?.nodeType === Node.TEXT_NODE ? node.parentElement : node;
-      if (!(element instanceof HTMLElement)) return;
-      const message = element.matches?.(this.messageSelector)
-        ? element
-        : element.closest?.(this.messageSelector);
-      if (message) this.captureAction(message);
-    }
-
-    scanModerationStatus(node) {
-      if (node?.nodeType !== Node.ELEMENT_NODE) return;
-      const candidates = [node];
-      node.querySelectorAll?.('[role="status"], [role="alert"], [data-a-target], [data-test-selector]')
-        ?.forEach((element) => candidates.push(element));
-      candidates.forEach((element) => this.captureModerationStatus(element));
-    }
-
-    captureModerationStatus(element) {
-      if (!(element instanceof HTMLElement) || element.closest?.(this.messageSelector)) return false;
-      const text = String(element.innerText || element.textContent || '').replace(/\s+/g, ' ').trim();
-      if (!text || text.length > 700) return false;
-      const normalized = this.normalizeText(text);
-      const isPermanentBan = Boolean(
-        element.matches?.('[data-test-selector="banned-user-message"], [data-a-target="banned-user-message"]')
-        || element.closest?.('.banned-chat-overlay__halt')
-        || /vous\s+avez\s+ete\s+banni\s+du\s+chat|tant\s+qu.un\s+moderateur\s+n.a\s+pas\s+annule\s+votre\s+bannissement|permanently\s+banned/.test(normalized)
-      );
-      const isTimeout = /(?:bannissement|ban)\s+temporaire|temporarily\s+banned|timed\s*out/.test(normalized);
-      if (!isPermanentBan && !isTimeout) return false;
-      const type = isPermanentBan ? 'ban' : 'timeout';
-      const duration = isTimeout
-        ? this.extractRoundedCountdownDuration(text) || this.extractDurationFromText(text)
-        : null;
-      const now = Date.now();
-      const pendingStatus = {
-        duration: Number.isFinite(duration) ? duration : null,
-        rawMessage: text,
-        detectedAt: now
-      };
-      this.pendingStatuses.set(type, pendingStatus);
-      const signature = `${type}-status|${Number.isFinite(duration) ? duration : ''}|${normalized}`;
-      if (element.dataset?.tfrModerationSignature === signature) return false;
-      if (element.dataset) element.dataset.tfrModerationSignature = signature;
-      const recentDeletion = [...this.actions].reverse().find((entry) => (
-        entry?.type === 'deletion'
-        && now - Number(entry.detectedAt || 0) <= STATUS_LINK_WINDOW_MS
-      ));
-      if (recentDeletion) {
-        if (type === 'ban') {
-          this.pendingStatuses.delete(type);
-          return this.promoteDeletionToPermanentBan(recentDeletion, text);
-        }
-        this.pendingStatuses.delete(type);
-        return this.promoteDeletionToTimeout(recentDeletion, duration, text);
-      }
-      const latest = this.historyTracker?.getLatestMessage?.(STATUS_LINK_WINDOW_MS);
-      const login = this.historyTracker?.normalizeLogin?.(latest?.login) || '';
-      if (!login) return false;
-      this.addAction({
-        id: `${type}-${login}-${now}`,
-        login,
-        displayName: latest?.displayName || login,
-        type,
-        duration: Number.isFinite(duration) ? duration : null,
-        isPermanent: type === 'ban',
-        moderator: null,
-        timestamp: now,
-        detectedAt: now,
-        rawMessage: text,
-        lastMessage: latest?.text || null,
-        offenseMessage: latest?.text || null,
-        lastMessageTimestamp: latest?.timestamp || null
-      });
-      this.pendingStatuses.delete(type);
-      return true;
-    }
-
-    applyPendingPermanentBan(login) {
-      return this.applyPendingStatus(login, 'ban');
-    }
-
-    applyPendingTimeout(login) {
-      return this.applyPendingStatus(login, 'timeout');
-    }
-
-    applyPendingStatus(login, type) {
-      const pending = this.pendingStatuses.get(type);
-      if (!pending || Date.now() - Number(pending.detectedAt || 0) > STATUS_LINK_WINDOW_MS) {
-        this.pendingStatuses.delete(type);
-        return false;
-      }
-      const deletion = [...this.actions].reverse().find((entry) => (
-        entry?.type === 'deletion'
-        && entry.login === login
-        && Math.abs(Number(entry.detectedAt || 0) - Number(pending.detectedAt || 0)) <= STATUS_LINK_WINDOW_MS
-      ));
-      if (!deletion) return false;
-      this.pendingStatuses.delete(type);
-      return this.promoteDeletion(deletion, {
-        type,
-        duration: pending.duration,
-        rawMessage: pending.rawMessage
-      });
-    }
-
-    extractRoundedCountdownDuration(text) {
-      const normalized = String(text || '').replace(/[,]+/g, '.').replace(/\s+/g, ' ').trim();
-      const countdown = normalized.match(
-        /(?:dans|in)\s+((?:\d+(?:\.\d+)?\s*(?:secondes?|seconds?|secs?|minutes?|mins?|heures?|hours?|hrs?|jours?|days?)\s*){1,4})/i
-      );
-      if (!countdown?.[1]) return null;
-      let totalSeconds = 0;
-      const parts = countdown[1].matchAll(
-        /(\d+(?:\.\d+)?)\s*(secondes?|seconds?|secs?|minutes?|mins?|heures?|hours?|hrs?|jours?|days?)/gi
-      );
-      for (const part of parts) {
-        const seconds = this.convertDuration(part[1], part[2]);
-        if (Number.isFinite(seconds)) totalSeconds += seconds;
-      }
-      return totalSeconds > 0 ? Math.ceil(totalSeconds / 60) * 60 : null;
-    }
-
-    recordDeletionEvidence(entry) {
-      const login = entry?.login || '';
-      if (!login) return false;
-      const now = Number(entry.detectedAt) || Date.now();
-      const fingerprint = `${entry.offenseMessage || entry.lastMessage || ''}|${entry.lastMessageTimestamp || entry.timestamp || ''}`;
-      const evidence = (this.deletionEvidence.get(login) || [])
-        .filter((item) => now - item.detectedAt <= DELETION_BURST_WINDOW_MS);
-      if (!evidence.some((item) => item.fingerprint === fingerprint)) {
-        evidence.push({ fingerprint, detectedAt: now });
-      }
-      this.deletionEvidence.set(login, evidence);
-      if (evidence.length < 2) return false;
-      const deletion = [...this.actions].reverse().find((action) => (
-        action?.login === login
-        && action.type === 'deletion'
-        && now - Number(action.detectedAt || 0) <= DELETION_PROMOTION_WINDOW_MS
-      ));
-      if (!deletion) return false;
-      return this.promoteDeletionToTimeout(deletion, null, deletion.rawMessage);
-    }
-
-    promoteDeletionToTimeout(entry, duration, rawMessage) {
-      return this.promoteDeletion(entry, { type: 'timeout', duration, rawMessage });
-    }
-
-    promoteDeletionToPermanentBan(entry, rawMessage) {
-      return this.promoteDeletion(entry, { type: 'ban', duration: null, rawMessage });
-    }
-
-    promoteDeletion(entry, { type, duration = null, rawMessage = '' } = {}) {
-      if (!entry || !['timeout', 'ban'].includes(type)) return false;
-      const previousKey = this.getActionCacheKey(entry);
-      this.recentActionCache.delete(previousKey);
-      if (entry.id) this.actionKeys.delete(entry.id);
-      entry.type = type;
-      entry.duration = type === 'timeout' && Number.isFinite(duration) ? duration : null;
-      entry.isPermanent = type === 'ban';
-      entry.rawMessage = rawMessage || entry.rawMessage;
-      entry.detectedAt = Date.now();
-      entry.id = `${type}-${entry.login}-${entry.detectedAt}`;
-      this.actionKeys.add(entry.id);
-      this.recentActionCache.set(this.getActionCacheKey(entry), { detectedAt: entry.detectedAt, entry });
-      this.emit();
-      return true;
-    }
-
-    shouldScanMutation(mutation) {
-      if (!mutation) return false;
-      if (mutation.type === 'characterData') {
-        const parent = mutation.target?.parentElement;
-        const context = `${parent?.textContent || ''} ${parent?.getAttribute?.('aria-label') || ''}`;
-        return /(supprim|deleted|timeout|timed\s*out|tempo|bann|moderat|silence|mute)/i.test(context)
-          || Boolean(parent?.closest?.('[data-a-target="deleted-message"], [data-test-selector*="deleted"]'));
-      }
-      if (mutation.type !== 'attributes') return false;
-      if (mutation.attributeName === 'class') {
-        const current = mutation.target?.getAttribute?.('class') || '';
-        return /(deleted|warning|moderation|timeout|bann|ban-|is-deleted)/i.test(`${mutation.oldValue || ''} ${current}`);
-      }
-      if (mutation.attributeName === 'aria-label' || mutation.attributeName === 'title') {
-        const current = mutation.target?.getAttribute?.(mutation.attributeName) || '';
-        return /(supprim|deleted|timeout|timed\s*out|tempo|bann|moderat|silence|mute)/i.test(current);
-      }
-      return mutation.attributeName?.startsWith('data-') || false;
-    }
-
-    captureAction(element) {
-      if (!(element instanceof HTMLElement)) {
-        return;
-      }
-      const textContent = this.extractText(element);
-      const dataset = element.dataset || {};
-      const action = this.extractAction(element, textContent);
-      if (!action || !action.login) {
-        return;
-      }
-      const signature = [action.type, action.login, action.duration || '', action.isPermanent ? '1' : '0', action.message || ''].join('|');
-      if (dataset.tfrModerationSignature === signature) return;
-      dataset.tfrModerationSignature = signature;
-      const normalized = this.historyTracker?.normalizeLogin?.(action.login) || '';
-      if (!normalized) {
-        return;
-      }
-      const history = typeof this.historyTracker?.getHistory === 'function' ? this.historyTracker.getHistory(normalized) : [];
-      const lastMessage = history.length ? history[history.length - 1] : null;
-      const offenseMessage =
-        action.message ||
-        this.extractOriginalMessage(element, textContent) ||
-        lastMessage?.text ||
-        null;
-      const entry = {
-        id: `${action.type}-${normalized}-${action.timestamp}`,
-        login: normalized,
-        displayName: action.displayName || lastMessage?.displayName || normalized,
-        type: action.type,
-        duration: Number.isFinite(action.duration) ? action.duration : null,
-        isPermanent: Boolean(action.isPermanent),
-        moderator: action.moderator || null,
-        timestamp: action.timestamp,
-        detectedAt: Date.now(),
-        rawMessage: action.rawMessage,
-        messageId: action.messageId || lastMessage?.messageId || null,
-        lastMessage: lastMessage?.text || null,
-        offenseMessage: offenseMessage,
-        lastMessageTimestamp: lastMessage?.timestamp || null,
-        messageElement: this.historyTracker?.getMessageRoot?.(element) || null
-      };
-      this.addAction(entry);
-      if (entry.type === 'deletion') {
-        if (!this.applyPendingPermanentBan(entry.login) && !this.applyPendingTimeout(entry.login)) {
-          this.recordDeletionEvidence(entry);
-        }
-      }
-    }
-
-    addAction(entry) {
-      actionCollection.add({
-        entry,
-        actions: this.actions,
-        actionKeys: this.actionKeys,
-        recentCache: this.recentActionCache,
-        maxActions: this.maxActions,
-        emit: () => this.emit()
-      });
-    }
-
-    getActionCacheKey(entry) {
-      return actionCollection.getCacheKey(entry);
-    }
-
-    mergeModerationEntries(target, source) {
-      return actionCollection.merge(target, source);
-    }
-
-    extractAction(element, rawText) {
-      const dataset = element.dataset || {};
-      const messageSnapshot = this.historyTracker?.getMessageSnapshot?.(element) || null;
-      const timestamp =
-        (typeof this.historyTracker?.extractTimestamp === 'function' && this.historyTracker.extractTimestamp(element)) ||
-        Date.now();
-      const simplified = this.normalizeText(rawText);
-      if (simplified && (simplified.includes('debann') || simplified.includes('unban'))) {
-        return null;
-      }
-      const datasetNumericCandidates = [];
-      const datasetTextHints = [];
-      const addCandidate = (value, unitHint = null) => {
-        const numeric = Number(value);
-        if (!Number.isFinite(numeric) || numeric <= 0) {
-          return;
-        }
-        if (unitHint) {
-          datasetNumericCandidates.push({ value: numeric, unit: unitHint });
-        } else {
-          datasetNumericCandidates.push(numeric);
-        }
-      };
-      const collectFromJson = (node, keyPath = '') => {
-        if (node === null || node === undefined) {
-          return;
-        }
-        if (typeof node === 'number') {
-          const unit = /ms/i.test(keyPath) ? 'ms' : null;
-          addCandidate(node, unit);
-          return;
-        }
-        if (typeof node === 'string') {
-          const trimmed = node.trim();
-          if (!trimmed) return;
-          datasetTextHints.push(trimmed);
-          const numeric = Number(trimmed);
-          if (Number.isFinite(numeric) && numeric > 0) {
-            const unit = /ms/i.test(keyPath) ? 'ms' : null;
-            addCandidate(numeric, unit);
-          }
-          return;
-        }
-        if (Array.isArray(node)) {
-          node.forEach((child) => collectFromJson(child, keyPath));
-          return;
-        }
-        if (typeof node === 'object') {
-          Object.entries(node).forEach(([childKey, childValue]) => {
-            const nextKey = keyPath ? `${keyPath}.${childKey}` : childKey;
-            collectFromJson(childValue, nextKey);
-          });
-        }
-      };
-
-      Object.entries(dataset).forEach(([key, value]) => {
-        if (typeof value === 'number') {
-          const unit = /ms/i.test(key) ? 'ms' : null;
-          addCandidate(value, unit);
-        } else if (typeof value === 'string') {
-          const trimmed = value.trim();
-          if (!trimmed) return;
-          const numeric = Number(trimmed);
-          if (Number.isFinite(numeric) && numeric > 0) {
-            const unit = /ms/i.test(key) ? 'ms' : null;
-            addCandidate(numeric, unit);
-          } else {
-            datasetTextHints.push(trimmed);
-            if (
-              (trimmed.startsWith('{') && trimmed.endsWith('}')) ||
-              (trimmed.startsWith('[') && trimmed.endsWith(']'))
-            ) {
-              try {
-                collectFromJson(JSON.parse(trimmed), key);
-              } catch {
-                // ignore invalid JSON strings
-              }
-            }
-          }
-        }
-      });
-
-      const elementInnerText = this.normalizeText(element.textContent || '');
-      const analysisParts = [simplified, elementInnerText, ...datasetTextHints];
-      let analysisText = analysisParts.filter(Boolean).join(' ') || '';
-      const loginCandidate =
-        this.pickFirst([
-          dataset.targetUser,
-          dataset.targetUserLogin,
-          dataset.targetUsername,
-          dataset.target,
-          dataset.user,
-          dataset.username,
-          dataset.userName,
-          dataset.login,
-          dataset.userLogin,
-          dataset.aUser,
-          dataset.aUserLogin,
-          dataset.moderationEventTarget,
-          dataset.modTarget,
-          element.getAttribute?.('data-target-user'),
-          element.getAttribute?.('data-target'),
-          element.getAttribute?.('data-username'),
-          element.getAttribute?.('data-user'),
-          element.getAttribute?.('data-user-login'),
-          element.getAttribute?.('data-sender')
-        ]) ||
-        (typeof this.historyTracker?.extractLogin === 'function'
-          ? this.historyTracker.extractLogin(element)
-          : '') ||
-        messageSnapshot?.login ||
-        this.extractLoginFromText(analysisText);
-      let login = this.sanitizeLogin(loginCandidate);
-      if (!login && messageSnapshot?.login) {
-        login = this.sanitizeLogin(messageSnapshot.login);
-      }
-      if (!login) {
-        login = this.extractLoginFromText(analysisText);
-      }
-      if (!login) {
-        return null;
-      }
-      const moderatorCandidate =
-        this.pickFirst([
-          dataset.createdBy,
-          dataset.moderator,
-          dataset.sourceModerator,
-          dataset.moderationEventSource,
-          dataset.mod,
-          element.getAttribute?.('data-moderator'),
-          element.getAttribute?.('data-created-by')
-        ]) || this.extractModeratorFromText(analysisText);
-      const moderator = this.sanitizeLogin(moderatorCandidate);
-      const displayName =
-        this.pickFirst([
-          dataset.targetDisplayName,
-          dataset.displayName,
-          dataset.userDisplayName,
-          dataset.targetUserDisplayName
-        ]) || messageSnapshot?.displayName || null;
-      let type = null;
-      let durationSeconds =
-        this.parseDurationCandidates([
-          dataset.durationSeconds,
-          dataset.duration,
-          dataset.durationSec,
-          dataset.durationInSeconds,
-          dataset.lengthSeconds,
-          dataset.length,
-          dataset.timeoutDuration,
-          dataset.timeoutDurationSeconds,
-          dataset.timeoutDurationSec,
-          dataset.timeoutLength,
-          dataset.timeoutLengthSeconds,
-          dataset.timeoutSeconds,
-          dataset.timeout,
-          dataset.muteDuration,
-          dataset.silenceDuration,
-          dataset.banDuration,
-          dataset.banDurationSeconds,
-          dataset.banDurationSec,
-          dataset.timeToUnban,
-          dataset.durationMs ? { value: dataset.durationMs, unit: 'ms' } : null,
-          dataset.timeoutDurationMs ? { value: dataset.timeoutDurationMs, unit: 'ms' } : null,
-          dataset.banDurationMs ? { value: dataset.banDurationMs, unit: 'ms' } : null,
-          { value: element.getAttribute?.('data-duration') },
-          { value: element.getAttribute?.('data-duration-seconds') },
-          { value: element.getAttribute?.('data-timeout-duration') },
-          { value: element.getAttribute?.('data-timeout-seconds') },
-          { value: element.getAttribute?.('data-duration-ms'), unit: 'ms' },
-          { value: element.getAttribute?.('data-timeout-duration-ms'), unit: 'ms' }
-        ].concat(datasetNumericCandidates)) || null;
-
-      const attributeHints = [
-        dataset.moderationActionType,
-        dataset.modAction,
-        dataset.action,
-        dataset.type,
-        dataset.messageType,
-        dataset.commandName,
-        dataset.noticeType,
-        dataset.eventType,
-        dataset.category,
-        element.getAttribute?.('data-a-target'),
-        element.getAttribute?.('data-test-selector'),
-        element.getAttribute?.('class')
-      ];
-      const childHintNodes = Array.from(
-        element.querySelectorAll('[data-mod-action],[data-moderation-action-type],[data-test-selector],[data-a-target]')
-      ).filter((node) => !this.isInteractiveModerationControl(node));
-      childHintNodes.forEach((node) => {
-        const nodeDataset = node.dataset || {};
-        Object.entries(nodeDataset).forEach(([datasetKey, datasetValue]) => {
-          attributeHints.push(datasetValue);
-          if (typeof datasetValue === 'number') {
-            const unit = /ms/i.test(datasetKey) ? 'ms' : null;
-            addCandidate(datasetValue, unit);
-          } else if (typeof datasetValue === 'string') {
-            const trimmed = datasetValue.trim();
-            if (!trimmed) return;
-            datasetTextHints.push(trimmed);
-            const numeric = Number(trimmed);
-            if (Number.isFinite(numeric) && numeric > 0) {
-              const unit = /ms/i.test(datasetKey) ? 'ms' : null;
-              addCandidate(numeric, unit);
-            } else if (
-              (trimmed.startsWith('{') && trimmed.endsWith('}')) ||
-              (trimmed.startsWith('[') && trimmed.endsWith(']'))
-            ) {
-              try {
-                collectFromJson(JSON.parse(trimmed), datasetKey);
-              } catch {
-                // ignore invalid JSON
-              }
-            }
-          }
-        });
-        attributeHints.push(node.getAttribute?.('data-a-target'));
-        attributeHints.push(node.getAttribute?.('data-test-selector'));
-        attributeHints.push(node.className);
-      });
-      element.querySelectorAll('[aria-label], [title], [data-duration], [data-timeout], [data-a-target], [data-test-selector]').forEach((node) => {
-        const ariaLabel = node.getAttribute?.('aria-label');
-        const title = node.getAttribute?.('title');
-        const textValue = node.textContent;
-        if (ariaLabel) datasetTextHints.push(ariaLabel);
-        if (title) datasetTextHints.push(title);
-        if (textValue && /timeout|timed\s*out|tempo|temporaire|silence|mute|ban\s+temporaire|pour|pendant|for/i.test(textValue)) {
-          datasetTextHints.push(textValue);
-        }
-      });
-      analysisText = this.normalizeText([analysisText, ...datasetTextHints].filter(Boolean).join(' ')) || analysisText;
-      const attributeHintSource = attributeHints
-        .filter((value) => typeof value === 'string' && value.trim())
-        .map((value) => value.toLowerCase())
-        .join(' ');
-      const actionHint = attributeHintSource ? this.normalizeText(attributeHintSource) : '';
-      const hasActionHint = Boolean(actionHint);
-
-      if (hasActionHint && /(announcement|annonce|announce|shoutout)/.test(actionHint)) {
-        return null;
-      }
-
-      if (!type && hasActionHint) {
-        if (/(ban permanent|perma|ban def|permanent ban)/.test(actionHint)) {
-          type = 'ban';
-        } else if (/(timeout|temporaire|tempo|silence|mute|timed out|masque)/.test(actionHint)) {
-          type = 'timeout';
-        } else if (this.hasBanIndicator(actionHint)) {
-          type = 'ban';
-        }
-      }
-
-      const appendedBanMatch = analysisText.match(/^\s*(?<user>[@\w-]+).*?\((?:banni|ban|banned|perma)\)/);
-      if (!type && appendedBanMatch) {
-        const candidate = this.sanitizeLogin(appendedBanMatch.groups?.user || login);
-        if (candidate) {
-          login = candidate;
-          type = 'ban';
-        }
-      }
-
-      const appendedTimeoutMatch = analysisText.match(
-        /^\s*(?<user>[@\w-]+).*?\((?:tempo|timeout|timed\s*out|masque|mute|supprime|deleted|efface)\)/
-      );
-      if (!type && appendedTimeoutMatch) {
-        const candidate = this.sanitizeLogin(appendedTimeoutMatch.groups?.user || login);
-        if (candidate) {
-          login = candidate;
-          type = 'timeout';
-        }
-        if (!Number.isFinite(durationSeconds)) {
-          durationSeconds = this.extractDurationFromText(analysisText);
-        }
-      }
-
-      const deletionResult = this.detectDeletionAction(element, analysisText);
-      if (deletionResult) {
-        if (!type) {
-          type = deletionResult.type;
-        }
-        if (!Number.isFinite(durationSeconds) && Number.isFinite(deletionResult.duration)) {
-          durationSeconds = deletionResult.duration;
-        }
-      }
-
-      if (!type) {
-        const banMatch = analysisText.match(/^\s*(?<user>[^\s]+)\s+(?:a\s+ete|has|was)\s+(?:ete\s+)?bann/i);
-        if (banMatch) {
-          const user = this.sanitizeLogin(banMatch.groups?.user || login);
-          if (user) {
-            login = user;
-            type = 'ban';
-          }
-        }
-      }
-
-      if (!type) {
-        const timeoutMatch = analysisText.match(
-          /^\s*(?<user>[^\s]+)\s+(?:a\s+ete\s+reduit\s+au\s+silence|a\s+ete\s+tempo|a\s+ete\s+mute|a\s+ete\s+temporaire|has\s+been\s+timed\s+out|was\s+timed\s+out|ban\s+temporaire)\s*(?:pour|pendant|for|de)?\s*(?<duration>\d+)?\s*(?<unit>seconde|secondes|seconds?|minute|minutes?|hour|hours?|heure|heures?|day|days?|jour|jours?|week|weeks?|semaine|semaines)?/
-        );
-        if (timeoutMatch) {
-          const user = this.sanitizeLogin(timeoutMatch.groups?.user || login);
-          if (user) {
-            login = user;
-            type = 'timeout';
-          }
-          if (!Number.isFinite(durationSeconds)) {
-            durationSeconds = this.convertDuration(timeoutMatch.groups?.duration, timeoutMatch.groups?.unit);
-          }
-        }
-      }
-
-      if (!type) {
-        return null;
-      }
-
-      const nearbyDurationSources = this.collectNearbyModerationHints(element);
-      const durationSources = [
-        analysisText,
-        elementInnerText,
-        element.getAttribute?.('aria-label'),
-        element.getAttribute?.('title'),
-        element.getAttribute?.('data-duration-label'),
-        ...datasetTextHints,
-        ...nearbyDurationSources
-      ].filter((value) => typeof value === 'string' && value.trim());
-      const contextualDurationCandidates = durationSources
-        .map((value) => this.extractTimeoutDurationFromText(value))
-        .filter((value) => Number.isFinite(value) && value > 0);
-      if (contextualDurationCandidates.length) {
-        const maxTextDuration = Math.max(...contextualDurationCandidates);
-        if (!Number.isFinite(durationSeconds) || maxTextDuration > durationSeconds * 1.5 || (maxTextDuration >= 60 && durationSeconds < 60)) {
-          durationSeconds = maxTextDuration;
-        }
-      }
-      if (!Number.isFinite(durationSeconds) && type === 'timeout') {
-        const genericDurationCandidates = durationSources
-          .map((value) => this.extractDurationFromText(value))
-          .filter((value) => Number.isFinite(value) && value > 0);
-        if (genericDurationCandidates.length) {
-          durationSeconds = Math.max(...genericDurationCandidates);
-        }
-      }
-      if (Number.isFinite(durationSeconds) && durationSeconds > MAX_TIMEOUT_SECONDS) {
-        durationSeconds = null;
-      }
-      const extractedMessage = this.extractOriginalMessage(element, rawText);
-      const message = messageSnapshot?.text && this.isModerationPlaceholder(extractedMessage)
-        ? messageSnapshot.text
-        : extractedMessage || messageSnapshot?.text || '';
-      const isPermanent =
-        type === 'ban'
-          ? this.shouldTreatAsPermanentBan(
-              dataset,
-              simplified,
-              Number.isFinite(durationSeconds) ? durationSeconds : null,
-              actionHint
-            )
-          : false;
-      return {
-        type,
-        login,
-        duration: Number.isFinite(durationSeconds) ? durationSeconds : null,
-        isPermanent,
-        displayName,
-        moderator: moderator || null,
-        timestamp,
-        rawMessage: rawText,
-        message
-      };
-    }
-
-    collectNearbyModerationHints(element) {
-      const hints = [];
-      const seen = new Set();
-      const hasModerationContext = (value) => (
-        /timeout|timed\s*out|tempo|temporaire|silence|mute|ban\s+temporaire|duration|dur[eé]e|pour|pendant|for/i.test(value)
-      );
-      const push = (value) => {
-        if (typeof value !== 'string') return;
-        const trimmed = value.replace(/\s+/g, ' ').trim();
-        if (!trimmed || trimmed.length > 1600 || !hasModerationContext(trimmed) || seen.has(trimmed)) {
-          return;
-        }
-        seen.add(trimmed);
-        hints.push(trimmed);
-      };
-      const collect = (node) => {
-        if (!(node instanceof HTMLElement)) return;
-        push(node.innerText || node.textContent || '');
-        push(node.getAttribute?.('aria-label') || '');
-        push(node.getAttribute?.('title') || '');
-        Object.values(node.dataset || {}).forEach((value) => push(value));
-      };
-      let current = element instanceof HTMLElement ? element : null;
-      for (let depth = 0; current && depth < 4; depth += 1) {
-        collect(current);
-        collect(current.previousElementSibling);
-        collect(current.nextElementSibling);
-        current = current.parentElement;
-      }
-      return hints;
-    }
-
-    detectDeletionAction(element, simplifiedText) {
-      if (!element) {
-        return null;
-      }
-      const dataset = element.dataset || {};
-      const deletionNode =
-        element.querySelector(
-          '[data-a-target="deleted-message"], [data-test-selector="chat-line-message-deleted"], [data-test-selector="chat-deleted-message"], span[data-a-target="deleted-message"]'
-        ) || null;
-      const appendedTextBan = simplifiedText
-        ? /\((?:banni|ban|permaban|perma|ban\s*def|ban\s*d[eé]finitif)\)/.test(simplifiedText)
-        : false;
-      const appendedTextTimeout = simplifiedText
-        ? /\((?:tempo|timeout|timed\s*out|silence|mute|masque)\)/.test(simplifiedText)
-        : false;
-      const appendedTextIndicator = appendedTextBan || appendedTextTimeout;
-      const explicitDeletionText = /(?:message\s+)?(?:supprime|efface|deleted|removed)\s+(?:par\s+un\s+moderateur|by\s+a\s+moderator)/.test(simplifiedText || '');
-      const deletionText = this.normalizeText(deletionNode?.textContent || '');
-      const actionValue = typeof dataset.action === 'string' ? dataset.action.toLowerCase() : '';
-      const modActionValue = typeof dataset.modAction === 'string' ? dataset.modAction.toLowerCase() : '';
-      const datasetHints = [
-        dataset.moderationActionType,
-        dataset.modAction,
-        dataset.action,
-        dataset.type,
-        dataset.messageType,
-        dataset.noticeType,
-        dataset.category,
-        dataset.subtype,
-        dataset.commandName
-      ]
-        .map((value) => (typeof value === 'string' ? this.normalizeText(value) : ''))
-        .filter(Boolean);
-      const indicatorParts = [deletionText, ...datasetHints];
-      const indicatorText = indicatorParts.join(' ').trim();
-      const BAN_PATTERN = /\b(banni?|perma|permaban|ban\s*def|ban\s*permanent|ban\s*perma|ban\s*d[eé]finitif|definitif|permanent|ban)\b/;
-      const TIMEOUT_PATTERN = /\b(timeout|temps?o|tempo|timed\s*out|silence|mute|masque|suspendu)\b/;
-      const indicatesBan = indicatorText
-        ? BAN_PATTERN.test(indicatorText) || this.hasBanIndicator(actionValue)
-        : this.hasBanIndicator(actionValue);
-      const indicatesTimeout = indicatorText ? TIMEOUT_PATTERN.test(indicatorText) || /timeout|tempo/.test(actionValue) : /timeout|tempo/.test(actionValue);
-      const hasDeletedFlag =
-        this.isTruthy(dataset.deleted) ||
-        this.isTruthy(dataset.deletedMessage) ||
-        this.isTruthy(dataset.deletedMsg) ||
-        this.isTruthy(dataset.deletedBy) ||
-        this.isTruthy(dataset.isDeleted) ||
-        (modActionValue && /(ban|timeout|delete|remove|block|silence|mute)/.test(modActionValue)) ||
-        (actionValue && /(ban|timeout|delete|remove|block|silence|mute)/.test(actionValue));
-      const classIndicator =
-        element.classList?.contains('chat-line__message--deleted') ||
-        element.classList?.contains('is-deleted') ||
-        element.classList?.contains('chat-line__message--warning');
-      const appendedIndicator = /\((?:banni|ban|timeout|tempo|supprime|deleted|masque|mute)\)/.test(this.normalizeText(deletionNode?.textContent || ''));
-      const hasStrongIndicator =
-        hasDeletedFlag || classIndicator || Boolean(deletionNode) || appendedIndicator || appendedTextIndicator
-        || explicitDeletionText || indicatesBan || indicatesTimeout;
-      if (!hasStrongIndicator) {
-        return null;
-      }
-      let type = null;
-      if (indicatesBan || appendedTextBan) {
-        type = 'ban';
-      } else if (indicatesTimeout || appendedTextTimeout) {
-        type = 'timeout';
-      } else {
-        type = 'deletion';
-      }
-      const durationSource = [indicatorText, this.normalizeText(actionValue), this.normalizeText(modActionValue), simplifiedText]
-        .filter(Boolean)
-        .join(' ');
-      const duration = this.extractDurationFromText(durationSource);
-      if (!type && Number.isFinite(duration)) {
-        type = 'timeout';
-      }
-      return {
-        type,
-        duration: type === 'timeout' && Number.isFinite(duration) ? duration : null
-      };
-    }
-
-    parseDurationCandidates(values) {
-      return durationTools.first(values);
-    }
-
-    parseDurationValue(value, unitHint = null) {
-      return durationTools.parse(value, unitHint);
-    }
-
-    normalizeDurationNumber(value, unitHint = null) {
-      return durationTools.normalizeNumber(value, unitHint);
-    }
-
-    shouldTreatAsPermanentBan(dataset, simplified, durationSeconds, actionHint) {
-      if (Number.isFinite(durationSeconds) && durationSeconds > 0) {
-        return false;
-      }
-      const hints = [
-        dataset?.isPermanent,
-        dataset?.permanent,
-        dataset?.permaban,
-        dataset?.banType,
-        dataset?.moderationActionType,
-        dataset?.modAction,
-        dataset?.action,
-        actionHint
-      ];
-      for (const hint of hints) {
-        if (hint === undefined || hint === null || hint === '') continue;
-        if (typeof hint === 'boolean') {
-          if (hint) return true;
-          continue;
-        }
-        if (typeof hint === 'string') {
-          const normalized = hint.toLowerCase();
-          if (/(perma|permanent|indef|definitif|definitive|forever)/.test(normalized)) {
-            return true;
-          }
-        }
-      }
-      if (typeof simplified === 'string' && /(perma|permanent|indef|definitif|definitive|forever)/.test(simplified)) {
-        return true;
-      }
-      return true;
-    }
-
-    extractOriginalMessage(element, rawText) {
-      const dataset = element?.dataset || {};
-      const candidate = this.pickFirst([
-        dataset.originalMessage,
-        dataset.originalMessageBody,
-        dataset.deletedMessage,
-        dataset.deletedMsg,
-        dataset.moderationMessage,
-        dataset.message,
-        dataset.msg,
-        dataset.messageBody,
-        dataset.body,
-        dataset.content,
-        dataset.rawMessage,
-        dataset.plainText,
-        dataset.plaintext,
-        dataset.messagePlainText,
-        element?.getAttribute?.('data-original-message'),
-        element?.getAttribute?.('data-deleted-message'),
-        element?.getAttribute?.('data-message'),
-        element?.getAttribute?.('data-msg'),
-        element?.getAttribute?.('data-plain-text')
-      ]);
-      let message = candidate || '';
-      if (!message) {
-        const aria = element?.getAttribute?.('aria-label');
-        if (aria) {
-          message = aria;
-        }
-      }
-      if (!message) {
-        const title = element?.getAttribute?.('title');
-        if (title) {
-          message = title;
-        }
-      }
-      if (!message && typeof this.historyTracker?.extractMessageText === 'function') {
-        try {
-          message = this.historyTracker.extractMessageText(element) || '';
-        } catch {
-          message = '';
-        }
-      }
-      if (!message && rawText) {
-        message = rawText;
-      }
-      return this.cleanModerationMessage(message);
-    }
-
-    cleanModerationMessage(value) {
-      if (!value || typeof value !== 'string') {
-        return '';
-      }
-      let cleaned = value;
-      const removalPatterns = [
-        /\s*\((?:efface|effac[eÃ©]|supprime|supprim[eÃ©]|deleted|timeout|timed out|tempo|hidden|masqu[eÃ©]|ban(?:ne)?|banni|mod[eÃ©]r[Ã©e])[^)]*\)\s*$/i,
-        /(?:message\s+supprim[eÃ©]\s+par.*)$/i,
-        /^(?:\*+|\u2022|\-)+\s*/i
-      ];
-      removalPatterns.forEach((pattern) => {
-        cleaned = cleaned.replace(pattern, '').trim();
-      });
-      cleaned = cleaned.replace(/\s+/g, ' ').trim();
-      return cleaned;
-    }
-
-    isModerationPlaceholder(value) {
-      const normalized = this.normalizeText(value);
-      if (!normalized) return true;
-      return /^(?:ce\s+)?message\s+(?:a\s+ete\s+)?(?:supprime|deleted|efface|masque|modere)(?:\s+(?:par|by)\b.*)?[.!]?$/i.test(normalized)
-        || /^(?:message\s+)?(?:deleted|removed)\s+(?:by\s+)?(?:a\s+)?moderator[.!]?$/i.test(normalized);
-    }
-
-    extractText(element) {
-      if (!element) return '';
-      const text = element.textContent || '';
-      return text.replace(/\s+/g, ' ').trim();
-    }
-
-    normalizeText(value) {
-      return moderationTextTools.normalize(value);
-    }
-
-    hasBanIndicator(value) {
-      return moderationTextTools.hasBanIndicator(value);
-    }
-
-    isInteractiveModerationControl(element) {
-      if (!element) return false;
-      const tagName = String(element.tagName || '').toLowerCase();
-      const role = String(element.getAttribute?.('role') || '').toLowerCase();
-      return ['button', 'a', 'input', 'select', 'textarea'].includes(tagName)
-        || ['button', 'menuitem', 'option', 'link'].includes(role)
-        || Boolean(element.closest?.('button, a, [role="button"], [role="menuitem"]'));
-    }
-
-    pickFirst(values) {
-      return moderationTextTools.pickFirst(values);
-    }
-
-    sanitizeLogin(value) {
-      return moderationTextTools.sanitizeLogin(value);
-    }
-
-    extractLoginFromText(text) {
-      return moderationTextTools.extractLogin(text);
-    }
-
-    extractModeratorFromText(text) {
-      return moderationTextTools.extractModerator(text);
-    }
-
-    extractTimeoutDurationFromText(text) {
-      return durationTools.timeoutFromText(text);
-      /* Legacy parser kept below for one release as a comparison reference. */
-      if (!text) {
-        return null;
-      }
-      const normalizedText = String(text)
-        .replace(/[,]+/g, '.')
-        .replace(/\s+/g, ' ')
-        .trim();
-      if (!normalizedText || !/(timeout|timed\s*out|tempo|temporaire|silence|mute|ban\s+temporaire|reduit\s+au\s+silence|réduit\s+au\s+silence)/i.test(normalizedText)) {
-        return null;
-      }
-      const contextPatterns = [
-        /(?:timeout|timed\s*out|tempo|temporaire|silence|mute|ban\s+temporaire|reduit\s+au\s+silence|réduit\s+au\s+silence).{0,80}?(?:pour|pendant|for|dur[eé]e\s*:?|duration\s*:?|de)?\s*(\d+(?:\.\d+)?)\s*(millisecondes?|milliseconds?|ms|secondes?|seconds?|secs?|sec|minutes?|mins?|min|mn|heures?|hours?|hrs?|hr|jours?|days?|semaines?|weeks?|[smhdw])/i,
-        /(?:pour|pendant|for|dur[eé]e\s*:?|duration\s*:?)\s*(\d+(?:\.\d+)?)\s*(millisecondes?|milliseconds?|ms|secondes?|seconds?|secs?|sec|minutes?|mins?|min|mn|heures?|hours?|hrs?|hr|jours?|days?|semaines?|weeks?|[smhdw]).{0,80}?(?:timeout|timed\s*out|tempo|temporaire|silence|mute|ban\s+temporaire)/i
-      ];
-      for (const pattern of contextPatterns) {
-        const match = normalizedText.match(pattern);
-        if (match) {
-          const parsed = this.convertDuration(match[1], match[2]);
-          if (Number.isFinite(parsed) && parsed > 0) {
-            return parsed;
-          }
-        }
-      }
-      return null;
-    }
-
-    extractDurationFromText(text) {
-      return durationTools.fromText(text);
-      /* Legacy parser kept below for one release as a comparison reference. */
-      if (!text) {
-        return null;
-      }
-      const normalizedText = String(text)
-        .replace(/[,]+/g, '.')
-        .replace(/\s+/g, ' ')
-        .trim();
-      if (!normalizedText) {
-        return null;
-      }
-      const colonMatch = normalizedText.match(/(\d{1,2}):(\d{2})(?::(\d{2}))?/);
-      if (colonMatch) {
-        const hasHours = Boolean(colonMatch[3]);
-        const hours = hasHours ? Number(colonMatch[1]) : 0;
-        const minutes = hasHours ? Number(colonMatch[2]) : Number(colonMatch[1]);
-        const seconds = hasHours ? Number(colonMatch[3]) : Number(colonMatch[2]);
-        if (Number.isFinite(hours) && Number.isFinite(minutes) && Number.isFinite(seconds)) {
-          return hours * 3600 + minutes * 60 + seconds;
-        }
-      }
-      const durationMatch = normalizedText.match(
-        /(\d+(?:\.\d+)?)\s*(millisecondes?|milliseconds?|ms|secondes?|seconds?|secs?|sec|minutes?|mins?|min|mn|heures?|hours?|hrs?|hr|jours?|days?|semaines?|weeks?|[smhdw])/i
-      );
-      if (durationMatch) {
-        return this.convertDuration(durationMatch[1], durationMatch[2]);
-      }
-      return null;
-    }
-
-    isTruthy(value) {
-      return moderationTextTools.isTruthy(value);
-    }
-
-    convertDuration(value, unit) {
-      return durationTools.convert(value, unit);
-      /* Legacy parser kept below for one release as a comparison reference. */
-      const numeric = Number(value);
-      if (!Number.isFinite(numeric) || numeric <= 0) {
-        return null;
-      }
-      const normalizedUnit = (unit || '').toLowerCase();
-      switch (normalizedUnit) {
-        case 'minute':
-        case 'minutes':
-        case 'min':
-        case 'mins':
-        case 'mn':
-        case 'm':
-          return numeric * 60;
-        case 'hour':
-        case 'hours':
-        case 'heure':
-        case 'heures':
-        case 'hr':
-        case 'hrs':
-        case 'h':
-          return numeric * 3600;
-        case 'day':
-        case 'days':
-        case 'jour':
-        case 'jours':
-        case 'd':
-          return numeric * 86400;
-        case 'week':
-        case 'weeks':
-        case 'semaine':
-        case 'semaines':
-        case 'w':
-          return numeric * 604800;
-        case 'seconde':
-        case 'secondes':
-        case 'second':
-        case 'seconds':
-        case 'sec':
-        case 'secs':
-        case 's':
-          return numeric;
-        case 'millisecond':
-        case 'milliseconds':
-        case 'milliseconde':
-        case 'millisecondes':
-        case 'ms':
-          return numeric / 1000;
-        default:
-          return numeric;
-      }
+    emit() { this.events.emit(this.getActions()); }
+    dispose() {
+      this.unsubscribeFeed?.(); this.unsubscribeFeed = null; this.feed = null;
+      this.actions = []; this.actionKeys.clear(); this.events.clear();
     }
   }
 
+  // DOM selectors only position the interface; sanctions come from Twitch events.
   const CHAT_CONTROLS_SELECTORS = [
     '[data-a-target="chat-input-buttons-container"]',
     '[data-test-selector="chat-input-buttons-container"]',
@@ -2363,7 +1166,9 @@
         return;
       }
       content.innerHTML = '';
-      const actions = Array.isArray(this.latestActions) ? this.latestActions : [];
+      // Re-read the channel-scoped history when opening an existing panel.
+      const actions = this.tracker.getActions();
+      this.latestActions = actions;
       if (!actions.length) {
         const empty = document.createElement('p');
         empty.className = 'tfr-mod-history-panel__empty';

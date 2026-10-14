@@ -1,6 +1,6 @@
 # Twitch Favorites Sidebar v0.6.26
 
-Validation locale du 6 octobre 2026 : pipeline `npm run package:all` réussi, 465 tests réussis, 134 fichiers JavaScript vérifiés, sources Firefox synchronisées et 19 migrations Supabase cohérentes. ZIP Chrome/Firefox vérifiés ; APK Android de développement (`assembleDebug`) généré. Les tests automatisés ne remplacent pas une validation de tous les parcours sur Twitch.
+Release du 14 octobre 2026, depuis v0.6.25. Distributions Chrome/Firefox et APK Android de développement (`assembleDebug`).
 
 ## Français
 
@@ -29,6 +29,19 @@ Validation locale du 6 octobre 2026 : pipeline `npm run package:all` réussi, 46
 - Les deux mois d'archives dépendent de leur disponibilité sur Twitch. Les API internes du lecteur restent susceptibles d'évoluer.
 - L'APK compagnon est reconstruit avec la nouvelle version ; les changements d'interface décrits ci-dessus concernent l'extension navigateur.
 
+
+### Audio et chat
+
+- Volume maîtrisé : amplification progressive des passages faibles et atténuation des passages forts. Le volume Twitch prend le son actuel comme référence après un réglage, sans slider supplémentaire. Silence et mise en sourdine ne recalibrent pas la référence.
+- Traitement audio maintenu lorsque la page est masquée ; meilleure prise en charge des lecteurs utilisant MediaSourceHandle.
+- Modération fondée sur les événements Twitch, sans déduire les sanctions de l'apparence du chat. Les réponses citant un utilisateur sanctionné ne sont plus confondues avec ses messages.
+- Historique limité à la chaîne ouverte, bouton restauré et dernier message reçu associé à la sanction. Affichage des timeouts avec durée et des bans définitifs ; la sanction la plus récente sert de motif.
+- Les messages et sanctions antérieurs à la connexion ne sont pas récupérés rétroactivement.
+- Émoticônes 7TV/BTTV dans les chats VOD : chargement du catalogue du propriétaire et prise en charge du conteneur replay.
+- Le champ de saisie réserve la place des boutons d'émoticônes pour éviter de masquer le texte.
+- Favoris live périmés retirés du cache au redémarrage, avec actualisation immédiate.
+- Modules audio et émoticônes séparés, nettoyage des anciennes heuristiques de modération et traductions françaises/anglaises mises à jour.
+
 ## English
 
 ### New features
@@ -55,3 +68,15 @@ Validation locale du 6 octobre 2026 : pipeline `npm run package:all` réussi, 46
 - Synchronized Chrome/Firefox sources and expanded automated tests.
 - Archive availability depends on Twitch retention. Internal player APIs may change.
 - The companion APK is rebuilt with the new version; the interface changes above apply to the browser extension.
+
+### Audio and chat
+
+- Managed volume now boosts quiet passages and reduces loud ones. Adjusting Twitch volume captures the current audio level as the reference, without an additional slider. Silence and mute do not recalibrate it.
+- Audio processing stays active on hidden pages; improved support for MediaSourceHandle players.
+- Moderation uses Twitch events rather than chat appearance. Replies quoting sanctioned users are no longer mistaken for their deleted messages.
+- Channel-scoped moderation history, restored history button and last received message linked to each sanction. Timeout durations and permanent bans are distinguished; the latest sanction supplies the reason.
+- Messages and sanctions from before the connection are not recovered retrospectively.
+- 7TV/BTTV rendering in VOD chat loads the video owner's catalog and recognizes replay message containers.
+- Chat input reserves space for emote buttons so they no longer cover the text.
+- Stale live favorites are removed from startup cache and refreshed immediately.
+- Separate audio and emote modules, removed obsolete moderation heuristics and updated French/English descriptions.

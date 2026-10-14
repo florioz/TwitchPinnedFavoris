@@ -38,3 +38,24 @@ test('chat container lookup follows selector priority', () => {
     '.chat-scrollable-area__message-container'
   ]);
 });
+
+
+test('native French and English title-based replies are excluded without mutating the line', () => {
+  const N = require('./helpers/chatMessageFixture.cjs')();
+  const tools = context.window.TFRChatDomTools;
+  for (const title of ['Replying to banneduser', 'R\u00e9pond \u00e0 banneduser']) {
+    const quote = new N('p', { title: 'Message deleted' }, title, [
+      new N('span', { 'data-a-target': 'chat-message-text' }, 'Message deleted')
+    ]);
+    const own = new N('span', { 'data-a-target': 'chat-message-text' }, 'My reply');
+    const line = new N('div', { 'aria-label': title + ' Message deleted My reply' }, '', [quote, own]);
+    assert.equal(tools.isReplyContext(quote.children[0]), true);
+    assert.equal(tools.queryMessage(line, '[data-a-target="chat-message-text"]'), own);
+    const projected = tools.ownMessage(line);
+    assert.equal(projected.textContent, 'My reply');
+    assert.equal(projected.getAttribute('aria-label'), null);
+    assert.equal(line.children.length, 2);
+  }
+  const ordinary = new N('p', { title: 'A tooltip' }, 'Normal content');
+  assert.equal(tools.isReplyContext(ordinary), false);
+});

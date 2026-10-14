@@ -108,7 +108,7 @@
           this.emitter.emit({ kind: CHANGE_KIND.STATE, state: this.getSnapshot() });
         }
         if (LIVE_CACHE_KEY && nextLive && typeof nextLive === 'object') {
-          this.liveData = { ...nextLive };
+          this.liveData = this.liveDataCache.freshEntries(nextLive);
           this.lastLiveStorageAt = Date.now();
           this.emitter.emit({ kind: CHANGE_KIND.LIVE, liveData: this.getLiveData() });
         }
@@ -131,7 +131,7 @@
         await this.persistState();
       }
       if (LIVE_CACHE_KEY && stored?.[LIVE_CACHE_KEY] && typeof stored[LIVE_CACHE_KEY] === 'object') {
-        this.liveData = { ...stored[LIVE_CACHE_KEY] };
+        this.liveData = this.liveDataCache.freshEntries(stored[LIVE_CACHE_KEY]);
         this.lastLiveStorageAt = Date.now();
       }
       const repairedPersonalLeak = this.ensureStateIntegrity();
@@ -139,14 +139,12 @@
       this.emitter.emit({ kind: CHANGE_KIND.STATE, state: this.getSnapshot() });
       if (Object.keys(this.liveData).length) {
         this.emitter.emit({ kind: CHANGE_KIND.LIVE, liveData: this.getLiveData() });
-        // Keep startup fast by painting the persisted snapshot first, then ask the
-        // background coordinator for a fresh one without delaying the UI bootstrap.
-        void this.refreshLiveData().catch((error) => {
-          console.warn('[TFR] initial live refresh failed', error);
-        });
-      } else {
-        await this.refreshLiveData();
       }
+      // Start verification immediately, without blocking the sidebar or trusting
+      // yesterday's persisted snapshot (including restored background tabs).
+      void this.refreshLiveData({ forceRefresh: true }).catch((error) => {
+        console.warn('[TFR] initial live refresh failed', error);
+      });
       this.startPolling();
     }
 
@@ -1995,7 +1993,8 @@
         if (snapshot?.timestamp) {
           this.lastLiveStorageAt = Number(snapshot.timestamp) || Date.now();
         }
-        const snapshotLiveData = snapshot?.liveData && typeof snapshot.liveData === 'object' ? snapshot.liveData : null;
+        const snapshotLiveData = snapshot?.liveData && typeof snapshot.liveData === 'object'
+          ? this.liveDataCache.freshEntries(snapshot.liveData) : null;
         const updates = snapshotLiveData
           ? favorites.map((login) => snapshotLiveData[login] || snapshotLiveData[login.toLowerCase()])
           : await Promise.all(favorites.map((login) => {

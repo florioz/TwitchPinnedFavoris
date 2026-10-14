@@ -1,5 +1,6 @@
 (() => {
   'use strict';
+  const chatDom = window.TFRChatDomTools;
   const RESTORE_EVENT = 'tfr:deleted-message:restore-native';
   const SYNC_STATE_EVENT = 'tfr:deleted-message:sync-state';
   const RESTORED_CLASS = 'tfr-deleted-message-react-restored';
@@ -35,13 +36,7 @@
       if (message && 'isDeleted' in message) message.isDeleted = previous.messageIsDeleted;
     }
   };
-  const DELETED_SELECTOR = [
-    '.chat-line__message--deleted-notice',
-    '.chat-line__message--deleted',
-    '[data-a-target="deleted-message"]',
-    '[data-test-selector="chat-line-message-deleted"]',
-    '[data-test-selector="chat-deleted-message"]'
-  ].join(', ');
+  const DELETED_SELECTOR = `${chatDom.DELETION_SELECTOR}, .chat-line__message--deleted`;
 
   const getReactInstance = (element) => {
     if (!element) return null;
@@ -93,16 +88,19 @@
 
   const decorateRestoredMessage = (element) => {
     element.classList.add(RESTORED_CLASS);
-    const body = element.querySelector(MESSAGE_BODY_SELECTOR);
+    const body = chatDom.queryMessage(element, MESSAGE_BODY_SELECTOR);
     if (body) body.dataset.tfrDeletedLabel = element.dataset.tfrDeletedLabel || getFallbackLabel();
     element.querySelector('.tfr-deleted-message-restored')?.remove();
     element.classList.remove('tfr-deleted-message-revealed');
   };
 
   const restoreMessage = (element) => {
+    if (chatDom.isReplyContext(element)) return false;
     if (pendingRestores.has(element)) return true;
     const renderer = getMessageRenderer(element);
     if (!renderer?.props || typeof renderer.forceUpdate !== 'function') return false;
+    const own = renderer.props.message;
+    if (!(renderer.props.isDeleted === true || own?.deleted === true || own?.isDeleted === true)) return false;
     try {
       if (!patchRenderer(renderer)) return false;
       pendingRestores.add(element);
@@ -123,31 +121,11 @@
     if (!restoreMessage(message)) delete message.dataset.tfrDeletedRestoreRequested;
   }, true);
 
-  const restoreDeletedNode = (node) => {
-    if (!(node instanceof Element) || !document.documentElement.classList.contains(ENABLED_CLASS)) return;
-    const candidates = new Set();
-    if (node.matches?.(DELETED_SELECTOR)) candidates.add(node);
-    const closest = node.closest?.(DELETED_SELECTOR);
-    if (closest) candidates.add(closest);
-    node.querySelectorAll?.(DELETED_SELECTOR).forEach((candidate) => candidates.add(candidate));
-    candidates.forEach((candidate) => {
-      const line = candidate.closest('.chat-line__message, .chat-line__message--deleted-notice') || candidate;
-      if (!line.classList.contains(RESTORED_CLASS)) restoreMessage(line);
-    });
-  };
-
+  // DOM mutation/text is never evidence of moderation. Only the isolated
+  // event consumer requests restoration after matching a Twitch message ID.
+  const restoreDeletedNode = () => {};
+  const start = () => {};
   let observer = null;
-  const start = () => {
-    if (observer) return;
-    observer = new MutationObserver((mutations) => mutations.forEach((mutation) => {
-      mutation.addedNodes.forEach(restoreDeletedNode);
-    }));
-    observer.observe(document.documentElement, {
-      childList: true,
-      subtree: true
-    });
-    document.querySelectorAll(DELETED_SELECTOR).forEach(restoreDeletedNode);
-  };
   const stop = () => {
     observer?.disconnect();
     observer = null;
@@ -157,7 +135,7 @@
         (candidate) => Boolean(candidate?.stateNode?.[PATCHED_RENDERER])
       )?.stateNode;
       if (!unpatchRenderer(renderer)) return;
-      element.querySelector(MESSAGE_BODY_SELECTOR)?.removeAttribute('data-tfr-deleted-label');
+      chatDom.queryMessage(element, MESSAGE_BODY_SELECTOR)?.removeAttribute('data-tfr-deleted-label');
       renderer.forceUpdate?.();
     });
   };

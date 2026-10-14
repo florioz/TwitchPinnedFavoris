@@ -40,6 +40,7 @@
         "https://twitch.tv/*"
       ],
       "js": [
+        "src/contentScripts/features/chatDomTools.js",
         "src/contentScripts/page/deletedMessageBridge.js",
         "src/contentScripts/page/playerBridge.js",
         "src/contentScripts/page/chatEmoteInputBridge.js"
@@ -94,11 +95,14 @@
         "src/contentScripts/features/moderationActionCollection.js",
         "src/contentScripts/features/moderationTextTools.js",
         "src/contentScripts/features/moderationPanelGeometry.js",
+        "src/contentScripts/features/twitchChatEvents.js",
         "src/contentScripts/features/chatModeration.js",
         "src/contentScripts/features/deletedMessageView.js",
         "src/contentScripts/features/playerAudioEngine.js",
         "src/contentScripts/features/playerRecoveryPolicy.js",
         "src/contentScripts/features/playerRecovery.js",
+        "src/contentScripts/features/playerAudioControls.js",
+        "src/contentScripts/features/thirdPartyChatEmotes.js",
         "src/contentScripts/features/streamEnhancements.js",
         "src/contentScripts/features/updateNotifier.js",
         "src/contentScripts/features/usagePresence.js",

@@ -4580,21 +4580,6 @@
   background: #9147ff;
 }
 
-.tfr-audio-normalizer__target {
-  display: grid;
-  gap: 5px;
-}
-
-.tfr-audio-normalizer__target > span {
-  display: flex;
-  justify-content: space-between;
-  gap: 10px;
-  color: rgba(239, 239, 241, 0.78);
-  font-size: 11px;
-  font-weight: 700;
-}
-
-.tfr-audio-normalizer__target > .tfr-audio-normalizer__scale,
 .tfr-volume-target-scale {
   display: flex;
   justify-content: space-between;
@@ -4604,26 +4589,13 @@
   font-weight: 600;
 }
 
-.tfr-audio-normalizer__scale span:nth-child(2),
 .tfr-volume-target-scale span:nth-child(2) {
   color: #bf94ff;
   text-align: center;
 }
 
-.tfr-audio-normalizer__scale span:last-child,
 .tfr-volume-target-scale span:last-child {
   text-align: right;
-}
-
-.tfr-audio-normalizer__target input {
-  width: 100%;
-  accent-color: #9147ff;
-}
-
-.tfr-audio-normalizer__calibrate {
-  width: 100%;
-  min-height: 28px !important;
-  font-size: 10px;
 }
 
 .tfr-audio-normalizer__gain,

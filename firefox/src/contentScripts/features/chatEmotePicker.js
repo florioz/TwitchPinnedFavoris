@@ -34,6 +34,8 @@
       this.provider = 'all';
       this.button = null;
       this.slot = null;
+      this.spacingInput = null;
+      this.spacingObserver = null;
       this.panel = null;
       this.grid = null;
       this.search = null;
@@ -82,6 +84,7 @@
       this.document.removeEventListener('pointerdown', this.handleDocumentPointer, true);
       this.window.removeEventListener('resize', this.handleViewportChange);
       this.window.removeEventListener('scroll', this.handleViewportChange, true);
+      this.clearInputSpacing();
       this.slot?.remove();
       this.panel?.remove();
       this.button = null;
@@ -113,7 +116,7 @@
       const nativeButton = this.findNativeButton();
       const nativeSlot = nativeButton?.parentElement;
       const actionRow = nativeSlot?.parentElement;
-      if (!nativeSlot || !actionRow) return false;
+      if (!nativeSlot || !actionRow) { this.clearInputSpacing(); return false; }
       if (!this.slot?.isConnected) {
         this.slot = this.document.createElement('span');
         this.slot.className = 'tfr-chat-emote-picker-slot';
@@ -123,7 +126,46 @@
       if (this.slot.parentElement !== actionRow || this.slot.nextElementSibling !== nativeSlot) {
         actionRow.insertBefore(this.slot, nativeSlot);
       }
+      this.updateInputSpacing();
       return true;
+    }
+
+    clearInputSpacing() {
+      this.spacingObserver?.disconnect();
+      this.spacingObserver = null;
+      this.spacingInput?.classList.remove('tfr-chat-input-emote-spacing');
+      this.spacingInput?.style.removeProperty('--tfr-chat-input-right-space');
+      this.spacingInput = null;
+    }
+
+    updateInputSpacing() {
+      const input = this.document.querySelector(CHAT_INPUT_SELECTOR);
+      if (!input || !this.slot?.isConnected) { this.clearInputSpacing(); return; }
+      if (this.spacingInput !== input) {
+        this.clearInputSpacing();
+        this.spacingInput = input;
+        this.baseInputPadding = parseFloat(this.window.getComputedStyle(input).paddingRight) || 0;
+        if (this.window.ResizeObserver) {
+          this.spacingObserver = new this.window.ResizeObserver(() => this.updateInputSpacing());
+          this.spacingObserver.observe(input);
+          this.spacingObserver.observe(this.slot.parentElement);
+        }
+      }
+      const bounds = input.getBoundingClientRect();
+      let padding = this.baseInputPadding;
+      const buttons = this.slot.parentElement.querySelectorAll('button');
+      for (const button of buttons) {
+        const rect = button.getBoundingClientRect();
+        if (rect.width > 0 && rect.height > 0 && rect.top < bounds.bottom && rect.bottom > bounds.top
+          && rect.left > bounds.left && rect.left < bounds.right) {
+          padding = Math.max(padding, Math.ceil(bounds.right - rect.left + 8));
+        }
+      }
+      const value = `${padding}px`;
+      if (input.style.getPropertyValue('--tfr-chat-input-right-space') !== value) {
+        input.style.setProperty('--tfr-chat-input-right-space', value);
+      }
+      input.classList.add('tfr-chat-input-emote-spacing');
     }
 
     createButton() {
@@ -366,6 +408,7 @@
     }
 
     handleViewportChange() {
+      if (this.enabled) this.updateInputSpacing();
       if (!this.panel?.isConnected) return;
       if (!this.manualPosition) {
         this.positionPanel();

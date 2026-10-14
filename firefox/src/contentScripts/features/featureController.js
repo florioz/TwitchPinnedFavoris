@@ -166,7 +166,7 @@ class FeatureController {
   applyPreferences(prefs) {
     const wantsViewerChatHistory = prefs.chatHistoryEnabled !== false;
     const wantsModeration = prefs.moderationHistoryEnabled !== false;
-    const needsMessageTracker = wantsViewerChatHistory || wantsModeration;
+    const needsMessageTracker = wantsViewerChatHistory || wantsModeration || prefs.showDeletedMessagesEnabled === true;
 
     this.enhancementDefinitions.forEach(({ property, label, selectPreferences }) => {
       this.configureEnhancement(property, selectPreferences(prefs), label);
@@ -186,8 +186,9 @@ class FeatureController {
       this.teardownViewerCardHistory();
     }
 
-    if (wantsModeration) {
-      this.ensureModerationFeatures();
+    if (wantsModeration || prefs.showDeletedMessagesEnabled === true) {
+      this.ensureModerationFeatures(wantsModeration);
+      this.deletedMessageViewer?.setModerationTracker?.(this.moderationTracker);
     } else {
       this.teardownModeration();
     }
@@ -220,17 +221,18 @@ class FeatureController {
     this.chatHistory = null;
   }
 
-  ensureModerationFeatures() {
+  ensureModerationFeatures(showUI = true) {
+    if (!showUI) { this.moderationHistoryUI?.dispose(); this.moderationHistoryUI = null; }
     if (!this.chatHistory) {
       this.ensureChatHistory();
     }
     if (this.moderationTracker) {
-      this.ensureModerationHistoryUI();
+      if (showUI) this.ensureModerationHistoryUI();
       return;
     }
     this.moderationTracker = new ModerationActionTracker(this.chatHistory);
     this.moderationTracker.init();
-    this.ensureModerationHistoryUI();
+    if (showUI) this.ensureModerationHistoryUI();
   }
 
   ensureModerationHistoryUI() {
@@ -240,6 +242,7 @@ class FeatureController {
   }
 
   teardownModeration() {
+    this.deletedMessageViewer?.setModerationTracker?.(null);
     this.moderationHistoryUI?.dispose();
     this.moderationHistoryUI = null;
     this.moderationTracker?.dispose();

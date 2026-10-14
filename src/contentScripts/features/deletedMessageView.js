@@ -4,6 +4,9 @@
   const REVEALED_CLASS = 'tfr-deleted-message-revealed';
   const NATIVE_MARKER_CLASS = 'tfr-deleted-message-native-marker';
   const NATIVE_MARKER_SELECTOR = [
+    '[data-a-target="chat-deleted-message-placeholder"]',
+    '[data-test-selector="chat-deleted-message-placeholder"]',
+    '.chat-line__message--deleted-notice',
     '[data-a-target="deleted-message"]',
     '[data-test-selector="chat-line-message-deleted"]',
     '[data-test-selector="chat-deleted-message"]'
@@ -34,7 +37,9 @@
       }
       if (label) restored.setAttribute('aria-label', label);
       message.querySelectorAll?.(NATIVE_MARKER_SELECTOR)
-        .forEach((marker) => marker.classList.add(NATIVE_MARKER_CLASS));
+        .forEach((marker) => {
+          if (!window.TFRChatDomTools?.isReplyContext(marker)) marker.classList.add(NATIVE_MARKER_CLASS);
+        });
       body.appendChild(restored);
       message.classList.add(REVEALED_CLASS);
       return true;

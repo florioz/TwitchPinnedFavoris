@@ -10,6 +10,8 @@
   const TARGET_MAX_DB = -10;
   const TARGET_DEFAULT_DB = -16;
   const SIGNAL_FLOOR_DB = -90;
+  const MAX_BOOST_DB = 12;
+  const BOOST_FLOOR_DB = -60;
   const MAX_REDUCTION_MIN_DB = -40;
   const MAX_REDUCTION_MAX_DB = -12;
   const MAX_REDUCTION_DEFAULT_DB = -24;
@@ -34,7 +36,6 @@
       this.preset = 'balanced';
       this.normalizerEnabled = false;
       this.targetDb = TARGET_DEFAULT_DB;
-      this.maxReductionDb = MAX_REDUCTION_DEFAULT_DB;
       this.currentGainDb = 0;
       this.measuredLevelDb = null;
       this.normalizerPhase = 'idle';
@@ -65,13 +66,18 @@
         : MAX_REDUCTION_DEFAULT_DB;
     }
 
-    configure({ compressorEnabled, preset, normalizerEnabled, targetDb, maxReductionDb }) {
+    // A full-scale (0 dBFS) input must be reducible to the selected target.
+    // Legacy stored reduction limits no longer constrain normalization.
+    get maxReductionDb() {
+      return this.targetDb;
+    }
+
+    configure({ compressorEnabled, preset, normalizerEnabled, targetDb }) {
       this.compressorEnabled = Boolean(compressorEnabled);
       this.preset = this.normalizePreset(preset);
       this.normalizerEnabled = Boolean(normalizerEnabled);
       this.targetDb = this.normalizeTargetDb(targetDb);
-      this.maxReductionDb = this.normalizeMaxReductionDb(maxReductionDb);
-      if (this.normalizerEnabled) this.currentGainDb = Math.min(0, this.currentGainDb);
+      if (this.normalizerEnabled) this.currentGainDb = Math.max(this.maxReductionDb, Math.min(MAX_BOOST_DB, this.currentGainDb));
       this.applyCompressorState();
       this.applyNormalizerState();
       this.applyRoutingState();
@@ -80,7 +86,21 @@
 
     calculateTargetGainDb(inputDb) {
       if (!Number.isFinite(inputDb) || inputDb < SIGNAL_FLOOR_DB) return null;
-      return Math.max(this.maxReductionDb, Math.min(0, this.targetDb - inputDb));
+      // Fade amplification in above the noise gate rather than jumping at its edge.
+      const boostLimit = MAX_BOOST_DB * Math.max(0, Math.min(1, (inputDb - BOOST_FLOOR_DB) / 10));
+      return Math.max(this.maxReductionDb, Math.min(boostLimit, this.targetDb - inputDb));
+    }
+
+    calibrateCurrentLevel() {
+      const { analyser, context } = this.graph || {};
+      if (!analyser || context?.state !== 'running') return null;
+      const samples = new Float32Array(analyser.fftSize || 1024);
+      analyser.getFloatTimeDomainData(samples);
+      const level = this.calculateMeasuredLevelDb(samples);
+      if (!Number.isFinite(level) || level <= BOOST_FLOOR_DB) return null;
+      this.targetDb = this.normalizeTargetDb(level);
+      this.resetMeasurementState();
+      return this.targetDb;
     }
 
     calculateMeasuredLevelDb(samples) {
@@ -220,10 +240,13 @@
       const controlLevelDb = Number.isFinite(smoothedLevelDb)
         ? Math.max(inputDb, smoothedLevelDb)
         : inputDb;
-      const desiredGainDb = this.calculateTargetGainDb(controlLevelDb);
+      const desiredGainDb = !Number.isFinite(inputDb) || inputDb < SIGNAL_FLOOR_DB
+        ? null
+        : Math.min(this.calculateTargetGainDb(controlLevelDb),
+          inputDb <= BOOST_FLOOR_DB ? 0 : MAX_BOOST_DB);
       if (desiredGainDb == null) {
-        if (this.lastAudibleAt && now - this.lastAudibleAt > 2500) {
-          this.currentGainDb += (0 - this.currentGainDb) * 0.013;
+        if (this.currentGainDb > 0 || (this.lastAudibleAt && now - this.lastAudibleAt > 2500)) {
+          this.currentGainDb += (0 - this.currentGainDb) * (this.currentGainDb > 0 ? 0.2 : 0.013);
           this.setGainDb(this.currentGainDb, 0.35);
           this.normalizerPhase = Math.abs(this.currentGainDb) > 0.05 ? 'releasing' : 'idle';
         }
@@ -234,7 +257,8 @@
         this.setGainDb(this.currentGainDb, reducing ? 0.02 : 0.22);
         this.normalizerPhase = desiredGainDb < -0.05
           ? 'reducing'
-          : (Math.abs(this.currentGainDb) > 0.05 ? 'releasing' : 'idle');
+          : (this.currentGainDb > 0.05 ? 'boosting'
+            : (Math.abs(this.currentGainDb) > 0.05 ? 'releasing' : 'idle'));
       }
       return {
         levelDb: this.measuredLevelDb,
@@ -328,8 +352,15 @@
     canProcess(video) {
       // Cross-origin clip URLs without CORS become silent MediaElementAudioSources.
       // Keep native playback for those sources; do not mutate crossOrigin or reload the clip.
-      const src = String(video?.src || video?.currentSrc || '');
-      return src.startsWith('blob:') && !/\/clip\/|^\/clips\//i.test(this.window.location?.pathname || '');
+      if (!video || /\/clip\/|^\/clips\//i.test(this.window.location?.pathname || '')) return false;
+      // Twitch also attaches worker-backed MSE via srcObject, with no blob URL.
+      // Use the platform tag across content-script/page realms.
+      if (video.srcObject) {
+        const type = Object.prototype.toString.call(video.srcObject);
+        return type === '[object MediaSourceHandle]' || type === '[object MediaSource]';
+      }
+      const src = String(video.currentSrc || video.src || '');
+      return src.startsWith('blob:');
     }
 
     resetMediaState() {

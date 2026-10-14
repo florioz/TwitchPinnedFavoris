@@ -1,3 +1,9 @@
+.tfr-chat-input-emote-spacing {
+  box-sizing: border-box !important;
+  padding-right: var(--tfr-chat-input-right-space) !important;
+  overflow-wrap: anywhere;
+}
+
 .tfr-chat-emote-picker-slot {
   display: inline-flex;
   width: 30px;

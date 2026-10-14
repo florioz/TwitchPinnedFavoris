@@ -212,186 +212,59 @@ test('viewer card history resolves its mount point only inside the active card',
   assert.doesNotMatch(renderMethod, /collectRelatedRoots\(this\.currentCard\)/);
 });
 
-test('generic Twitch deletion markers stay deletions instead of becoming timeouts', () => {
+test('moderation tracker accepts only its isolated Twitch event feed', () => {
+  let receive;
+  let disposed = false;
+  context.window.location = { pathname: '/channel' };
+  context.window.TFRTwitchChatEvents = { getChannel: path => path?.slice(1) || '', getShared: () => ({
+    subscribe: callback => { receive = callback; return () => { disposed = true; }; },
+    getMessageState: () => null
+  }) };
   const tracker = new ModerationActionTracker({});
-  const element = new HTMLElementMock();
-  element.dataset = {};
-  element.classList = { contains: () => false };
-  element.querySelector = (selector) => selector.includes('deleted-message')
-    ? { textContent: 'Message supprimé' }
-    : null;
-
-  const action = tracker.detectDeletionAction(element, 'message supprime');
-
-  assert.equal(action.type, 'deletion');
-  assert.equal(action.duration, null);
-  assert.equal(tracker.isModerationPlaceholder('Message supprimé'), true);
-  assert.equal(tracker.isModerationPlaceholder('mon message parle de timeout'), false);
+  tracker.init();
+  assert.equal(typeof tracker.captureAction, 'undefined');
+  assert.equal(typeof tracker.captureModerationStatus, 'undefined');
+  receive({ id: 'fake', type: 'ban', login: 'victim' });
+  assert.equal(tracker.getActions().length, 0);
+  receive({ source: 'twitch-irc', channel: '/channel', id: 'real', type: 'timeout', login: 'viewer', duration: 600 });
+  receive({ source: 'twitch-irc', channel: '/channel', id: 'real', type: 'timeout', login: 'viewer', duration: 600 });
+  assert.equal(tracker.getActions().length, 1);
+  assert.equal(tracker.getActions()[0].duration, 600);
+  context.window.location.pathname = '/other';
+  assert.equal(tracker.getActions().length, 0);
+  receive({ source: 'twitch-irc', channel: '/channel', id: 'late', type: 'ban' });
+  receive({ type: 'reset' });
+  receive({ source: 'twitch-irc', channel: '/other', id: 'other', type: 'ban' });
+  assert.equal(tracker.getActions().length, 1);
+  assert.equal(tracker.getActions()[0].channel, '/other');
+  receive({ type: 'reset' });
+  assert.equal(tracker.getActions().length, 0);
+  tracker.dispose(); assert.equal(disposed, true);
 });
 
-test('moderation mutation filtering ignores ordinary class churn', () => {
-  const tracker = new ModerationActionTracker({});
-  const target = {
-    getAttribute: (name) => name === 'class' ? 'chat-line__message is-hovered' : ''
-  };
 
-  assert.equal(tracker.shouldScanMutation({ type: 'attributes', attributeName: 'class', oldValue: 'chat-line__message', target }), false);
-  assert.equal(tracker.shouldScanMutation({ type: 'attributes', attributeName: 'class', oldValue: 'chat-line__message', target: {
-    getAttribute: () => 'chat-line__message chat-line__message--deleted'
-  } }), true);
-});
-
-test('announcement banners are never interpreted as bans', () => {
-  const tracker = new ModerationActionTracker({});
-
-  assert.equal(tracker.hasBanIndicator('chat-line__message announcement-banner'), false);
-  assert.equal(tracker.hasBanIndicator('community-banner'), false);
-  assert.equal(tracker.hasBanIndicator('moderation-action-ban'), true);
-  assert.equal(tracker.hasBanIndicator('utilisateur banni'), true);
-});
-
-test('hidden moderation controls are not evidence of an executed timeout', () => {
-  const tracker = new ModerationActionTracker({});
-  const button = {
-    tagName: 'BUTTON',
-    getAttribute: () => '',
-    closest: () => null
-  };
-  const labelInsideButton = {
-    tagName: 'SPAN',
-    getAttribute: () => '',
-    closest: (selector) => selector.includes('button') ? button : null
-  };
-  const status = {
-    tagName: 'DIV',
-    getAttribute: () => '',
-    closest: () => null
-  };
-
-  assert.equal(tracker.isInteractiveModerationControl(button), true);
-  assert.equal(tracker.isInteractiveModerationControl(labelInsideButton), true);
-  assert.equal(tracker.isInteractiveModerationControl(status), false);
-});
-
-test('temporary-ban status promotes the recent deletion with its duration', () => {
-  const tracker = new ModerationActionTracker({ normalizeLogin: (value) => value, getHistory: () => [] });
-  const deletion = {
-    id: 'deletion-floriozztest-1',
-    login: 'floriozztest',
-    displayName: 'floriozztest',
-    type: 'deletion',
-    duration: null,
-    detectedAt: Date.now(),
-    timestamp: Date.now(),
-    offenseMessage: 'message test'
-  };
-  tracker.actions.push(deletion);
-  tracker.actionKeys.add(deletion.id);
-  const status = new HTMLElementMock();
-  status.innerText = 'Bannissement temporaire Vous pourrez envoyer un nouveau message dans 9 minutes';
-  status.dataset = {};
-  status.closest = () => null;
-
-  assert.equal(tracker.captureModerationStatus(status), true);
-  assert.equal(deletion.type, 'timeout');
-  assert.equal(deletion.duration, 540);
-  assert.equal(deletion.offenseMessage, 'message test');
-});
-
-test('a burst of deleted messages from another user is inferred as a timeout', () => {
-  const tracker = new ModerationActionTracker({ normalizeLogin: (value) => value });
-  const now = Date.now();
-  const deletion = {
-    id: 'deletion-other-1', login: 'other', type: 'deletion', detectedAt: now,
-    timestamp: now, offenseMessage: 'premier message', lastMessageTimestamp: now - 100
-  };
-  tracker.actions.push(deletion);
-  tracker.actionKeys.add(deletion.id);
-
-  assert.equal(tracker.recordDeletionEvidence(deletion), false);
-  assert.equal(tracker.recordDeletionEvidence({
-    ...deletion,
-    id: 'deletion-other-2',
-    offenseMessage: 'second message',
-    lastMessageTimestamp: now
-  }), true);
-  assert.equal(deletion.type, 'timeout');
-  assert.equal(deletion.duration, null);
-});
-
-test('timeout status arriving before the deleted line is applied afterwards', () => {
-  const tracker = new ModerationActionTracker({ normalizeLogin: (value) => value, getLatestMessage: () => null });
-  const status = new HTMLElementMock();
-  status.innerText = 'Bannissement temporaire Vous pourrez envoyer un nouveau message dans 10 minutes';
-  status.dataset = {};
-  status.closest = () => null;
-
-  assert.equal(tracker.captureModerationStatus(status), false);
-  assert.equal(tracker.pendingStatuses.get('timeout').duration, 600);
-
-  const deletion = {
-    id: 'deletion-late-1', login: 'late_user', type: 'deletion', detectedAt: Date.now(), timestamp: Date.now()
-  };
-  tracker.actions.push(deletion);
-  tracker.actionKeys.add(deletion.id);
-
-  assert.equal(tracker.applyPendingTimeout('late_user'), true);
-  assert.equal(deletion.type, 'timeout');
-  assert.equal(deletion.duration, 600);
-  assert.equal(tracker.pendingStatuses.has('timeout'), false);
-});
-
-test('Twitch timeout countdown is rounded up to the next full minute', () => {
-  const tracker = new ModerationActionTracker({});
-
-  assert.equal(
-    tracker.extractRoundedCountdownDuration('Vous pourrez envoyer un nouveau message dans 9 minutes 29 secondes.'),
-    600
-  );
-  assert.equal(
-    tracker.extractRoundedCountdownDuration('You can send a new message in 4 minutes 1 second.'),
-    300
-  );
-});
-
-test('Twitch banned-user marker promotes a deletion to a permanent ban', () => {
-  const tracker = new ModerationActionTracker({ normalizeLogin: (value) => value, getLatestMessage: () => null });
-  const now = Date.now();
-  const deletion = {
-    id: 'deletion-perma-1', login: 'perma_user', displayName: 'Perma_user',
-    type: 'deletion', duration: null, isPermanent: false, detectedAt: now, timestamp: now,
-    offenseMessage: 'message concerné'
-  };
-  tracker.actions.push(deletion);
-  tracker.actionKeys.add(deletion.id);
-  const status = new HTMLElementMock();
-  status.innerText = "Vous avez été banni du chat. Vous ne pouvez plus participer tant qu'un modérateur n'a pas annulé votre bannissement. Demande après 15 minutes.";
-  status.dataset = {};
-  status.closest = () => null;
-  status.matches = (selector) => selector.includes('banned-user-message');
-
-  assert.equal(tracker.captureModerationStatus(status), true);
-  assert.equal(deletion.type, 'ban');
-  assert.equal(deletion.isPermanent, true);
-  assert.equal(deletion.duration, null);
-  assert.equal(deletion.offenseMessage, 'message concerné');
-});
-
-test('permanent-ban status can wait for its deleted line', () => {
-  const tracker = new ModerationActionTracker({ normalizeLogin: (value) => value, getLatestMessage: () => null });
-  const status = new HTMLElementMock();
-  status.innerText = 'Vous avez été banni du chat';
-  status.dataset = {};
-  status.closest = () => null;
-  status.matches = () => true;
-
-  assert.equal(tracker.captureModerationStatus(status), false);
-  const deletion = {
-    id: 'deletion-perma-late', login: 'late_perma', type: 'deletion', detectedAt: Date.now(), timestamp: Date.now()
-  };
-  tracker.actions.push(deletion);
-  tracker.actionKeys.add(deletion.id);
-  assert.equal(tracker.applyPendingPermanentBan('late_perma'), true);
-  assert.equal(deletion.type, 'ban');
-  assert.equal(deletion.isPermanent, true);
+test('moderation history mounts using real chat controls discovery', () => {
+  const toolbar = new HTMLElementMock();
+  const button = new HTMLElementMock();
+  const selector = '[data-a-target="chat-input-buttons-container"]';
+  toolbar.closest = (value) => value === selector ? toolbar : null;
+  toolbar.querySelector = () => null;
+  toolbar.contains = (node) => node.parentElement === toolbar;
+  toolbar.appendChild = (node) => { node.parentElement = toolbar; };
+  button.style = { removeProperty() {} };
+  button.closest = toolbar.closest;
+  const previousQuery = context.document.querySelector;
+  context.document.querySelector = (value) => value === selector ? toolbar : null;
+  try {
+    const ui = Object.create(ModerationHistoryUI.prototype);
+    ui.ensureButton = () => button;
+    ui.clearButtonAnchor = () => {};
+    ui.mountButton();
+    assert.equal(button.parentElement, toolbar);
+    assert.equal(ui.isInsideChatControls(button), true);
+    context.document.querySelector = () => null;
+    assert.equal(ui.findControlsContainer(), null);
+  } finally {
+    context.document.querySelector = previousQuery;
+  }
 });

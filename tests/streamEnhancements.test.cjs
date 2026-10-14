@@ -4,7 +4,7 @@ const path = require('node:path');
 const test = require('node:test');
 const vm = require('node:vm');
 
-const loadFeatures = () => {
+const loadFeatures = (translate = (key) => key) => {
   class ElementMock {}
   let intervalId = 0;
   let timeoutCalls = 0;
@@ -62,6 +62,7 @@ const loadFeatures = () => {
     clearInterval: window.clearInterval,
     clearTimeout: window.clearTimeout
   };
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../src/contentScripts/features/chatDomTools.js'), 'utf8'), context);
   vm.runInNewContext(
     fs.readFileSync(path.join(__dirname, '../src/contentScripts/features/deletedMessageView.js'), 'utf8'),
     context
@@ -94,11 +95,14 @@ const loadFeatures = () => {
     fs.readFileSync(path.join(__dirname, '../src/contentScripts/features/playerAudioEngine.js'), 'utf8'),
     context
   );
+  for (const module of ['playerAudioControls.js', 'thirdPartyChatEmotes.js']) {
+    vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../src/contentScripts/features', module), 'utf8'), context);
+  }
   vm.runInNewContext(
     fs.readFileSync(path.join(__dirname, '../src/contentScripts/features/streamEnhancements.js'), 'utf8'),
     context
   );
-  const features = window.TFRStreamEnhancements.create({ t: (key) => key });
+  const features = window.TFRStreamEnhancements.create({ t: translate });
   return { features, activeIntervals, classes, styles, ElementMock, document: context.document, window, getTimeoutCalls: () => timeoutCalls };
 };
 
@@ -226,10 +230,11 @@ test('volume normalization clamps its target and applied correction', () => {
   const manager = new features.PlayerAudioCompressor();
   manager.configure({ enabled: false, normalizerEnabled: true, targetDb: -16, maxReductionDb: -34 });
   assert.equal(manager.targetDb, -16);
-  assert.equal(manager.maxReductionDb, -34);
+  assert.equal(manager.maxReductionDb, -16);
   assert.equal(manager.calculateTargetGainDb(-4), -12);
-  assert.equal(manager.calculateTargetGainDb(-30), 0);
-  assert.equal(manager.calculateTargetGainDb(-52), 0);
+  assert.equal(manager.calculateTargetGainDb(-30), 12);
+  assert.ok(Math.abs(manager.calculateTargetGainDb(-52) - 9.6) < 0.001);
+  assert.equal(manager.formatReductionDb(6), "+6.0");
   assert.equal(manager.calculateTargetGainDb(-92), null);
   const musicLikeSignal = new Float32Array([0.05, 0.05, 0.05, 0.8]);
   assert.ok(manager.calculateMeasuredLevelDb(musicLikeSignal) > -13);
@@ -738,4 +743,132 @@ test('chat font can be enabled, changed and fully removed', () => {
   manager.dispose();
   assert.equal(classes.size, 0);
   assert.equal(styles.size, 0);
+});
+
+
+test('deleted viewer ignores DOM flags and uses Twitch message identity', () => {
+  const { features, ElementMock } = loadFeatures();
+  const N = require('./helpers/chatMessageFixture.cjs')(ElementMock);
+  const viewer = new features.DeletedMessageViewer();
+  const message = new N('div', { 'data-message-id': 'own', 'data-deleted': 'true' }, 'banned for 600 seconds');
+  assert.equal(viewer.isDeleted(message), false);
+  viewer.moderationTracker = { getMessageState: id => id === 'own' ? { deleted: true, action: { type: 'timeout', duration: 600 } } : null };
+  assert.equal(viewer.isDeleted(message), true);
+  assert.equal(viewer.getDeletionLabel(message), 'settings.deletedMessages.timeout');
+  message.attrs['data-message-id'] = 'other'; message.dataset.messageId = 'other';
+  assert.equal(viewer.isDeleted(message), false);
+  assert.equal(viewer.getDeletionLabel(message), 'settings.deletedMessages.badge');
+});
+
+
+test('VOD emotes load both providers for the video owner, including VOD-to-VOD navigation', async () => {
+  const { features, window } = loadFeatures();
+  const emotes = new features.ThirdPartyChatEmotes();
+  emotes.enabledSevenTv = emotes.enabledBetterTtv = true;
+  emotes.autocomplete.setEmotes = emotes.picker.setEmotes = () => {};
+  const owners = [];
+  emotes.fetchVideoOwnerId = async id => `owner-${id}`;
+  emotes.fetchTwitchUserId = async () => { throw new Error('videos is not a channel login'); };
+  emotes.fetchSevenTv = async id => { owners.push(id); return new Map([['seven', { name: 'seven' }]]); };
+  emotes.fetchBetterTtv = async id => { owners.push(id); return new Map([['bttv', { name: 'bttv' }]]); };
+  emotes.observeChat = emotes.renderExisting = () => {};
+  window.location.pathname = '/videos/123';
+  await emotes.reload();
+  assert.equal(emotes.emotes.size, 2);
+  window.location.pathname = '/videos/456';
+  await emotes.reload();
+  assert.deepEqual(owners, ['owner-123', 'owner-123', 'owner-456', 'owner-456']);
+});
+
+test('VOD owner lookup uses the video ID and handles unavailable videos', async () => {
+  const { features } = loadFeatures();
+  const emotes = new features.ThirdPartyChatEmotes();
+  emotes.fetchJson = async (url, options) => {
+    assert.equal(JSON.parse(options.body).variables.id, '123');
+    return { data: { video: { owner: { id: '42' } } } };
+  };
+  assert.equal(await emotes.fetchVideoOwnerId('123'), '42');
+  emotes.fetchJson = async () => null;
+  assert.equal(await emotes.fetchVideoOwnerId('123'), '');
+});
+
+
+test('emote rendering discovers the actual Twitch VOD message list wrapper', () => {
+  const { features, document } = loadFeatures();
+  const emotes = new features.ThirdPartyChatEmotes();
+  emotes.enabledSevenTv = true;
+  const container = { isConnected: true, addEventListener() {}, removeEventListener() {} };
+  document.querySelector = selector => selector.includes('.video-chat__message-list-wrapper') ? container : null;
+  emotes.tooltip.bind = () => {};
+  emotes.observeChat();
+  assert.equal(emotes.container, container);
+});
+
+
+test('hidden pages keep audio normalization active without updating visual meters', () => {
+  const { features, document } = loadFeatures();
+  const manager = new features.PlayerAudioCompressor();
+  manager.normalizerEnabled = true;
+  let updates = 0, readouts = 0;
+  manager.engine.update = () => { updates++; return { levelDb: -20 }; };
+  manager.engine.isWorkletMeasurementFresh = () => false;
+  manager.updateNormalizerReadout = () => { readouts++; };
+  document.visibilityState = 'hidden';
+  manager.updateVolumeNormalization(true);
+  manager.updateVolumeNormalization(false);
+  assert.equal(updates, 2);
+  assert.equal(readouts, 0);
+  document.visibilityState = 'visible';
+  manager.updateVolumeNormalization(true);
+  assert.equal(updates, 3);
+  assert.equal(readouts, 1);
+});
+
+test('hidden pages still attach audio processing when Twitch replaces the video', () => {
+  const { features, document } = loadFeatures();
+  const manager = new features.PlayerAudioCompressor();
+  const video = {};
+  manager.normalizerEnabled = true;
+  document.visibilityState = 'hidden';
+  document.querySelector = () => video;
+  manager.engine.canProcess = () => true;
+  let attached;
+  manager.attachAudio = value => { attached = value; };
+  manager.ensureButton = manager.updateCompressorReadout = () => { throw new Error('hidden UI update'); };
+  manager.applyCompressorState = () => {};
+  manager.refresh();
+  assert.equal(attached, video);
+});
+
+
+test('native volume changes calibrate the current level after dragging, but mute and silence do not', async () => {
+  const { features, window } = loadFeatures();
+  const manager = new features.PlayerAudioCompressor();
+  let callback;
+  window.setTimeout = fn => { callback = fn; return 123; };
+  window.clearTimeout = () => { callback = null; };
+  manager.normalizerEnabled = true;
+  manager.boundVideo = { volume: 0.5, muted: false, paused: false };
+  manager.lastNativeVolume = 0.8;
+  manager.engine.graph = { context: { state: 'running' }, analyser: {
+    fftSize: 128, getFloatTimeDomainData(samples) { samples.fill(0.1); }
+  } };
+  const saved = [];
+  manager.updatePreference = async value => { saved.push(value.targetDb); };
+  manager.calibrateFromNativeVolume();
+  assert.equal(manager.calibrationTimer, 123);
+  callback();
+  assert.equal(manager.targetDb, -20);
+  assert.deepEqual(saved, [-20]);
+  manager.boundVideo.muted = true;
+  manager.calibrateFromNativeVolume();
+  assert.equal(saved.length, 1);
+  manager.boundVideo.muted = false;
+  manager.boundVideo.volume = 0.4;
+  manager.engine.graph.analyser.getFloatTimeDomainData = samples => samples.fill(0);
+  manager.calibrateFromNativeVolume(); callback();
+  assert.deepEqual(saved, [-20]);
+  manager.boundVideo.volume = 0;
+  manager.calibrateFromNativeVolume();
+  assert.equal(manager.calibrationTimer, null);
 });

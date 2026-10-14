@@ -59,3 +59,14 @@ Les trois composants extraits exposent une fabrique `create`. Les dépendances s
 3. Ne pas déplacer ou conserver de nœuds DOM appartenant à React/Twitch.
 4. Ajouter tout nouveau script avant son consommateur dans le manifeste.
 5. Exécuter les tests, la vérification JavaScript et la synchronisation Firefox avant chaque release.
+
+
+## Audio, emotes et moderation (apres 0.6.26)
+
+- `playerAudioEngine.js` possede le graphe Web Audio, les mesures, la normalisation et la calibration. Il ne construit pas d'interface et n'ecrit pas les preferences.
+- `playerAudioControls.js` gere le panneau, le cycle de vie du lecteur et la calibration declenchee par le volume Twitch. La mesure reste active en arriere-plan ; seuls les indicateurs visuels attendent une page visible.
+- `thirdPartyChatEmotes.js` charge les catalogues 7TV/BTTV et rend les emotes des lives et VOD. Les utilitaires de parcours du chat sont injectes par `streamEnhancements.js`, sans lui transmettre le controleur complet.
+- `twitchChatEvents.js` possede la connexion IRC en lecture seule, le parsing, les messages et les sanctions de la chaine courante. Changer de chaine ou arreter le dernier abonnement efface cet etat. Le DOM ne constitue jamais une preuve de moderation.
+- `chatModeration.js` consomme ces evenements et presente les historiques. Les helpers DOM servent uniquement a identifier et afficher les messages, pas a deduire une sanction.
+
+Les manifestes Chrome et Firefox chargent les nouveaux modules avant `streamEnhancements.js`. Les tests d'architecture verifient cet ordre. Les anciennes preferences sauvegardees restent compatibles.

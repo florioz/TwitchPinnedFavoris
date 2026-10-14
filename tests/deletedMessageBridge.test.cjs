@@ -21,6 +21,8 @@ const loadBridge = () => {
     querySelectorAll: () => []
   };
   const context = { document, Element: ElementMock, MutationObserver: MutationObserverMock };
+  context.window = {};
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../src/contentScripts/features/chatDomTools.js'), 'utf8'), context);
   vm.runInNewContext(
     fs.readFileSync(path.join(__dirname, '../src/contentScripts/page/deletedMessageBridge.js'), 'utf8'),
     context
@@ -114,18 +116,51 @@ test('page bridge allows a later retry when no Twitch renderer is available', ()
   assert.equal(message.dataset.tfrDeletedRestoreRequested, undefined);
 });
 
-test('page bridge observes Twitch only while deleted messages are enabled', () => {
+test('page bridge never observes DOM as a source of moderation', () => {
   const { bridge, setEnabled, observerStats } = loadBridge();
 
-  assert.deepEqual(observerStats(), { observeCalls: 1, disconnectCalls: 0 });
+  assert.deepEqual(observerStats(), { observeCalls: 0, disconnectCalls: 0 });
   bridge.start();
-  assert.deepEqual(observerStats(), { observeCalls: 1, disconnectCalls: 0 });
+  assert.deepEqual(observerStats(), { observeCalls: 0, disconnectCalls: 0 });
 
   setEnabled(false);
-  assert.deepEqual(observerStats(), { observeCalls: 1, disconnectCalls: 1 });
+  assert.deepEqual(observerStats(), { observeCalls: 0, disconnectCalls: 0 });
   setEnabled(false);
-  assert.deepEqual(observerStats(), { observeCalls: 1, disconnectCalls: 1 });
+  assert.deepEqual(observerStats(), { observeCalls: 0, disconnectCalls: 0 });
 
   setEnabled(true);
-  assert.deepEqual(observerStats(), { observeCalls: 2, disconnectCalls: 1 });
+  assert.deepEqual(observerStats(), { observeCalls: 0, disconnectCalls: 0 });
+});
+
+
+test('native restore observer ignores deletion notices inside reply context', () => {
+  const { bridge, ElementMock } = loadBridge();
+  const N = require('./helpers/chatMessageFixture.cjs')(ElementMock);
+  let rendererLookups = 0;
+  const deletion = new N('span', { 'data-a-target': 'deleted-message' }, 'Message deleted');
+  const quote = new N('div', { 'data-a-target': 'chat-message-reply-context' }, '', [deletion]);
+  const line = new N('div', { class: 'chat-line__message' }, '', [quote]);
+  Object.defineProperty(line, '__reactFiber$test', { enumerable: true, get() { rendererLookups++; return null; } });
+  bridge.restoreDeletedNode(line);
+  bridge.restoreDeletedNode(deletion);
+  assert.equal(rendererLookups, 0);
+  assert.equal(bridge.restoreMessage(deletion), false);
+});
+
+
+test('a moderator placeholder restores its message renderer, not the placeholder span', () => {
+  const { bridge, ElementMock } = loadBridge();
+  const N = require('./helpers/chatMessageFixture.cjs')(ElementMock);
+  const notice = new N('span', { class: 'chat-line__message--deleted-notice',
+    'data-a-target': 'chat-deleted-message-placeholder' }, 'message deleted by a moderator.');
+  const line = new N('div', { class: 'chat-line__message' }, '', [notice]);
+  let updates = 0;
+  const renderer = { props: { isDeleted: true }, renderMessageBody() {}, forceUpdate() { updates++; } };
+  line.__reactFiber$test = { stateNode: renderer };
+  // The placeholder has no renderer of its own. The message root does.
+  bridge.restoreDeletedNode(notice);
+  assert.equal(updates, 0, "a placeholder alone cannot authorize a restore");
+  bridge.restoreMessage(line);
+  assert.equal(updates, 1);
+  assert.equal(renderer.props.isDeleted, true);
 });
