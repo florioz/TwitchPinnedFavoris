@@ -155,3 +155,34 @@ test('concurrency mapper can pace work between successive items', async () => {
   assert.deepEqual(results.map((entry) => entry.value), [1, 2, 3, 4]);
   assert.deepEqual(scheduledDelays, [90, 90]);
 });
+
+
+test('startup fetch groups 45 favorites into three requests and preserves identity order', async () => {
+  const calls = [];
+  const client = createTwitchClient({ fetchImpl: async (url, options) => {
+    const batch = JSON.parse(options.body); calls.push(batch);
+    return { ok: true, json: async () => batch.map(item => ({ data: { user: {
+      id: item.variables.userId || item.variables.login, login: item.variables.login || 'renamed', stream: null
+    } } })) };
+  } });
+  const logins = Array.from({ length: 45 }, (_, i) => `user${i}`);
+  const result = await client.fetchStreamersLiveData(logins, { user0: { userId: 'stable-id' } });
+  assert.equal(calls.length, 3);
+  assert.deepEqual(calls.map(batch => batch.length), [20, 20, 5]);
+  assert.equal(result.length, 45);
+  assert.equal(result[0].login, 'renamed');
+  assert.equal(result[44].login, 'user44');
+});
+
+test('batch errors cannot confirm a streamer offline or revive yesterday live state', async () => {
+  const client = createTwitchClient({ logger: { debug() {} }, fetchImpl: async () => ({
+    ok: true, json: async () => [{ errors: [{ message: 'Unavailable' }] }, { data: { user: null } }]
+  }) });
+  const result = await client.fetchStreamersLiveData(['failed', 'missing'], {
+    failed: { isLive: true, lastConfirmedAt: Date.now() - 86400000 }
+  });
+  assert.equal(result[0].fetchFailed, true);
+  assert.equal(result[0].isLive, false);
+  assert.equal(result[1].userNotFound, true);
+  assert.equal(result[1].fetchFailed, false);
+});

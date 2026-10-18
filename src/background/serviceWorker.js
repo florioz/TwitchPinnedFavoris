@@ -5,8 +5,7 @@ import {
 } from './liveState.mjs';
 import {
   createOfflineLiveData,
-  createTwitchClient,
-  mapWithConcurrency
+  createTwitchClient
 } from './twitchClient.mjs';
 import { mergeFavoriteIdentity, hasFavoriteIdentityChanged } from './favoriteIdentity.mjs';
 import { createLiveSnapshotCoordinator } from './liveSnapshotCoordinator.mjs';
@@ -87,8 +86,6 @@ const POLL_ALARM = 'tfr_live_poll';
 const UPDATE_ALARM = 'tfr_update_check';
 const POLL_INTERVAL_MINUTES = 2;
 const LIVE_CACHE_TTL = 115 * 1000;
-const LIVE_FETCH_CONCURRENCY = 2;
-const LIVE_FETCH_PACING_MS = 90;
 const BADGE_COLOR = '#9147ff';
 const UPDATE_BADGE_COLOR = '#ef4444';
 const UPDATE_STORAGE_KEY = 'tfr_update_state';
@@ -97,7 +94,7 @@ const UPDATE_REPO_API_URL = 'https://api.github.com/repos/florioz/TwitchPinnedFa
 const UPDATE_REPO_URL = 'https://github.com/florioz/TwitchPinnedFavoris';
 
 const overlayTabs = new Set();
-const { fetchStreamerLiveData } = createTwitchClient();
+const { fetchStreamerLiveData, fetchStreamersLiveData } = createTwitchClient();
 const sharedSpacesRemote = createSharedSpacesRemote({
   extensionApi,
   config: SHARED_SPACES_CONFIG,
@@ -538,15 +535,11 @@ const performLiveStatusEvaluation = async (reason = 'manual') => {
   const renamedFavorites = new Map();
   const favoriteMetadataUpdates = new Map();
   if (logins.length) {
-    const results = await mapWithConcurrency(
-      logins,
-      LIVE_FETCH_CONCURRENCY,
-      (login) => fetchStreamerLiveData(login, {
-        ...favorites[login],
-        ...(previousLiveData[login] || {})
-      }),
-      { pacingMs: LIVE_FETCH_PACING_MS }
-    );
+    const fallbacks = Object.fromEntries(logins.map(login => [login, {
+      ...favorites[login], ...(previousLiveData[login] || {})
+    }]));
+    const updates = await fetchStreamersLiveData(logins, fallbacks);
+    const results = updates.map(value => ({ status: 'fulfilled', value }));
     results.forEach((result, index) => {
       const login = logins[index];
       if (result.status === 'fulfilled' && result.value) {

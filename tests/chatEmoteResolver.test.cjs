@@ -23,3 +23,17 @@ test('chat emote resolver enriches known emotes without losing punctuation', () 
   assert.equal(parts[2].name, 'Wave');
   assert.equal(parts[3].text, ')!');
 });
+
+
+test('history loads BTTV global, channel and shared emotes', async () => {
+  context.fetch = async url => ({ ok: true, json: async () => url.endsWith('/global')
+    ? [{ id: 'global', code: 'Global' }]
+    : { channelEmotes: [{ id: 'channel', code: 'Local' }], sharedEmotes: [{ id: 'shared', code: ':D' }] } });
+  const resolver = context.window.TFRChatEmoteResolver.create();
+  resolver.emotes = await resolver.fetchBetterTtvEmotes('42');
+  assert.equal(resolver.emotes.size, 3);
+  const parts = resolver.enrichParts([{ type: 'text', text: 'Local :D' }]);
+  assert.equal(parts[0].provider, 'bttv');
+  assert.equal(parts[2].name, ':D');
+  assert.equal(parts[2].type, 'emote');
+});

@@ -35,7 +35,7 @@
       return JSON.stringify({
         workspace: getWorkspaceSignature(state),
         enabled: preferences.liveFavoritesEnabled !== false,
-        hover: Boolean(isSidebarHovering),
+        hover: Boolean(preferences.hideCollapsedGroupsUntilHover && isSidebarHovering),
         compactLevel,
         prefs: {
           hideCollapsedGroupsUntilHover: Boolean(preferences.hideCollapsedGroupsUntilHover),
@@ -72,7 +72,7 @@
         autoCompactGroupStyle: preferences.autoCompactGroupStyle || '',
         sidebarSurfaceStyle: preferences.sidebarSurfaceStyle || '',
         hideCollapsedGroupsUntilHover: Boolean(preferences.hideCollapsedGroupsUntilHover),
-        hover: Boolean(isSidebarHovering),
+        hover: Boolean(preferences.hideCollapsedGroupsUntilHover && isSidebarHovering),
         groupParts
       });
     },

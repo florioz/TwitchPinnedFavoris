@@ -101,8 +101,8 @@
         const nextWorkspaceKey = this.createWorkspaceRenderKey(event?.state || this.store.getState?.());
         const workspaceChanged = nextWorkspaceKey !== this.workspaceRenderKey;
         this.workspaceRenderKey = nextWorkspaceKey;
-        this.invalidateStateRenderCache();
         if (workspaceChanged) {
+          this.invalidateStateRenderCache();
           this.cancelPendingRender();
           this.render();
           return;
@@ -444,9 +444,12 @@
           const entries = new Map(
             Array.from(list.children).map((entry) => [entry.dataset.login, entry])
           );
+          let cursor = list.firstElementChild;
           (group.entries || []).forEach((favorite) => {
             const entry = entries.get(favorite.login);
-            if (entry) list.appendChild(entry);
+            if (!entry) return;
+            if (entry === cursor) cursor = cursor.nextElementSibling;
+            else list.insertBefore(entry, cursor);
           });
         }
         (group.children || []).forEach(reorder);

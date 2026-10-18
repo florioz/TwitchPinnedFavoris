@@ -123,6 +123,43 @@ export const createTwitchClient = ({
   fetchImpl = globalThis.fetch,
   logger = console
 } = {}) => ({
+  async fetchStreamersLiveData(logins, fallbacks = {}) {
+    const batches = [];
+    for (let index = 0; index < logins.length; index += 20) batches.push(logins.slice(index, index + 20));
+    const results = await mapWithConcurrency(batches, 2, async batch => {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 8000);
+      try {
+        const response = await fetchImpl(TWITCH_GRAPHQL_ENDPOINT, {
+          method: 'POST', mode: 'cors', credentials: 'omit', signal: controller.signal,
+          headers: { 'Client-ID': TWITCH_CLIENT_ID, 'Content-Type': 'application/json' },
+          body: JSON.stringify(batch.map(login => ({
+            query: STREAM_STATE_QUERY,
+            variables: fallbacks[login]?.userId
+              ? { login: null, userId: String(fallbacks[login].userId) }
+              : { login, userId: null }
+          })))
+        });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const payload = await response.json();
+        if (!Array.isArray(payload) || payload.length !== batch.length) throw new Error('Incomplete Twitch batch');
+        return batch.map((login, index) => {
+          const item = payload[index];
+          return item?.errors?.length || !item?.data || !Object.hasOwn(item.data, 'user')
+            ? createLiveDataFallback(login, fallbacks[login])
+            : parseStreamerLivePayload(login, item, fallbacks[login]);
+        });
+      } catch (error) {
+        logger?.debug?.('[TFR] Live batch temporarily unavailable', error);
+        return batch.map(login => createLiveDataFallback(login, fallbacks[login]));
+      } finally {
+        clearTimeout(timer);
+      }
+    });
+    return results.flatMap((result, index) => result.status === 'fulfilled'
+      ? result.value : batches[index].map(login => createLiveDataFallback(login, fallbacks[login])));
+  },
+
   async fetchStreamerLiveData(login, fallback = {}) {
     if (!login) {
       return null;

@@ -543,8 +543,10 @@
           dataset.emoteId ||
           dataset.emoteName;
         if (isImageEmote) {
-          const url = element.currentSrc || element.src || element.getAttribute('src') || '';
+          const image = element.tagName === 'IMG' ? element : element.querySelector?.('img');
+          const url = image?.currentSrc || image?.src || element.currentSrc || element.src || element.getAttribute('src') || '';
           const name =
+            image?.getAttribute?.('alt') ||
             element.getAttribute('alt') ||
             element.getAttribute('aria-label') ||
             element.getAttribute('title') ||

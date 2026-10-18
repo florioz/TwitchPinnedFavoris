@@ -4,11 +4,13 @@
   const TWITCH_GQL_ENDPOINT = 'https://gql.twitch.tv/gql';
   const TWITCH_CLIENT_ID = 'kimne78kx3ncx6brgo4mv6wki5h1ko';
   const BLOCKED_ROUTES = new Set([
-    'directory', 'p', 'jobs', 'downloads', 'friends', 'messages', 'settings', 'subscriptions'
+    'videos', 'directory', 'p', 'jobs', 'downloads', 'friends', 'messages', 'settings', 'subscriptions'
   ]);
 
   const getCurrentChannelLogin = () => {
-    const candidate = window.location.pathname.match(/^\/([^/?#]+)/)?.[1]?.toLowerCase() || '';
+    const path = window.location.pathname;
+    const candidate = (path.match(/^\/(?:popout|embed)\/([^/]+)\/chat/)?.[1]
+      || path.match(/^\/([^/?#]+)/)?.[1] || '').toLowerCase();
     return candidate && !BLOCKED_ROUTES.has(candidate) ? candidate : '';
   };
 
@@ -24,9 +26,14 @@
       const login = getCurrentChannelLogin();
       if (!login && this.emotes.size) return;
       if (this.channelLogin === login && this.emotes.size) return;
-      if (this.loadingPromise) return this.loadingPromise;
+      if (this.loadingPromise) {
+        await this.loadingPromise;
+        if (this.channelLogin !== getCurrentChannelLogin()) return this.ensureLoaded();
+        return;
+      }
       const now = Date.now();
       if (this.channelLogin === login && now - this.lastAttempt < 60_000) return;
+      this.emotes.clear();
       this.channelLogin = login;
       this.lastAttempt = now;
       this.loadingPromise = this.load(login).finally(() => { this.loadingPromise = null; });
@@ -43,7 +50,31 @@
         );
         channelEmotes.forEach((emote, name) => next.set(name, emote));
       }
-      this.emotes = next;
+      const bttv = await this.fetchBetterTtvEmotes(channelId);
+      bttv.forEach((emote, name) => next.set(name, emote));
+      if (getCurrentChannelLogin() === login) this.emotes = next;
+    }
+
+    async fetchBetterTtvEmotes(channelId) {
+      const read = async url => {
+        try {
+          const response = await fetch(url, { credentials: 'omit' });
+          return response.ok ? await response.json() : null;
+        } catch { return null; }
+      };
+      const [global, channel] = await Promise.all([
+        read('https://api.betterttv.net/3/cached/emotes/global'),
+        channelId ? read(`https://api.betterttv.net/3/cached/users/twitch/${encodeURIComponent(channelId)}`) : null
+      ]);
+      const result = new Map();
+      for (const entries of [global, channel?.channelEmotes, channel?.sharedEmotes]) {
+        for (const entry of Array.isArray(entries) ? entries : []) {
+          if (entry?.code && entry?.id) result.set(entry.code, {
+            name: entry.code, provider: 'bttv', url: `https://cdn.betterttv.net/emote/${entry.id}/2x.webp`
+          });
+        }
+      }
+      return result;
     }
 
     async fetchSevenTvEmotes(url, nested = false) {
@@ -95,12 +126,13 @@
         String(part.text).split(/(\s+)/).forEach((token) => {
           if (!token) return;
           const match = token.match(/^([^A-Za-z0-9_]*)([A-Za-z0-9_][A-Za-z0-9_\-]*)([^A-Za-z0-9_]*)$/);
-          const candidate = match?.[2] || token;
+          const exact = this.emotes.has(token);
+          const candidate = exact ? token : match?.[2] || token;
           const emote = this.emotes.get(candidate);
           if (emote) {
-            if (match?.[1]) result.push({ type: 'text', text: match[1] });
-            result.push({ type: 'emote', name: candidate, url: emote.url, provider: '7tv' });
-            if (match?.[3]) result.push({ type: 'text', text: match[3] });
+            if (!exact && match?.[1]) result.push({ type: 'text', text: match[1] });
+            result.push({ type: 'emote', name: candidate, url: emote.url, provider: emote.provider || '7tv' });
+            if (!exact && match?.[3]) result.push({ type: 'text', text: match[3] });
           } else if (result.at(-1)?.type === 'text') {
             result.at(-1).text += token;
           } else {

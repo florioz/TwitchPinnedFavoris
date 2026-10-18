@@ -298,3 +298,31 @@ test('render signatures distinguish personal profiles and shared spaces', () => 
 
   assert.notEqual(personal, shared);
 });
+
+
+test('background state saves preserve sidebar render caches in the same workspace', () => {
+  const SidebarRenderer = loadSidebarRenderer({}, {});
+  const renderer = Object.create(SidebarRenderer.prototype);
+  const state = { workspaceMode: 'personal', activeProfileId: 'profile_1', revision: 123 };
+  renderer.store = { getState: () => state };
+  renderer.workspaceRenderKey = 'personal:profile_1:';
+  renderer.lastRenderSignature = 'existing';
+  renderer.invalidateStateRenderCache = () => { throw new Error('unnecessary invalidation'); };
+  let scheduled = 0;
+  renderer.scheduleRender = () => { scheduled++; };
+  renderer.handleStoreUpdate({ kind: 'state', state });
+  assert.equal(renderer.lastRenderSignature, 'existing');
+  assert.equal(scheduled, 1);
+});
+
+test('hover only changes sidebar signatures when collapsed groups depend on it', () => {
+  const windowRef = {};
+  loadSidebarRenderer(windowRef, {});
+  const signatures = windowRef.TFRSidebarSignatures.create({ getLiveDataEntry: () => null });
+  const state = { preferences: {} };
+  assert.equal(signatures.render(state, {}, [], { isSidebarHovering: false }),
+    signatures.render(state, {}, [], { isSidebarHovering: true }));
+  state.preferences.hideCollapsedGroupsUntilHover = true;
+  assert.notEqual(signatures.render(state, {}, [], { isSidebarHovering: false }),
+    signatures.render(state, {}, [], { isSidebarHovering: true }));
+});
