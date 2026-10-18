@@ -31,6 +31,7 @@
       this.pendingNodeSet = new Set();
       this.processedPerFrame = 80;
       this.messageSnapshots = new WeakMap();
+      this.messageEntries = new WeakMap();
       this.messageSnapshotsById = new Map();
       this.maxMessageSnapshots = 2000;
       this.recentMessages = [];
@@ -131,7 +132,7 @@
         childList: true,
         subtree: true,
         attributes: true,
-        attributeFilter: ['class', 'data-user', 'data-a-user', 'data-message-id', 'data-id', 'data-uuid']
+        attributeFilter: ['class', 'data-user', 'data-a-user', 'data-message-id', 'data-id', 'data-uuid', 'src', 'srcset', 'alt', 'title']
       });
       this.captureExistingMessages(container);
     }
@@ -194,8 +195,9 @@
     }
 
     scanNode(node) {
-      if (node.matches(CHAT_MESSAGE_SELECTOR)) {
-        this.captureMessage(node);
+      const message = node.closest?.(CHAT_MESSAGE_SELECTOR);
+      if (message) {
+        this.captureMessage(message);
       }
       const descendants = node.querySelectorAll?.(CHAT_MESSAGE_SELECTOR);
       if (descendants && descendants.length) {
@@ -206,7 +208,9 @@
     captureMessage(messageElement) {
       if (chatDomTools.isReplyContext(messageElement)) return;
       const rootElement = this.getMessageRoot(messageElement);
-      if (!rootElement || rootElement.dataset?.tfrChatTracked === 'true' || messageElement?.dataset?.tfrChatTracked === 'true') {
+      if (!rootElement) return;
+      if (rootElement.dataset?.tfrChatTracked === 'true' || messageElement?.dataset?.tfrChatTracked === 'true') {
+        this.refreshMessageBadges(rootElement);
         return;
       }
       const login = this.extractLogin(rootElement);
@@ -230,14 +234,17 @@
       this.rememberMessageSnapshot(rootElement, entry);
       this.rememberRecentMessage(entry);
       const existing = this.history.get(normalized) || [];
-      const duplicate = existing.some((candidate) => (
+      const duplicate = existing.find((candidate) => (
         Math.abs(Number(candidate.timestamp || 0) - timestamp) < 1000 && candidate.text === text
       ));
       if (duplicate) {
+        this.messageEntries.set(rootElement, duplicate);
+        this.refreshMessageBadges(rootElement);
         messageElement.dataset.tfrChatTracked = 'true';
         rootElement.dataset.tfrChatTracked = 'true';
         return;
       }
+      this.messageEntries.set(rootElement, entry);
       existing.push(entry);
       if (existing.length > 1) {
         existing.sort((a, b) => a.timestamp - b.timestamp);
@@ -269,6 +276,18 @@
         holder?.dataset?.messageId || holder?.dataset?.id || holder?.dataset?.uuid
         || holder?.getAttribute?.('data-message-id') || holder?.getAttribute?.('data-id') || holder?.getAttribute?.('data-uuid') || ''
       ).trim();
+    }
+
+    refreshMessageBadges(messageElement) {
+      const entry = this.messageEntries.get(messageElement);
+      if (!entry) return;
+      const badges = this.extractBadges(messageElement);
+      // Keep the captured badges when Twitch removes or rebuilds a message.
+      if (!badges.some((badge) => badge.url)) return;
+      if (JSON.stringify(badges) === JSON.stringify(entry.badges)) return;
+      entry.badges = badges;
+      this.rememberMessageSnapshot(messageElement, entry);
+      this.emit(entry.login);
     }
 
     rememberMessageSnapshot(messageElement, entry) {
@@ -398,12 +417,7 @@
 
     extractMessageText(messageElement) {
       messageElement = chatDomTools.ownMessage(messageElement);
-      const textContainer =
-        messageElement.querySelector('[data-a-target="chat-message-text"]') ||
-        messageElement.querySelector('[data-test-selector="chat-line-message-body"]') ||
-        messageElement.querySelector('[data-a-target="chat-line-message-body"]') ||
-        messageElement.querySelector('.text-fragment')?.parentElement ||
-        messageElement;
+      const textContainer = this.getMessageContainer(messageElement);
       const tokens = [];
       const pushToken = (value) => {
         if (!value) return;
@@ -459,7 +473,7 @@
           dataset.emoteId ||
           dataset.emoteName;
         if (isEmote) {
-          pushToken(plain || alt || aria || title || element.textContent);
+          pushToken(plain || alt || element.querySelector?.('img')?.getAttribute?.('alt') || aria || title || element.textContent);
           return;
         }
         if (plain && !element.childNodes?.length) {
@@ -485,13 +499,25 @@
     }
 
     getMessageContainer(messageElement) {
-      return (
-        messageElement.querySelector('[data-a-target="chat-message-text"]') ||
-        messageElement.querySelector('[data-test-selector="chat-line-message-body"]') ||
-        messageElement.querySelector('[data-a-target="chat-line-message-body"]') ||
-        messageElement.querySelector('.text-fragment')?.parentElement ||
-        messageElement
-      );
+      const body = messageElement.querySelector('[data-test-selector="chat-line-message-body"]')
+        || messageElement.querySelector('[data-a-target="chat-line-message-body"]');
+      if (body) return body;
+      // chat-message-text is a fragment, not the complete message body.
+      const fragments = Array.from(messageElement.querySelectorAll(
+        '[data-a-target="chat-message-text"], .text-fragment, [data-a-target="chat-message-mention"], img'
+      )).filter(node => !chatDomTools.isReplyContext(node)
+        && !node.closest?.('.chat-badge, [data-a-target="chat-badge"], [data-a-target="chat-message-username"]'));
+      if (!fragments.length) return messageElement;
+      let common = fragments[0].parentElement || messageElement;
+      for (const fragment of fragments.slice(1)) {
+        const ancestors = new Set();
+        for (let node = fragment; node; node = node.parentElement) {
+          ancestors.add(node);
+          if (node === messageElement) break;
+        }
+        while (common !== messageElement && !ancestors.has(common)) common = common.parentElement || messageElement;
+      }
+      return common;
     }
 
     extractMessageFragments(messageElement, fallbackText = '') {
@@ -516,7 +542,6 @@
       const pushText = (value) => {
         if (!value) return;
         const text = String(value).replace(/\s+/g, ' ');
-        if (!text.trim()) return;
         const previous = parts[parts.length - 1];
         if (previous?.type === 'text') {
           previous.text += text;

@@ -10,6 +10,7 @@ const context = vm.createContext({
   window: { TFRChatEmoteResolver: { create: () => ({}) } },
   document: {},
   console,
+  Node: { ELEMENT_NODE: 1, TEXT_NODE: 3 },
   HTMLElement: HTMLElementMock
 });
 vm.runInContext(fs.readFileSync(
@@ -267,4 +268,65 @@ test('moderation history mounts using real chat controls discovery', () => {
   } finally {
     context.document.querySelector = previousQuery;
   }
+});
+
+
+test('history retains sibling mentions, text and emotes in message order', () => {
+  const N = require('./helpers/chatMessageFixture.cjs')(HTMLElementMock);
+  const mention = new N('span', { 'data-a-target': 'chat-message-mention' }, '@mlle_elow ');
+  const text = new N('span', { 'data-a-target': 'chat-message-text' }, 're soeur ');
+  mention.childNodes = [{ nodeType: 3, textContent: '@mlle_elow ' }];
+  text.childNodes = [{ nodeType: 3, textContent: 're soeur ' }];
+  const heart = new N('img', { src: 'https://example.test/heart.png', alt: 'Heart' });
+  const body = new N('span', {}, '', [mention, text, heart]);
+  const author = new N('span', { 'data-a-target': 'chat-message-username' }, 'superjpl');
+  const line = new N('div', {}, '', [author, body]);
+  const { ChatHistoryTracker } = context.window.TFRChatModeration.create({ t: key => key });
+  const tracker = new ChatHistoryTracker();
+  const parts = tracker.extractMessageFragments(line);
+  assert.equal(parts[0].text, '@mlle_elow re soeur ');
+  assert.equal(parts[1].type, 'emote');
+  assert.equal(parts[1].name, 'Heart');
+  assert.equal(parts[1].url, 'https://example.test/heart.png');
+  assert.equal(tracker.extractMessageText(line), '@mlle_elow re soeur Heart');
+});
+
+test('late badges refresh a tracked message without losing its content or duplicating it', () => {
+  const { ChatHistoryTracker } = context.window.TFRChatModeration.create({ t: key => key });
+  const tracker = new ChatHistoryTracker();
+  const root = new HTMLElementMock();
+  root.dataset = { tfrChatTracked: 'true' };
+  root.closest = () => null;
+  root.getAttribute = () => null;
+  root.querySelector = () => null;
+  tracker.getMessageRoot = () => root;
+  const entry = { login: 'alice', text: '@bob hello Heart', fragments: ['unchanged'], badges: [] };
+  tracker.messageEntries.set(root, entry);
+  tracker.history.set('alice', [entry]);
+  let badges = [{ url: 'https://example.test/badge.png', label: 'Subscriber' }];
+  tracker.extractBadges = () => badges;
+  let updates = 0;
+  tracker.emit = () => { updates += 1; };
+  tracker.captureMessage(root);
+  assert.equal(entry.badges[0].label, 'Subscriber');
+  assert.equal(tracker.getHistory('alice').length, 1);
+  assert.equal(entry.text, '@bob hello Heart');
+  assert.equal(entry.fragments[0], 'unchanged');
+  tracker.captureMessage(root);
+  assert.equal(updates, 1);
+  badges = [];
+  tracker.captureMessage(root);
+  assert.equal(entry.badges.length, 1);
+  assert.equal(updates, 1);
+});
+
+test('badge child mutations rescan their containing chat message', () => {
+  const { ChatHistoryTracker } = context.window.TFRChatModeration.create({ t: key => key });
+  const tracker = new ChatHistoryTracker();
+  const message = {};
+  const badge = { closest: () => message, querySelectorAll: () => [] };
+  let captured;
+  tracker.captureMessage = node => { captured = node; };
+  tracker.scanNode(badge);
+  assert.equal(captured, message);
 });
