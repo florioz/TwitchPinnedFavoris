@@ -330,3 +330,62 @@ test('badge child mutations rescan their containing chat message', () => {
   tracker.scanNode(badge);
   assert.equal(captured, message);
 });
+
+test('chat history stays bounded after 20000 different participants', () => {
+  const { ChatHistoryTracker } = context.window.TFRChatModeration.create({ t: key => key });
+  const tracker = new ChatHistoryTracker();
+  for (let index = 0; index < 20000; index++) {
+    tracker.history.set(`user${index}`, [{ text: 'message' }]);
+    tracker.trimHistory();
+  }
+  assert.equal(tracker.history.size, 2000);
+  assert.equal(tracker.history.has('user0'), false);
+  assert.equal(tracker.history.has('user19999'), true);
+});
+
+test('chat scan backlog bounds retained DOM nodes', () => {
+  const { ChatHistoryTracker } = context.window.TFRChatModeration.create({ t: key => key });
+  const tracker = new ChatHistoryTracker();
+  for (let index = 0; index < 20000; index++) tracker.queuePendingNode({ nodeType: 1 });
+  assert.equal(tracker.pendingNodes.length, 1000);
+  assert.equal(tracker.pendingNodeSet.size, 1000);
+});
+
+test('stalled emote loading retains one continuation and a bounded entry batch', async () => {
+  const previous = context.window.TFRChatEmoteResolver;
+  let calls = 0;
+  let resolveLoad;
+  context.window.TFRChatEmoteResolver = { create: () => ({
+    ensureLoaded: () => { calls++; return new Promise(resolve => { resolveLoad = resolve; }); },
+    enrichParts: parts => parts
+  }) };
+  try {
+    const { ChatHistoryTracker } = context.window.TFRChatModeration.create({ t: key => key });
+    const tracker = new ChatHistoryTracker();
+    for (let index = 0; index < 20000; index++) tracker.refreshHistoryEmotes({ login: 'alice', fragments: [] });
+    await new Promise(setImmediate);
+    assert.equal(calls, 1);
+    assert.equal(tracker.pendingEmoteEntries.size, 2000);
+    resolveLoad();
+    await new Promise(setImmediate);
+    assert.equal(tracker.pendingEmoteEntries.size, 0);
+    assert.equal(tracker.emoteRefreshPending, false);
+  } finally { context.window.TFRChatEmoteResolver = previous; }
+});
+
+test('moderation navigation finds a deleted message by its pre-deletion snapshot', () => {
+  const message = { isConnected: true };
+  const ui = Object.create(ModerationHistoryUI.prototype);
+  ui.tracker = { historyTracker: {
+    chatContainer: { isConnected: true, contains: node => node === message, querySelectorAll: () => [message] },
+    getMessageRoot: node => node,
+    getMessageId: () => '',
+    normalizeLogin: value => String(value || '').toLowerCase(),
+    extractLogin: () => 'alice',
+    extractMessageText: () => 'Message deleted (Permanent ban)',
+    getMessageSnapshot: () => ({ login: 'alice', text: 'Original message' })
+  } };
+  assert.equal(ui.findMessageElement({ login: 'alice', lastMessage: 'Original message', messageId: 'irc-id' }), message);
+  assert.equal(ui.findMessageElement({ login: 'bob', lastMessage: 'Original message' }), null);
+  assert.equal(ui.findMessageElement({ login: 'alice', lastMessage: 'Different message' }), null);
+});

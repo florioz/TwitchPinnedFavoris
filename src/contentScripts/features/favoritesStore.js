@@ -117,6 +117,7 @@
 
     async init() {
       const stored = await this.storageGateway.read();
+      if (stored === null) return;
       if (stored && stored[STORAGE_KEY]) {
         this.state = deepCopy({ ...DEFAULT_STATE, ...stored[STORAGE_KEY] });
       } else {
@@ -277,6 +278,7 @@
       this.normalizeBooleanPreferences({
         recentLiveCollapsed: false,
         hideCollapsedGroupsUntilHover: false,
+        sidebarSearchEnabled: false,
         autoCompactSidebarEnabled: false
       });
       this.state.preferences.categoryColorOpacity = this.sanitizeCategoryColorOpacity(
@@ -575,8 +577,10 @@
     async updateState(mutator, emit = true, { optimistic = false, shouldApply = null } = {}) {
       const operation = this.stateMutationQueue.then(async () => {
         if (shouldApply && !shouldApply()) return false;
+        if (this.storageGateway.isAvailable?.() === false) return false;
         if (!optimistic) {
           const persisted = await this.storageGateway.readState();
+          if (persisted === null) return false;
           if (persisted && Number(persisted.revision || 0) > Number(this.state.revision || 0)) {
             this.state = deepCopy({ ...DEFAULT_STATE, ...persisted });
             this.ensureStateIntegrity();
@@ -1159,13 +1163,6 @@
       });
     }
 
-    async toggleCategoryAssignment(login, categoryId, assign) {
-      if (assign) {
-        await this.setFavoriteCategory(login, categoryId);
-      } else {
-        await this.clearFavoriteCategory(login);
-      }
-    }
 
     async createCategory(name, parentId = null) {
       const trimmed = (name || '').trim();
@@ -1261,16 +1258,6 @@
       });
     }
 
-    async setCategoryParent(categoryId, parentId) {
-      await this.updateState((draft) => {
-        const target = draft.categories.find((cat) => cat.id === categoryId);
-        if (!target) return;
-        if (parentId === target.id) return;
-        if (parentId && categoryMutations.isDescendant(draft.categories, parentId, target.id)) return;
-        target.parentId = parentId || null;
-        target.sortOrder = Date.now();
-      });
-    }
 
     async moveCategory(categoryId, targetCategoryId = null, placement = 'inside') {
       await this.updateState((draft) => {
@@ -1456,12 +1443,6 @@
       });
     }
 
-    async toggleLiveFavoritesCollapsed() {
-      await this.updateState((draft) => {
-        const prefs = draft.preferences || (draft.preferences = {});
-        prefs.liveFavoritesCollapsed = !Boolean(prefs.liveFavoritesCollapsed);
-      });
-    }
 
     async setLiveFavoritesEnabled(enabled) {
       await this.updateState((draft) => {
@@ -1726,6 +1707,10 @@
 
     async setHideCollapsedGroupsUntilHover(enabled) {
       await this.setBooleanPreference('hideCollapsedGroupsUntilHover', enabled);
+    }
+
+    async setSidebarSearchEnabled(enabled) {
+      await this.setBooleanPreference('sidebarSearchEnabled', enabled);
     }
 
     async setAutoCompactSidebarEnabled(enabled) {

@@ -36,7 +36,7 @@
       if (message && 'isDeleted' in message) message.isDeleted = previous.messageIsDeleted;
     }
   };
-  const DELETED_SELECTOR = `${chatDom.DELETION_SELECTOR}, .chat-line__message--deleted`;
+
 
   const getReactInstance = (element) => {
     if (!element) return null;

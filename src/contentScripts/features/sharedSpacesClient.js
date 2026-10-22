@@ -11,6 +11,13 @@
     }
   });
   window.TFRSharedSpacesClient = Object.freeze({
+    subscribeChat: (spaceId, listener) => {
+      const port = runtime.connect({ name: 'tfr-shared-chat' });
+      port.onMessage.addListener(listener);
+      port.onDisconnect.addListener(() => { void runtime.lastError; listener({ type: 'status', ready: false, disconnected: true }); });
+      port.postMessage({ spaceId });
+      return () => { port.onMessage.removeListener(listener); port.disconnect(); };
+    },
     status: () => send({ type: 'TFR_SHARED_STATUS' }),
     connect: () => send({ type: 'TFR_SHARED_CONNECT' }),
     disconnect: () => send({ type: 'TFR_SHARED_DISCONNECT' }),

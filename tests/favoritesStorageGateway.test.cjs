@@ -52,3 +52,36 @@ test('invalidated extension contexts are classified without hiding other errors'
   assert.equal(tools.isInvalidatedContextError(new Error('Extension context invalidated.')), true);
   assert.equal(tools.isInvalidatedContextError(new Error('quota exceeded')), false);
 });
+
+test('invalidated reads stop storage access without treating favorites as empty', async () => {
+  const local = context.chrome.storage.local;
+  const originalGet = local.get;
+  const originalSet = local.set;
+  let reads = 0;
+  let writes = 0;
+  local.get = async () => { reads++; throw new Error('Extension context invalidated.'); };
+  local.set = async () => { writes++; };
+  try {
+    const gateway = context.window.TFRFavoritesStorageGateway.create({ storageKey: 'state' });
+    assert.equal(await gateway.readState(), null);
+    assert.equal(await gateway.read(), null);
+    assert.equal(await gateway.writeState({ favorites: [] }), false);
+    assert.equal(gateway.isAvailable(), false);
+    assert.equal(reads, 1);
+    assert.equal(writes, 0);
+  } finally {
+    local.get = originalGet;
+    local.set = originalSet;
+  }
+});
+
+test('missing state differs from invalidation and other storage failures still reject', async () => {
+  const gateway = context.window.TFRFavoritesStorageGateway.create({ storageKey: 'missing' });
+  assert.equal(await gateway.readState(), undefined);
+  const originalGet = context.chrome.storage.local.get;
+  context.chrome.storage.local.get = () => { throw new Error('Storage unavailable'); };
+  try {
+    await assert.rejects(gateway.readState(), /Storage unavailable/);
+    assert.equal(gateway.isAvailable(), true);
+  } finally { context.chrome.storage.local.get = originalGet; }
+});

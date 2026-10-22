@@ -21,6 +21,7 @@
       recentLiveThresholdMinutes: 10,
       recentLiveCollapsed: false,
       hideCollapsedGroupsUntilHover: false,
+      sidebarSearchEnabled: false,
       autoCompactSidebarEnabled: false,
       categoryColorOpacity: 7,
       categoryColorGradient: 62,

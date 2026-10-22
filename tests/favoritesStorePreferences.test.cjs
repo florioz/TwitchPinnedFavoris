@@ -229,3 +229,25 @@ test('switching workspace forces and awaits fresh Twitch live data', async () =>
   assert.equal(store.state.workspaceMode, 'shared');
   assert.deepEqual(JSON.parse(JSON.stringify(calls)), [{ forceRefresh: true }]);
 });
+
+test('invalidated storage aborts a queued mutation without replacing favorites', async () => {
+  const store = Object.create(FavoritesStore.prototype);
+  const original = { favorites: { alice: {} }, revision: 7 };
+  store.state = original;
+  store.stateMutationQueue = Promise.resolve();
+  store.storageGateway = { readState: async () => null };
+  let mutated = false;
+  const result = await store.updateState(() => { mutated = true; });
+  assert.equal(result, false);
+  assert.equal(mutated, false);
+  assert.equal(store.state, original);
+});
+
+test('invalidated initial read does not initialize or save default favorites', async () => {
+  const store = Object.create(FavoritesStore.prototype);
+  store.storageGateway = { read: async () => null };
+  store.state = { favorites: { alice: {} } };
+  store.persistState = () => { throw new Error('must not overwrite unavailable storage'); };
+  await store.init();
+  assert.ok(store.state.favorites.alice);
+});

@@ -4,13 +4,14 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 
-const loadSidebarRenderer = (windowRef, documentRef) => {
+const loadSidebarRenderer = (windowRef, documentRef, frameApi = {}) => {
   const context = vm.createContext({
     window: windowRef,
     document: documentRef,
     console,
     requestAnimationFrame() {},
-    cancelAnimationFrame() {}
+    cancelAnimationFrame() {},
+    ...frameApi
   });
   const source = fs.readFileSync(
     path.join(__dirname, '../src/contentScripts/features/colorTools.js'),
@@ -325,4 +326,59 @@ test('hover only changes sidebar signatures when collapsed groups depend on it',
   state.preferences.hideCollapsedGroupsUntilHover = true;
   assert.notEqual(signatures.render(state, {}, [], { isSidebarHovering: false }),
     signatures.render(state, {}, [], { isSidebarHovering: true }));
+});
+
+
+test('state render supersedes a queued live patch', () => {
+  let scheduled;
+  const cancelled = [];
+  const SidebarRenderer = loadSidebarRenderer({}, {}, {
+    requestAnimationFrame: callback => { scheduled = callback; return 2; },
+    cancelAnimationFrame: id => cancelled.push(id)
+  });
+  const renderer = Object.create(SidebarRenderer.prototype);
+  renderer.renderFrame = 1;
+  renderer.renderIdleHandle = null;
+  let renders = 0;
+  renderer.render = () => { renders++; };
+  renderer.scheduleRender();
+  assert.deepEqual(cancelled, [1]);
+  scheduled();
+  assert.equal(renders, 1);
+});
+
+test('sidebar watchdog repopulates a detached container', () => {
+  let tick;
+  const SidebarRenderer = loadSidebarRenderer({
+    setInterval: callback => { tick = callback; return 1; },
+    addEventListener() {}
+  }, { body: { contains: () => false } });
+  const renderer = Object.create(SidebarRenderer.prototype);
+  renderer.store = { subscribe() {} };
+  renderer.observeSideNav = () => {};
+  renderer.container = {};
+  let renders = 0;
+  renderer.render = () => { renders++; };
+  renderer.init();
+  tick();
+  assert.equal(renders, 2);
+});
+
+test('sidebar search filters nested groups without mutating saved collapse state', () => {
+  const SidebarRenderer = loadSidebarRenderer({}, {});
+  const renderer = Object.create(SidebarRenderer.prototype);
+  const groups = [{ id: 'parent', collapsed: true, entries: [], totalEntries: 2, children: [
+    { id: 'child', collapsed: true, entries: [{ login: 'alice', displayName: 'Alice' }, { login: 'bob' }], children: [], totalEntries: 2 }
+  ] }];
+  renderer.groupModel = { collect: () => groups };
+  renderer.store = { getCategoriesTree: () => [] };
+  renderer.searchQuery = 'ALI';
+  const filtered = renderer.collectGroups({ preferences: { sidebarSearchEnabled: true } }, {});
+  assert.equal(filtered[0].totalEntries, 1);
+  assert.equal(filtered[0].children[0].entries[0].login, 'alice');
+  assert.equal(filtered[0].collapsed, false);
+  assert.equal(groups[0].collapsed, true);
+  assert.equal(renderer.collectGroups({ preferences: {} }, {}), groups);
+  renderer.searchQuery = 'missing';
+  assert.equal(renderer.collectGroups({ preferences: { sidebarSearchEnabled: true } }, {}).length, 0);
 });

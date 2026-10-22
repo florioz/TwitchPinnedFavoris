@@ -18,7 +18,12 @@
   class ChatHistoryTracker {
     constructor() {
       this.history = new Map();
+      this.emoteRefreshPending = false;
+      this.pendingEmoteEntries = new Set();
+      this.disposed = false;
       this.maxEntriesPerUser = 50;
+      this.maxHistoryEntries = 2000;
+      this.maxPendingNodes = 1000;
       this.chatObserver = null;
       this.chatContainer = null;
       this.retryTimer = null;
@@ -34,7 +39,6 @@
       this.messageEntries = new WeakMap();
       this.messageSnapshotsById = new Map();
       this.maxMessageSnapshots = 2000;
-      this.recentMessages = [];
       this.visibilityHandler = () => this.handleVisibilityChange();
     }
 
@@ -58,6 +62,8 @@
     }
 
     dispose() {
+      this.disposed = true;
+      this.pendingEmoteEntries.clear();
       document.removeEventListener('visibilitychange', this.visibilityHandler);
       this.chatObserver?.disconnect();
       this.chatObserver = null;
@@ -76,7 +82,6 @@
       this.pendingNodes = [];
       this.pendingNodeSet.clear();
       this.messageSnapshotsById.clear();
-      this.recentMessages = [];
       this.history.clear();
       this.events.clear();
     }
@@ -158,6 +163,9 @@
       if (node?.nodeType !== Node.ELEMENT_NODE || this.pendingNodeSet.has(node)) return;
       this.pendingNodeSet.add(node);
       this.pendingNodes.push(node);
+      while (this.pendingNodes.length > this.maxPendingNodes) {
+        this.pendingNodeSet.delete(this.pendingNodes.shift());
+      }
     }
 
     schedulePendingScan() {
@@ -232,7 +240,6 @@
         timestamp
       };
       this.rememberMessageSnapshot(rootElement, entry);
-      this.rememberRecentMessage(entry);
       const existing = this.history.get(normalized) || [];
       const duplicate = existing.find((candidate) => (
         Math.abs(Number(candidate.timestamp || 0) - timestamp) < 1000 && candidate.text === text
@@ -252,19 +259,39 @@
       if (existing.length > this.maxEntriesPerUser) {
         existing.splice(0, existing.length - this.maxEntriesPerUser);
       }
+      this.history.delete(normalized);
       this.history.set(normalized, existing);
+      this.trimHistory();
       messageElement.dataset.tfrChatTracked = 'true';
       rootElement.dataset.tfrChatTracked = 'true';
       this.emit(normalized);
-      thirdPartyEmotes.ensureLoaded()
+      this.refreshHistoryEmotes(entry);
+    }
+
+    refreshHistoryEmotes(entry) {
+      if (this.disposed) return;
+      this.pendingEmoteEntries.add(entry);
+      while (this.pendingEmoteEntries.size > this.maxHistoryEntries) {
+        this.pendingEmoteEntries.delete(this.pendingEmoteEntries.values().next().value);
+      }
+      if (this.emoteRefreshPending || this.disposed) return;
+      this.emoteRefreshPending = true;
+      Promise.resolve().then(() => thirdPartyEmotes.ensureLoaded())
         .then(() => {
-          const updated = thirdPartyEmotes.enrichParts(entry.fragments);
-          if (JSON.stringify(updated) !== JSON.stringify(entry.fragments)) {
-            entry.fragments = updated;
-            this.emit(normalized);
+          if (this.disposed) return;
+          const changedLogins = new Set();
+          for (const entry of this.pendingEmoteEntries) {
+            const updated = thirdPartyEmotes.enrichParts(entry.fragments);
+            if (JSON.stringify(updated) !== JSON.stringify(entry.fragments)) {
+              entry.fragments = updated;
+              changedLogins.add(entry.login);
+            }
           }
+          this.pendingEmoteEntries.clear();
+          changedLogins.forEach(login => this.emit(login));
         })
-        .catch(() => {});
+        .catch(() => {})
+        .finally(() => { this.pendingEmoteEntries.clear(); this.emoteRefreshPending = false; });
     }
 
     getMessageId(messageElement) {
@@ -276,6 +303,17 @@
         holder?.dataset?.messageId || holder?.dataset?.id || holder?.dataset?.uuid
         || holder?.getAttribute?.('data-message-id') || holder?.getAttribute?.('data-id') || holder?.getAttribute?.('data-uuid') || ''
       ).trim();
+    }
+
+    trimHistory() {
+      let count = 0;
+      for (const entries of this.history.values()) count += entries.length;
+      // Evict the least recently active users first, preserving recent conversations.
+      for (const [login, entries] of this.history) {
+        if (count <= this.maxHistoryEntries) break;
+        this.history.delete(login);
+        count -= entries.length;
+      }
     }
 
     refreshMessageBadges(messageElement) {
@@ -310,22 +348,7 @@
         || null;
     }
 
-    rememberRecentMessage(entry) {
-      this.recentMessages.push(entry);
-      if (this.recentMessages.length > 100) {
-        this.recentMessages.splice(0, this.recentMessages.length - 100);
-      }
-    }
 
-    getLatestMessage(maxAgeMs = 15000) {
-      const now = Date.now();
-      for (let index = this.recentMessages.length - 1; index >= 0; index -= 1) {
-        const entry = this.recentMessages[index];
-        const timestamp = Number(entry?.timestamp) || 0;
-        if (!timestamp || Math.abs(now - timestamp) <= maxAgeMs) return entry || null;
-      }
-      return null;
-    }
 
     getMessageRoot(messageElement) {
       if (!(messageElement instanceof HTMLElement)) {
@@ -1300,10 +1323,16 @@
       if (!login || !expectedText) return null;
       for (let index = messages.length - 1; index >= 0; index -= 1) {
         const candidate = history?.getMessageRoot?.(messages[index]) || messages[index];
-        if (history?.normalizeLogin?.(history?.extractLogin?.(candidate)) !== login) continue;
-        const text = String(history?.extractMessageText?.(candidate) || '')
-          .replace(/\s+/g, ' ').trim().toLowerCase();
-        if (text === expectedText) return candidate;
+        if (chatDomTools.isReplyContext(candidate)) continue;
+        const snapshot = history?.getMessageSnapshot?.(candidate);
+        const candidateLogin = history?.normalizeLogin?.(snapshot?.login || history?.extractLogin?.(candidate));
+        if (candidateLogin !== login) continue;
+        // Twitch can replace the original body with a deletion placeholder.
+        // Match our captured body before considering the current rendered text.
+        const texts = [snapshot?.text, history?.extractMessageText?.(candidate)];
+        if (texts.some(value => String(value || '').replace(/\s+/g, ' ').trim().toLowerCase() === expectedText)) {
+          return candidate;
+        }
       }
       return null;
     }
@@ -1855,36 +1884,6 @@
       });
     }
 
-    removeNativeRecentMessages(host) {
-      if (!(host instanceof HTMLElement)) {
-        return;
-      }
-      const selectors = [
-        '[data-test-selector="recent-messages"]',
-        '[data-test-selector="viewer-card-recent-messages"]',
-        '[data-test-selector="viewer-card-recent-message"]',
-        '[data-test-selector="viewer-card-recent-messages-header"]',
-        '[data-test-selector="recent-messages-header"]',
-        '.recent-messages',
-        '.viewer-card__recent-messages',
-        '.viewer-card__recent-message',
-        '.viewer-card__recent-messages-header',
-        '.viewer-card__recent-messages-container'
-      ];
-      selectors.forEach((selector) => {
-        host.querySelectorAll(selector).forEach((node) => {
-          if (!node) return;
-          const removable =
-            node.closest('[data-test-selector*="recent-messages"]') ||
-            node.closest('.viewer-card__recent-messages-container') ||
-            node.closest('section[data-test-selector*="recent"]') ||
-            node;
-          if (removable && removable !== host && removable.parentElement) {
-            removable.parentElement.removeChild(removable);
-          }
-        });
-      });
-    }
 
     isValidViewerCardHost(element) {
       if (!(element instanceof HTMLElement)) {

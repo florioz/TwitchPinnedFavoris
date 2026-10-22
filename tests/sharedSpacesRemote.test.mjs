@@ -156,3 +156,25 @@ test('community badge consent is stored through an authenticated RPC', async () 
   assert.equal(requests[0].options.headers.Authorization, 'Bearer token');
   assert.deepEqual(JSON.parse(requests[0].options.body), { should_enable: true });
 });
+
+test('parallel expired-session requests share one token renewal', async () => {
+  let stored = { accessToken: 'expired', refreshToken: 'refresh', expiresAt: 0 };
+  let refreshes = 0;
+  const remote = createSharedSpacesRemote({
+    extensionApi: { storage: { local: {
+      get: async () => ({ tfr_shared_spaces_session: stored }),
+      set: async value => { stored = value.tfr_shared_spaces_session; }, remove: async () => {}
+    } } },
+    config: { supabaseUrl: 'https://project.supabase.co', publishableKey: 'public' }, isConfigured: () => true,
+    fetchImpl: async url => {
+      if (url.includes('/auth/v1/token')) {
+        refreshes++;
+        await new Promise(setImmediate);
+        return { ok: true, json: async () => ({ access_token: 'renewed', refresh_token: 'next', expires_in: 3600 }) };
+      }
+      return { ok: true, status: 200, json: async () => [] };
+    }
+  });
+  await Promise.all([remote.listMessages('space'), remote.getChatMeta('space'), remote.getRealtimeSession()]);
+  assert.equal(refreshes, 1);
+});

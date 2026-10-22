@@ -20,6 +20,7 @@
       ['showDeletedMessagesEnabled', 'settings.deletedMessages', 'setShowDeletedMessagesEnabled', false],
       ['showFullRepliesEnabled', 'settings.fullReplies', 'setShowFullRepliesEnabled', false],
       ['hideCollapsedGroupsUntilHover', 'settings.collapsedGroups', 'setHideCollapsedGroupsUntilHover', false],
+      ['sidebarSearchEnabled', 'settings.sidebarSearch', 'setSidebarSearchEnabled', false],
       ['autoCompactSidebarEnabled', 'settings.autoCompactSidebar', 'setAutoCompactSidebarEnabled', false],
       ['liveHoverPreviewEnabled', 'settings.livePreview', 'setLiveHoverPreviewEnabled', false]
     ].map(([key, labelPrefix, setter, defaultEnabled, requiresAny]) => ({
@@ -40,7 +41,7 @@
       { id: 'emotes', keys: ['sevenTvEmotesEnabled', 'betterTtvEmotesEnabled', 'chatEmoteAutocompleteEnabled', 'chatEmotePickerEnabled'] },
       {
         id: 'player',
-        keys: ['liveFavoritesEnabled', 'playerLatencyEnabled', 'playerRecoveryEnabled', 'playerResetButtonEnabled', 'autoClaimChannelPointsEnabled', 'playerAudioControlsEnabled', 'hideCollapsedGroupsUntilHover', 'autoCompactSidebarEnabled', 'liveHoverPreviewEnabled']
+        keys: ['liveFavoritesEnabled', 'playerLatencyEnabled', 'playerRecoveryEnabled', 'playerResetButtonEnabled', 'autoClaimChannelPointsEnabled', 'playerAudioControlsEnabled', 'hideCollapsedGroupsUntilHover', 'sidebarSearchEnabled', 'autoCompactSidebarEnabled', 'liveHoverPreviewEnabled']
       }
     ].map((group) => ({
       ...group,

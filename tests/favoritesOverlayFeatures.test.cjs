@@ -567,3 +567,22 @@ test('feature toggle dispatcher calls only supported store setters', async () =>
   assert.equal(calls.length, 1);
   assert.equal(renders, 1);
 });
+
+test('live updates defer manager reconstruction until dragging ends', () => {
+  for (const field of ['draggedLogin', 'draggedCategoryId']) {
+    const overlay = Object.create(FavoritesOverlay.prototype);
+    overlay[field] = 'alice';
+    overlay.isOpen = true;
+    overlay.root = {};
+    overlay.render();
+    overlay.render();
+    assert.equal(overlay.renderAfterDrag, true);
+    let renders = 0;
+    overlay.render = () => { renders++; };
+    overlay.finishDrag();
+    overlay.finishDrag();
+    assert.equal(renders, 1);
+    assert.equal(overlay.draggedLogin, null);
+    assert.equal(overlay.draggedCategoryId, null);
+  }
+});

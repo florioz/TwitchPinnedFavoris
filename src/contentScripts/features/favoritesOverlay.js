@@ -289,7 +289,9 @@ class FavoritesOverlay {
     this.root?.remove();
     this.backupInput = null;
     this.draggedLogin = null;
+    this.draggedCategoryId = null;
     this.draggedCategoryStartX = 0;
+    this.renderAfterDrag = false;
     this.selectedFavorites.clear();
     this.activeFavoriteLogin = null;
     this.closeListeners.forEach((callback) => {
@@ -376,7 +378,22 @@ class FavoritesOverlay {
   }
 
 
+  finishDrag() {
+    this.draggedLogin = null;
+    this.draggedCategoryId = null;
+    this.draggedCategoryStartX = 0;
+    if (this.renderAfterDrag) {
+      this.renderAfterDrag = false;
+      if (this.isOpen) this.render();
+    }
+  }
+
   render() {
+    if (this.draggedLogin || this.draggedCategoryId) {
+      this.renderAfterDrag = true;
+      return;
+    }
+    this.renderAfterDrag = false;
     if (!this.root) {
       return;
     }
@@ -2920,6 +2937,9 @@ class FavoritesOverlay {
       unique.push(trimmed);
     });
     this.categorySuggestionCache.set(normalized, unique);
+    while (this.categorySuggestionCache.size > 100) {
+      this.categorySuggestionCache.delete(this.categorySuggestionCache.keys().next().value);
+    }
     return unique;
   }
 
@@ -3181,8 +3201,7 @@ class FavoritesOverlay {
     card.addEventListener('dragend', (event) => {
       event.stopPropagation();
       card.classList.remove('is-dragging');
-      this.draggedCategoryId = null;
-      this.draggedCategoryStartX = 0;
+      this.finishDrag();
     });
     if (node.collapsed) {
       card.classList.add('is-collapsed');
@@ -3486,7 +3505,7 @@ class FavoritesOverlay {
     element.addEventListener('dragend', (event) => {
       event.stopPropagation();
       element.classList.remove('is-dragging');
-      this.draggedLogin = null;
+      this.finishDrag();
     });
   }
 
@@ -3950,8 +3969,7 @@ class FavoritesOverlay {
     item.addEventListener('dragend', (event) => {
       event.stopPropagation();
       item.classList.remove('is-dragging');
-      this.draggedCategoryId = null;
-      this.draggedCategoryStartX = 0;
+      this.finishDrag();
     });
 
     const title = document.createElement('div');
@@ -4545,15 +4563,7 @@ class FavoritesOverlay {
   }
 
   destroy() {
-    this.unsubscribe?.();
-    this.unsubscribe = null;
-    this.unsubscribePresence?.();
-    this.unsubscribePresence = null;
-    this.sharedAutoSync?.dispose();
-    this.sharedAutoSync = null;
-    this.sharedChat?.dispose();
-    this.sharedChat = null;
-    this.close();
+    this.dispose();
   }
 }
     return FavoritesOverlay;

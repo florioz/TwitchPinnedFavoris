@@ -157,3 +157,74 @@ test('shared chat full screen expands the panel and resets with its space', asyn
   assert.equal(controller.snapshot().fullscreen, false);
   controller.dispose();
 });
+
+test('shared chat reduces collapsed polling and pauses network reads while hidden', async () => {
+  let tick;
+  let clock = 0;
+  let calls = 0;
+  let visibility;
+  const doc = { hidden: false, addEventListener: (_, fn) => { visibility = fn; }, removeEventListener: () => { visibility = null; } };
+  const sandbox = { window: {}, Date, setInterval: fn => { tick = fn; return 1; }, clearInterval() {} };
+  vm.createContext(sandbox);
+  vm.runInContext(source, sandbox);
+  const chat = sandbox.window.TFRSharedSpaceChat.create({
+    client: { listMessages: async () => { calls++; return { ok: true, data: [] }; } },
+    documentRef: doc, now: () => clock, storage: null
+  });
+  chat.setSpace('space');
+  await new Promise(setImmediate);
+  for (clock = 5000; clock < 60000; clock += 5000) tick();
+  assert.equal(calls, 1);
+  tick();
+  await new Promise(setImmediate);
+  assert.equal(calls, 2);
+  doc.hidden = true;
+  clock = 120000;
+  tick();
+  assert.equal(calls, 2);
+  doc.hidden = false;
+  visibility();
+  await new Promise(setImmediate);
+  assert.equal(calls, 3);
+  chat.dispose();
+  assert.equal(visibility, null);
+});
+
+test('silent polling cannot overlap and late responses cannot restore a closed chat', async () => {
+  let complete;
+  let calls = 0;
+  const chat = chatTools.create({ client: {
+    listMessages: () => { calls++; return new Promise(resolve => { complete = resolve; }); }
+  }, storage: null });
+  chat.setSpace('space');
+  await chat.load({ quiet: true });
+  await chat.load({ quiet: true });
+  assert.equal(calls, 1);
+  chat.setSpace('');
+  complete({ ok: true, data: [{ id: 'old', body: 'old' }] });
+  await new Promise(setImmediate);
+  assert.equal(chat.snapshot().messages.length, 0);
+  chat.dispose();
+});
+
+test('shared chat subscribes only while visible and coalesces realtime invalidations', async () => {
+  let listener, visibility, flush;
+  let reads = 0, stops = 0;
+  const doc = { hidden: false, addEventListener: (_, fn) => { visibility = fn; }, removeEventListener() {} };
+  const sandbox = { window: {}, Date, setInterval: () => 1, clearInterval() {}, setTimeout: fn => { flush = fn; return 1; }, clearTimeout() {} };
+  vm.createContext(sandbox); vm.runInContext(source, sandbox);
+  const chat = sandbox.window.TFRSharedSpaceChat.create({ storage: null, documentRef: doc, client: {
+    listMessages: async () => { reads++; return { ok: true, data: [] }; },
+    subscribeChat: (_, fn) => { listener = fn; return () => { stops++; }; }
+  } });
+  chat.setSpace('space'); await new Promise(setImmediate);
+  assert.equal(listener, undefined);
+  chat.setExpanded(true); await new Promise(setImmediate);
+  const before = reads;
+  listener({ type: 'changed' }); listener({ type: 'changed' });
+  flush(); await new Promise(setImmediate);
+  assert.equal(reads, before + 1);
+  doc.hidden = true; visibility();
+  assert.equal(stops, 1);
+  chat.dispose();
+});

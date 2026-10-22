@@ -22,6 +22,8 @@
   const LOOKUP_DELAY_MS = 120;
   const LOOKUP_LIMIT = 60;
   const CACHE_LIMIT = 1000;
+  const WAITING_LOGIN_LIMIT = 200;
+  const WAITING_MESSAGES_PER_LOGIN = 20;
 
   const createCommunityChatBadge = ({
     documentRef = document,
@@ -158,8 +160,18 @@
           return;
         }
         if (!this.waitingMessages.has(identity.login)) this.waitingMessages.set(identity.login, new Set());
-        this.waitingMessages.get(identity.login).add(message);
+        const waiting = this.waitingMessages.get(identity.login);
+        for (const previous of waiting) {
+          if (!previous.isConnected) waiting.delete(previous);
+        }
+        waiting.add(message);
+        while (waiting.size > WAITING_MESSAGES_PER_LOGIN) waiting.delete(waiting.values().next().value);
         this.pendingLogins.add(identity.login);
+        while (this.waitingMessages.size > WAITING_LOGIN_LIMIT) {
+          const oldest = this.waitingMessages.keys().next().value;
+          this.waitingMessages.delete(oldest);
+          this.pendingLogins.delete(oldest);
+        }
         this.scheduleLookup();
       }
 
@@ -177,8 +189,18 @@
         logins.forEach((login) => this.pendingLogins.delete(login));
         this.lookupRunning = true;
         try {
-          const response = await sendExtensionMessage?.({ type: 'TFR_COMMUNITY_BADGE_LOOKUP', logins });
-          if (!response?.ok) throw new Error(response?.message || 'Community lookup failed');
+          const request = { type: 'TFR_COMMUNITY_BADGE_LOOKUP', logins };
+          let response = await sendExtensionMessage?.(request);
+          // A panel opening or a restarting background can interrupt the reply.
+          // Retry only a missing response, not a reported backend error.
+          if (response == null && this.enabled) {
+            await new Promise((resolve) => windowRef.setTimeout(resolve, 250));
+            if (!this.enabled) return;
+            response = await sendExtensionMessage?.(request);
+          }
+          if (!this.enabled) return;
+          if (response == null) throw new Error('Extension background did not respond to community badge lookup');
+          if (!response.ok) throw new Error(response.message || 'Community badge service rejected the lookup');
           const members = new Set((Array.isArray(response.data) ? response.data : [])
             .map((login) => this.normalizeLogin(login))
             .filter(Boolean));

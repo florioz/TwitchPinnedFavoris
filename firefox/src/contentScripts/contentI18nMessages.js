@@ -1,6 +1,11 @@
 (() => {
   const I18N_MESSAGES = {
     fr: {
+      'sidebar.search.placeholder': 'Rechercher un streamer',
+      'sidebar.search.empty': 'Aucun streamer correspondant.',
+      'settings.sidebarSearch.toggle': 'Recherche dans la sidebar',
+      'settings.sidebarSearch.description': 'Affiche une recherche par pseudo parmi vos favoris en live.',
+
       'sidebar.live.header': 'Favoris en live',
       'sidebar.live.headerWithCount': 'Favoris en live ({count})',
       'sidebar.live.empty': 'Aucun favori en direct pour le moment.',
@@ -701,6 +706,11 @@
       'recent.badgeShort': 'Live'
     },
     en: {
+      'sidebar.search.placeholder': 'Search streamers',
+      'sidebar.search.empty': 'No matching streamers.',
+      'settings.sidebarSearch.toggle': 'Sidebar search',
+      'settings.sidebarSearch.description': 'Show a username search among your live favorites.',
+
       'sidebar.live.header': 'Live favorites',
       'sidebar.live.headerWithCount': 'Live favorites ({count})',
       'sidebar.live.empty': 'No favorites are live right now.',

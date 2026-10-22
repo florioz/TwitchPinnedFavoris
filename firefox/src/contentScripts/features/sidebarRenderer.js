@@ -19,6 +19,7 @@
       this.domAdapter = window.TFRSidebarDomAdapter;
       this.liveHoverPreview = window.TFRLiveHoverPreview.create({ formatViewers, t });
       this.container = null;
+      this.searchQuery = '';
       this.sideNavObserver = null;
       this.unsubscribe = null;
       this.isSidebarHovering = false;
@@ -80,7 +81,7 @@
         if (this.container && document.body.contains(this.container)) {
           return;
         }
-        this.ensureContainer();
+        this.render();
       }, 2500);
       window.addEventListener('tfr:previewSidebarAnimation', this.boundPreviewAnimation);
       window.addEventListener('resize', this.boundResize);
@@ -185,6 +186,11 @@
       };
 
       if (!defer) {
+        // A full state update must supersede an already queued live-only patch.
+        if (this.renderFrame) {
+          cancelAnimationFrame(this.renderFrame);
+          this.renderFrame = null;
+        }
         if (this.renderDelayTimer) {
           clearTimeout(this.renderDelayTimer);
           this.renderDelayTimer = null;
@@ -356,7 +362,7 @@
     }
 
     createRenderSignature(state, liveData, groups, options = {}) {
-      return this.signatures.render(state, liveData, groups, {
+      return JSON.stringify([state.preferences?.sidebarSearchEnabled === true, this.searchQuery || '']) + this.signatures.render(state, liveData, groups, {
         ...options,
         compactLevel: this.autoCompactLevel
       });
@@ -637,16 +643,46 @@
         }
       });
 
+      if (this.container !== container) this.invalidateStateRenderCache();
       this.container = container;
       this.liveHoverPreview.attach(container);
+      if (!container.childElementCount) this.scheduleRender();
     }
 
     collectGroups(state, liveData) {
-      return this.groupModel.collect({
-        state,
-        liveData,
-        categoryTree: this.store.getCategoriesTree()
+      const groups = this.groupModel.collect({ state, liveData, categoryTree: this.store.getCategoriesTree() });
+      const normalize = value => String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+      const query = state.preferences?.sidebarSearchEnabled ? normalize(this.searchQuery).trim() : '';
+      if (!query) return groups;
+      const filter = group => {
+        const entries = (group.entries || []).filter(favorite => {
+          const live = getLiveDataEntry(liveData, favorite) || {};
+          return normalize([favorite.login, favorite.displayName, live.displayName].join(' ')).includes(query);
+        });
+        const children = (group.children || []).map(filter).filter(group => group.totalEntries);
+        return { ...group, entries, children, collapsed: false,
+          totalEntries: entries.length + children.reduce((sum, child) => sum + child.totalEntries, 0) };
+      };
+      return groups.map(filter).filter(group => group.totalEntries);
+    }
+
+    mountSearch() {
+      const input = document.createElement('input');
+      input.type = 'search'; input.className = 'tfr-sidebar-search';
+      input.placeholder = t('sidebar.search.placeholder');
+      input.setAttribute('aria-label', input.placeholder);
+      input.maxLength = 80;
+      input.value = this.searchQuery || '';
+      input.addEventListener('input', () => {
+        this.searchQuery = input.value;
+        this.cancelPendingRender();
+        this.render();
       });
+      input.addEventListener('keydown', event => {
+        event.stopPropagation();
+        if (event.key === 'Escape') { input.value = ''; input.dispatchEvent(new Event('input')); }
+      });
+      this.container.appendChild(input);
     }
 
     applyPreviewMetadata(entry, favorite, live = {}) {
@@ -731,6 +767,7 @@
         }
       }
 
+      const restoreSearchFocus = document.activeElement?.classList?.contains('tfr-sidebar-search');
       try {
       const state = this.store.getState();
       const liveData = this.store.getLiveData();
@@ -793,6 +830,7 @@
       return;
     }
 
+    if (state.preferences?.sidebarSearchEnabled) this.mountSearch();
     const header = document.createElement('div');
     header.className = 'tfr-nav-header';
     header.textContent = totalLive
@@ -803,7 +841,7 @@
     if (!totalLive) {
       const empty = document.createElement('div');
       empty.className = 'tfr-empty';
-      empty.textContent = t('sidebar.live.empty');
+      empty.textContent = t(state.preferences?.sidebarSearchEnabled && this.searchQuery?.trim() ? 'sidebar.search.empty' : 'sidebar.live.empty');
       this.container.appendChild(empty);
       return;
     }
@@ -911,6 +949,7 @@
       this.scheduleAutoCompactCheck(autoCompactEnabled);
     }
       } finally {
+        if (restoreSearchFocus) this.container?.querySelector('.tfr-sidebar-search')?.focus({ preventScroll: true });
         this.suppressAnimationsOnce = false;
       }
     }

@@ -1,3 +1,4 @@
+import { createSharedChatRealtime } from './sharedChatRealtime.mjs';
 import {
   createLiveDataSignature,
   createNotifiedStreamsSignature,
@@ -78,7 +79,6 @@ const DEFAULT_STATE = {
   }
 };
 
-const DEFAULT_AVATAR = 'https://static-cdn.jtvnw.net/jtv_user_pictures/404_user_70x70.png';
 const DRIVE_SYNC_STATE_KEY = 'tfr_drive_sync_state';
 const WEB_AUTH_DRIVE_TOKEN_KEY = 'tfr_web_auth_drive_token';
 const DRIVE_AUTH_MODE_KEY = 'tfr_drive_auth_mode';
@@ -974,4 +974,18 @@ extensionApi.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
   return false;
+});
+
+const chatRealtime = createSharedChatRealtime({ config: SHARED_SPACES_CONFIG, getSession: sharedSpacesRemote.getRealtimeSession });
+extensionApi.runtime.onConnect.addListener(port => {
+  if (port.name !== 'tfr-shared-chat') return;
+  let unsubscribe = null;
+  port.onMessage.addListener(message => {
+    unsubscribe?.(); unsubscribe = null;
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(message?.spaceId || '')) return;
+    unsubscribe = chatRealtime.subscribe(message.spaceId, event => {
+      try { port.postMessage(event); } catch { unsubscribe?.(); }
+    });
+  });
+  port.onDisconnect.addListener(() => { unsubscribe?.(); unsubscribe = null; });
 });

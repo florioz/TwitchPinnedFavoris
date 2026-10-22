@@ -23,7 +23,7 @@ const buildSupabaseSetup = () => {
     '-- -----------------------------------------------------------------------------',
     `-- ${file}`,
     '-- -----------------------------------------------------------------------------',
-    readFileSync(join(MIGRATIONS_DIRECTORY, file), 'utf8').trimEnd(),
+    readFileSync(join(MIGRATIONS_DIRECTORY, file), 'utf8').replace(/\r\n/g, '\n').trimEnd(),
     ''
   ]);
   return [...HEADER, ...sections, 'commit;', ''].join('\n');

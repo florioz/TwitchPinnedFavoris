@@ -27,7 +27,7 @@ export const createSharedSpacesRemote = ({ extensionApi, config, isConfigured, f
   const saveSession = async (session) => storage.set({ [SESSION_KEY]: session });
   const clearSession = async () => storage.remove(SESSION_KEY);
 
-  const refreshSession = async (session) => {
+  const performSessionRefresh = async (session) => {
     if (!session?.refreshToken) return null;
     const response = await fetchImpl(`${config.supabaseUrl}/auth/v1/token?grant_type=refresh_token`, {
       method: 'POST',
@@ -44,6 +44,18 @@ export const createSharedSpacesRemote = ({ extensionApi, config, isConfigured, f
     if (!refreshed.accessToken) return null;
     await saveSession(refreshed);
     return refreshed;
+  };
+
+  // Chat metadata, messages and realtime can request the same renewal together.
+  let pendingRefresh = null;
+  const refreshSession = (session) => {
+    if (pendingRefresh && pendingRefresh.token === session?.refreshToken) return pendingRefresh.promise;
+    const request = { token: session?.refreshToken, promise: null };
+    request.promise = performSessionRefresh(session).finally(() => {
+      if (pendingRefresh === request) pendingRefresh = null;
+    });
+    pendingRefresh = request;
+    return request.promise;
   };
 
   const getValidSession = async () => {
@@ -175,6 +187,7 @@ export const createSharedSpacesRemote = ({ extensionApi, config, isConfigured, f
     setCommunityBadgeEnabled: (enabled) => rpc('tfr_set_community_badge_enabled', {
       should_enable: Boolean(enabled)
     }),
+    getRealtimeSession: getValidSession,
     lookupCommunityBadgeLogins: (logins) => publicClient.rpc('tfr_lookup_community_badges', {
       requested_logins: Array.isArray(logins) ? logins : []
     })

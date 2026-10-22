@@ -7,7 +7,7 @@ const { sanitizeCategoryList } = require('../src/contentScripts/features/favorit
 
 test('group filter mutation saves one rule without overwriting member filters', async () => {
   const source = fs.readFileSync(path.join(__dirname, '../src/contentScripts/features/favoritesStore.js'), 'utf8');
-  const method = source.slice(source.indexOf('    async setGroupCategoryFilter('), source.indexOf('    async toggleCategoryAssignment('));
+  const method = source.slice(source.indexOf('    async setGroupCategoryFilter('), source.indexOf('    async createCategory('));
   const Store = vm.runInNewContext(`(class { ${method} })`, { sanitizeCategoryList });
   const store = new Store();
   const draft = { categories: [{ id: 'rp' }], favorites: {
