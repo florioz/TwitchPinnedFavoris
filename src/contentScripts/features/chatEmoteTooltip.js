@@ -36,8 +36,12 @@
     marker.setAttribute('aria-hidden', 'true');
     const provider = documentRef.createElement('span');
     source.append(marker, provider);
-    root.append(name, source);
-    return { root, name, provider };
+    const preview = documentRef.createElement('img');
+    preview.className = 'tfr-chat-emote-tooltip__preview';
+    preview.alt = '';
+    preview.hidden = true;
+    root.append(preview, name, source);
+    return { root, name, provider, preview };
   };
 
   const create = (documentRef = document, windowRef = window, delayMs = DEFAULT_DELAY_MS) => {
@@ -75,6 +79,10 @@
       const provider = String(target.dataset.tfrEmoteProvider || '').trim();
       if (!name || !provider) return;
       const tooltip = ensureTooltip();
+      const image = target.tagName?.toLowerCase() === 'img' ? target : target.querySelector?.('img');
+      const imageUrl = image?.currentSrc || image?.src || '';
+      tooltip.preview.hidden = !imageUrl;
+      if (imageUrl) tooltip.preview.src = imageUrl;
       tooltip.name.textContent = name;
       tooltip.provider.textContent = provider;
       tooltip.root.dataset.provider = provider;

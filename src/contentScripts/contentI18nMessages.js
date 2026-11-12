@@ -1,6 +1,7 @@
 (() => {
   const I18N_MESSAGES = {
     fr: {
+      'sidebar.search.clear': 'Effacer la recherche',
       'sidebar.search.placeholder': 'Rechercher un streamer',
       'sidebar.search.empty': 'Aucun streamer correspondant.',
       'settings.sidebarSearch.toggle': 'Recherche dans la sidebar',
@@ -706,6 +707,7 @@
       'recent.badgeShort': 'Live'
     },
     en: {
+      'sidebar.search.clear': 'Clear search',
       'sidebar.search.placeholder': 'Search streamers',
       'sidebar.search.empty': 'No matching streamers.',
       'settings.sidebarSearch.toggle': 'Sidebar search',

@@ -58,6 +58,8 @@ test('emote tooltip renders a styled name and provider without a native title', 
   const attributes = new Map();
   const emote = {
     isConnected: true,
+    tagName: 'IMG',
+    src: 'https://cdn.7tv.app/emote/example/2x.webp',
     dataset: { tfrEmoteName: 'OMEGALUL', tfrEmoteProvider: '7TV' },
     setAttribute: (name, value) => attributes.set(name, value),
     removeAttribute: (name) => attributes.delete(name),
@@ -72,6 +74,9 @@ test('emote tooltip renders a styled name and provider without a native title', 
   assert.equal(providerNode.textContent, '7TV');
   assert.equal(tooltip.dataset.provider, '7TV');
   assert.equal(tooltip.hidden, false);
+  const preview = created.find(node => node.className === 'tfr-chat-emote-tooltip__preview');
+  assert.equal(preview.src, emote.src);
+  assert.equal(preview.hidden, false);
   assert.equal(attributes.get('aria-describedby'), 'tfr-chat-emote-tooltip');
   assert.equal(tooltip.style.left, '49px');
   assert.equal(tooltip.style.top, '62px');

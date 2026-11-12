@@ -44,3 +44,13 @@ test('startup discards yesterday and undated statuses but keeps recently confirm
   assert.equal(result.recent.isLive, true);
   assert.equal(Object.keys(cache.freshEntries(result, now + 121000)).length, 0);
 });
+
+test('live cache tolerates a delayed refresh without reviving startup cache or hiding confirmed offline state', () => {
+  const now = 500000;
+  const live = { login: 'alice', isLive: true, lastConfirmedAt: now - 125000 };
+  assert.equal(cache.reconcile({ alice: live }, {}, now).alice, live);
+  assert.equal(cache.freshEntries({ alice: live }, now).alice, undefined);
+  const offline = { login: 'alice', isLive: false, lastConfirmedAt: now };
+  assert.equal(cache.reconcile({ alice: live }, { alice: offline }, now).alice, offline);
+  assert.equal(cache.reconcile({ alice: live }, {}, now + 60000).alice, undefined);
+});

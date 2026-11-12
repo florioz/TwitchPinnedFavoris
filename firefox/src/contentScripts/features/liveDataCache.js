@@ -10,13 +10,17 @@
     return merged;
   };
 
-  const freshEntries = (cache = {}, now = Date.now()) => Object.fromEntries(
+  const freshEntries = (cache = {}, now = Date.now(), maxAge = 120_000) => Object.fromEntries(
     Object.entries(cache).filter(([, entry]) => {
       const confirmedAt = Number(entry?.lastConfirmedAt);
       return Number.isFinite(confirmedAt) && confirmedAt > 0
-        && now >= confirmedAt && now - confirmedAt <= 120_000;
+        && now >= confirmedAt && now - confirmedAt <= maxAge;
     })
   );
 
-  window.TFRLiveDataCache = Object.freeze({ mergeWorkspace, freshEntries });
+  const reconcile = (current, incoming, now = Date.now()) => ({
+    ...freshEntries(current, now, 180_000),
+    ...freshEntries(incoming, now)
+  });
+  window.TFRLiveDataCache = Object.freeze({ mergeWorkspace, freshEntries, reconcile });
 })();

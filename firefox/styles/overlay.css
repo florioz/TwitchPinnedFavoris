@@ -4973,3 +4973,6 @@
     grid-template-columns: 1fr;
   }
 }
+
+.tfr-chat-emote-tooltip__preview { display: block; width: 96px; height: 96px; object-fit: contain; margin: 0 auto 6px; }
+.tfr-chat-emote-tooltip__preview[hidden] { display: none; }

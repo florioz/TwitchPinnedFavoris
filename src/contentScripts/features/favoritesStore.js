@@ -108,7 +108,7 @@
           this.emitter.emit({ kind: CHANGE_KIND.STATE, state: this.getSnapshot() });
         }
         if (LIVE_CACHE_KEY && nextLive && typeof nextLive === 'object') {
-          this.liveData = this.liveDataCache.freshEntries(nextLive);
+          this.liveData = this.liveDataCache.reconcile(this.liveData, nextLive);
           this.lastLiveStorageAt = Date.now();
           this.emitter.emit({ kind: CHANGE_KIND.LIVE, liveData: this.getLiveData() });
         }
@@ -1979,7 +1979,7 @@
           this.lastLiveStorageAt = Number(snapshot.timestamp) || Date.now();
         }
         const snapshotLiveData = snapshot?.liveData && typeof snapshot.liveData === 'object'
-          ? this.liveDataCache.freshEntries(snapshot.liveData) : null;
+          ? this.liveDataCache.reconcile(this.liveData, snapshot.liveData) : null;
         const updates = snapshotLiveData
           ? favorites.map((login) => snapshotLiveData[login] || snapshotLiveData[login.toLowerCase()])
           : await Promise.all(favorites.map((login) => {

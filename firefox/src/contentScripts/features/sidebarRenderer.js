@@ -672,6 +672,18 @@
       input.placeholder = t('sidebar.search.placeholder');
       input.setAttribute('aria-label', input.placeholder);
       input.maxLength = 80;
+      const field = document.createElement('div');
+      field.className = 'tfr-sidebar-search-field';
+      const clear = document.createElement('button');
+      clear.type = 'button'; clear.className = 'tfr-sidebar-search-clear';
+      clear.textContent = '\u00d7';
+      clear.disabled = !this.searchQuery;
+      clear.setAttribute('aria-label', t('sidebar.search.clear'));
+      clear.addEventListener('click', () => {
+        this.searchQuery = '';
+        this.cancelPendingRender(); this.render();
+        this.container?.querySelector('.tfr-sidebar-search')?.focus({ preventScroll: true });
+      });
       input.value = this.searchQuery || '';
       input.addEventListener('input', () => {
         this.searchQuery = input.value;
@@ -682,7 +694,8 @@
         event.stopPropagation();
         if (event.key === 'Escape') { input.value = ''; input.dispatchEvent(new Event('input')); }
       });
-      this.container.appendChild(input);
+      field.append(input, clear);
+      this.container.appendChild(field);
     }
 
     applyPreviewMetadata(entry, favorite, live = {}) {
